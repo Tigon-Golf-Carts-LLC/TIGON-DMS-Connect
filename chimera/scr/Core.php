@@ -1,0 +1,328 @@
+<?php
+
+namespace Tigon\Chimera;
+
+class Core
+{
+
+    private function __contruct()
+    {
+    }
+
+    public static function init()
+    {
+        // Enqueue scripts
+        add_action('load-toplevel_page_chimera', 'Tigon\Chimera\Core::diagnostic_script_enqueue');
+        add_action('load-chimera_page_import', 'Tigon\Chimera\Core::import_script_enqueue');
+        add_action('load-chimera_page_settings', 'Tigon\Chimera\Core::settings_script_enqueue');
+
+        // Register Ajax functions
+        add_action('wp_ajax_chimera_dms_query', 'Tigon\Chimera\Admin\Ajax_Import_Controller::query_dms');
+        add_action('wp_ajax_chimera_get_new_carts', 'Tigon\Chimera\Admin\New\New_Cart_Converter::generate_new_carts');
+        add_action('wp_ajax_chimera_ajax_import_convert', 'Tigon\Chimera\Admin\Ajax_Import_Controller::ajax_import_convert');
+        add_action('wp_ajax_chimera_ajax_new_import_convert', 'Tigon\Chimera\Admin\Ajax_Import_Controller::ajax_new_import_convert');
+        add_action('wp_ajax_chimera_ajax_import_create', 'Tigon\Chimera\Admin\Ajax_Import_Controller::ajax_import_create');
+        add_action('wp_ajax_chimera_ajax_import_update', 'Tigon\Chimera\Admin\Ajax_Import_Controller::ajax_import_update');
+        add_action('wp_ajax_chimera_ajax_import_delete', 'Tigon\Chimera\Admin\Ajax_Import_Controller::ajax_import_delete');
+        add_action('wp_ajax_chimera_ajax_import_new', 'Tigon\Chimera\Admin\Ajax_Import_Controller::ajax_import_new');
+        add_action('wp_ajax_chimera_save_settings', 'Tigon\Chimera\Admin\Ajax_Settings_Controller::save_settings');
+        add_action('wp_ajax_chimera_get_dms_props', 'Tigon\Chimera\Admin\Ajax_Settings_Controller::get_dms_props');
+        add_action('wp_ajax_chimera_post_import', 'Tigon\Chimera\Admin\Ajax_Import_Controller::process_post_import');
+
+        // Add Chimera page
+        add_action('admin_menu', 'Tigon\Chimera\Admin\Admin_Page::add_menu_page');
+
+        // Allow for automatic taxonomy updates
+        add_action('woocommerce_rest_insert_product_object', 'Tigon\Chimera\Core::update_taxonomy', 10, 3);
+
+        // Register REST routes
+        add_action('rest_api_init', 'Tigon\Chimera\Core::register_rest_routes');
+
+        // Apply custom product sorting
+        //add_filter('woocommerce_get_catalog_ordering_args', 'Tigon\Chimera\Core::custom_product_sort', 9999);
+
+        // Plugin Lifecycle Hooks
+        register_activation_hook(WP_PLUGIN_DIR.'/chimera/chimera.php', 'Tigon\Chimera\Core::install');
+        //register_deactivation_hook(__FILE__, 'deactivate');
+        //register_uninstall_hook(__FILE__, 'uninstall');
+
+        // Auto update through github
+        if (is_admin()) { // note the use of is_admin() to double check that this is happening in the admin
+            global $wpdb;
+            require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+            $config = array(
+                'slug' => plugin_basename(__FILE__), // this is the slug of your plugin
+                'proper_folder_name' => 'chimera', // this is the name of the folder your plugin lives in
+                'api_url' => 'https://api.github.com/repos/TigonGolfCarts/wordpress_connection', // the GitHub API url of your GitHub repo
+                'raw_url' => 'https://raw.github.com/TigonGolfCarts/wordpress_connection/main', // the GitHub raw url of your GitHub repo
+                'github_url' => 'https://github.com/TigonGolfCarts/wordpress_connection', // the GitHub url of your GitHub repo
+                'zip_url' => 'https://github.com/TigonGolfCarts/wordpress_connection/zipball/main', // the zip url of the GitHub repo
+                'sslverify' => true, // whether WP should check the validity of the SSL cert when getting an update, see https://github.com/jkudish/WordPress-GitHub-Plugin-Updater/issues/2 and https://github.com/jkudish/WordPress-GitHub-Plugin-Updater/issues/4 for details
+                'requires' => '3.0', // which version of WordPress does your plugin require?
+                'tested' => '3.3', // which version of WordPress is your plugin tested up to?
+                'readme' => 'README.md', // which file to use as the readme for the version number
+                'access_token' => $wpdb->get_var('SELECT option_value FROM '.$wpdb->prefix.'chimera_config WHERE option_name = "github_token"'), // Access private repositories by authorizing under Plugins > GitHub Updates when this example plugin is installed
+            );
+            new \Tigon\Chimera\Includes\WP_GitHub_Updater($config);
+        }
+
+        // Add archive extension hooks
+        add_action('pre_get_posts', 'Tigon\Chimera\Includes\Product_Archive_Extension::custom_order_products', 999999);
+        add_action( 'wp', 'Tigon\Chimera\Core::remove_image_zoom_support', 999999);
+        add_filter( 'pre_get_posts', 'Tigon\Chimera\Includes\Product_Archive_Extension::modify_sort_by_price',999999);
+        add_filter( 'woocommerce_catalog_orderby', 'Tigon\Chimera\Core::remove_popularity_sorting_option' );
+    }
+
+    /**
+     * Enqueue jQuery and AJAX scripts
+     * @return void
+     */
+    public static function diagnostic_script_enqueue()
+    {
+        wp_register_script('@chimera/globals', WP_PLUGIN_URL . '/chimera/assets/js/globals.js');
+        wp_register_script_module('@chimera/diagnostics', WP_PLUGIN_URL . '/chimera/assets/js/diagnostic.js', array('jquery'));
+
+        wp_localize_script('@chimera/globals', 'globals', [
+            'ajaxurl' => admin_url('admin-ajax.php'),
+            'siteurl' => get_site_url()
+        ]);
+
+        wp_enqueue_script('@chimera/globals');
+        wp_enqueue_script('jquery');
+        wp_enqueue_script_module('@chimera/diagnostics');
+    }
+
+    /**
+     *  Remove zoom functionality from images
+     */
+    public static function remove_image_zoom_support() {
+        remove_theme_support( 'wc-product-gallery-zoom' );
+    }
+
+    /**
+     *  Remove sorting options that are not required
+     */
+    public static function remove_popularity_sorting_option( $orderby ) {
+        unset( $orderby['popularity'] );
+        unset( $orderby['rating'] );
+        unset( $orderby['date'] );
+        return $orderby;
+    }
+    
+    public static function import_script_enqueue()
+    {
+        wp_register_script('@chimera/globals', WP_PLUGIN_URL . '/chimera/assets/js/globals.js');
+        wp_register_script_module('@chimera/base64-js', WP_PLUGIN_URL . '/chimera/assets/js/node_modules/base64-js/index.js');
+        wp_register_script_module('@chimera/ieee754', WP_PLUGIN_URL . '/chimera/assets/js/node_modules/ieee754/index.js');
+        wp_register_script_module('@chimera/buffer', WP_PLUGIN_URL . '/chimera/assets/js/node_modules/buffer/index.js' , ['@chimera/base64-js', '@chimera/ieee754']);
+        wp_register_script_module('@chimera/php_serialize', WP_PLUGIN_URL . '/chimera/assets/js/node_modules/php-serialize/index.js');
+        wp_register_script_module('@chimera/import', WP_PLUGIN_URL . '/chimera/assets/js/import.js', ['jquery', '@chimera/php_serialize']);
+
+        wp_localize_script('@chimera/globals', 'globals', [
+            'ajaxurl' => admin_url('admin-ajax.php'),
+            'siteurl' => get_site_url()
+        ]);
+
+        wp_enqueue_script('@chimera/globals');
+        wp_enqueue_script_module('@chimera/php_serialize');
+        wp_enqueue_script('jquery');
+        wp_enqueue_script_module('@chimera/import');
+    }
+
+    public static function settings_script_enqueue()
+    {
+        wp_register_script('@chimera/globals', WP_PLUGIN_URL . '/chimera/assets/js/globals.js');
+        wp_register_script_module('@chimera/settings', WP_PLUGIN_URL . '/chimera/assets/js/settings.js', array('jquery'));
+
+        wp_localize_script('@chimera/globals', 'globals', [
+            'ajaxurl' => admin_url('admin-ajax.php'),
+            'siteurl' => get_site_url()
+        ]);
+
+        wp_enqueue_script('@chimera/globals');
+        wp_enqueue_script('jquery');
+        wp_enqueue_script_module('@chimera/settings');
+    }
+
+    /**
+     * Add taxonomy data to product during creation/update
+     * @param mixed $object
+     * @param mixed $request
+     * @param bool $creating
+     * @return void
+     */
+    public static function update_taxonomy($object, $request, $creating)
+    {
+        // Require Term ID
+        $numeric_taxonomies = [
+            "location",
+            "manufacturers",
+            "models",
+            "sound-systems",
+            "added-features",
+            "tires",
+            "vehicle-class",
+            "drivetrain",
+            "inventory-status"
+        ];
+
+        // Require Term Name
+        $string_taxonomies = [
+            "rims"
+        ];
+
+        $product_id = is_callable(array($object, 'get_id')) ? $object->get_id() : (!empty($$object->ID) ? $object->ID : null);
+        $params = $request->get_params();
+        foreach ($numeric_taxonomies as $taxonomy) {
+            $terms = isset($params[$taxonomy]) ? $params[$taxonomy] : array();
+
+            if (!empty($terms)) {
+                $terms = array_map(function ($value) {
+                    return $value['id'];
+                }, $terms);
+                wp_set_object_terms($product_id, $terms, $taxonomy);
+            }
+        }
+        foreach ($string_taxonomies as $taxonomy) {
+            $terms = isset($params[$taxonomy]) ? $params[$taxonomy] : array();
+
+            if (!empty($terms)) {
+                $terms = array_map(function ($value) {
+                    return $value['name'];
+                }, $terms);
+                wp_set_object_terms($product_id, $terms, $taxonomy);
+            }
+        }
+        // ACF needs its own update
+        $meta_terms = $params['meta_data']??[];
+        $monroney = null;
+        foreach ($meta_terms as $meta_term) {
+            if ($meta_term['key'] == 'monroney_sticker')
+                $monroney = $meta_term['value'];
+        }
+
+        if ($monroney)
+            update_field('group_66e33328cce04', $monroney, $product_id);
+    }
+ 
+    /**
+     * Applies a secondary sort by sales and model to product archives
+     *
+     * @param array $args
+     * @return array
+     */
+    public static function custom_product_sort( $args ) {
+        $args['orderby'] = 'meta_value';
+        $args['meta_key'] = 'model';
+        return $args;
+    }
+
+    /**
+     * Register REST API for DMS
+     * @return void
+     */
+    public static function register_rest_routes()
+    {
+        register_rest_route('chimera', 'used', [
+            'methods' => \WP_REST_Server::CREATABLE,
+            'callback' => 'Tigon\Chimera\Admin\REST_Routes::push_used_cart'
+        ]);
+        register_rest_route('chimera', 'used', [
+            'methods' => \WP_REST_Server::DELETABLE,
+            'callback' => 'Tigon\Chimera\Admin\REST_Routes::delete_used_cart'
+        ]);
+
+        register_rest_route('chimera', 'new/update', [
+            'methods' => \WP_REST_Server::CREATABLE,
+            'callback' => 'Tigon\Chimera\Admin\REST_Routes::push_new_cart'
+        ]);
+        register_rest_route('chimera', 'new/pid', [
+            'methods' => \WP_REST_Server::CREATABLE,
+            'callback' => 'Tigon\Chimera\Admin\REST_Routes::id_by_slug'
+        ]);
+        register_rest_route('chimera', 'showcase', [
+            'methods' => \WP_REST_Server::CREATABLE,
+            'callback' => 'Tigon\Chimera\Admin\REST_Routes::set_grid'
+        ]);
+    }
+
+    // Activation Hook
+    public static function install()
+    {
+        global $wpdb;
+        $charset_collate = $wpdb->get_charset_collate();
+        $table_name = $wpdb->prefix . "chimera_config";
+
+        $sql = "CREATE TABLE $table_name (
+    option_id INT(6) UNSIGNED AUTO_INCREMENT,
+    option_name tinytext NOT NULL,
+    option_value text NOT NULL,
+    PRIMARY KEY  (option_id)
+    ) $charset_collate;";
+
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        dbDelta($sql);
+
+        // Create cart lists table
+        $cart_list_table = $wpdb->prefix . "chimera_cart_lists";
+        $sql = "CREATE TABLE $cart_list_table (
+    location_name varchar(32) NOT NULL,
+    list_name varchar(32) NOT NULL,
+    list text,
+    PRIMARY KEY  (location_name, list_name)
+    ) $charset_collate;";
+
+        dbDelta($sql);
+
+        $github_token = $wpdb->get_var("SELECT option_name FROM $table_name WHERE option_name = 'github_token'");
+        if($github_token === null) $wpdb->insert(
+            $table_name,
+            array(
+                'option_name' => 'github_token',
+                'option_value' => '',
+            )
+        );
+        $dms_url = $wpdb->get_var("SELECT option_name FROM $table_name WHERE option_name = 'dms_url'");
+        if($dms_url === null) $wpdb->insert(
+            $table_name,
+            array(
+                'option_name' => 'dms_url',
+                'option_value' => '',
+            )
+        );
+        $user_token = $wpdb->get_var("SELECT option_name FROM $table_name WHERE option_name = 'user_token'");
+        if($user_token === null) $wpdb->insert(
+            $table_name,
+            array(
+                'option_name' => 'user_token',
+                'option_value' => '',
+            )
+        );
+        $auth_token = $wpdb->get_var("SELECT option_name FROM $table_name WHERE option_name = 'auth_token'");
+        if($auth_token === null) $wpdb->insert(
+            $table_name,
+            array(
+                'option_name' => 'auth_token',
+                'option_value' => '',
+            )
+        );
+        $file_source = $wpdb->get_var("SELECT option_name FROM $table_name WHERE option_name = 'file_source'");
+        if($file_source === null) $wpdb->insert(
+            $table_name,
+            array(
+                'option_name' => 'file_source',
+                'option_value' => '',
+            )
+        );
+    }
+
+    // Deactivation Hook
+    public static function deactivate()
+    {
+    }
+
+    // Uninstall Hook
+    public static function uninstall()
+    {
+    }
+}
