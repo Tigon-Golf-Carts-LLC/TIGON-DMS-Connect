@@ -29,7 +29,7 @@ class DMS_Inventory_Widget extends \Elementor\Widget_Base
      */
     public function get_title()
     {
-        return __('DMS Inventory (Filtered)', 'dms-bridge');
+        return __('DMS Inventory (Filtered)', 'tigon-dms-connect');
     }
 
     /**
@@ -66,7 +66,7 @@ class DMS_Inventory_Widget extends \Elementor\Widget_Base
         $this->start_controls_section(
             'content_section',
             [
-                'label' => __('Inventory Settings', 'dms-bridge'),
+                'label' => __('Inventory Settings', 'tigon-dms-connect'),
                 'tab' => \Elementor\Controls_Manager::TAB_CONTENT,
             ]
         );
@@ -74,10 +74,10 @@ class DMS_Inventory_Widget extends \Elementor\Widget_Base
         $this->add_control(
             'show_filters',
             [
-                'label' => __('Show Filters Sidebar', 'dms-bridge'),
+                'label' => __('Show Filters Sidebar', 'tigon-dms-connect'),
                 'type' => \Elementor\Controls_Manager::SWITCHER,
-                'label_on' => __('Yes', 'dms-bridge'),
-                'label_off' => __('No', 'dms-bridge'),
+                'label_on' => __('Yes', 'tigon-dms-connect'),
+                'label_off' => __('No', 'tigon-dms-connect'),
                 'return_value' => 'yes',
                 'default' => 'yes',
             ]
@@ -86,10 +86,10 @@ class DMS_Inventory_Widget extends \Elementor\Widget_Base
         $this->add_control(
             'show_pagination',
             [
-                'label' => __('Show Pagination', 'dms-bridge'),
+                'label' => __('Show Pagination', 'tigon-dms-connect'),
                 'type' => \Elementor\Controls_Manager::SWITCHER,
-                'label_on' => __('Yes', 'dms-bridge'),
-                'label_off' => __('No', 'dms-bridge'),
+                'label_on' => __('Yes', 'tigon-dms-connect'),
+                'label_off' => __('No', 'tigon-dms-connect'),
                 'return_value' => 'yes',
                 'default' => 'yes',
             ]
@@ -98,7 +98,7 @@ class DMS_Inventory_Widget extends \Elementor\Widget_Base
         $this->add_control(
             'per_page',
             [
-                'label' => __('Carts Per Page', 'dms-bridge'),
+                'label' => __('Carts Per Page', 'tigon-dms-connect'),
                 'type' => \Elementor\Controls_Manager::NUMBER,
                 'min' => 4,
                 'max' => 40,
@@ -321,8 +321,8 @@ class DMS_Inventory_Widget extends \Elementor\Widget_Base
      */
     public static function enqueue_inventory_assets()
     {
-        $plugin_url = defined('DMS_BRIDGE_PLUGIN_URL') ? DMS_BRIDGE_PLUGIN_URL : plugin_dir_url(dirname(__FILE__));
-        $plugin_dir = defined('DMS_BRIDGE_PLUGIN_DIR') ? DMS_BRIDGE_PLUGIN_DIR : plugin_dir_path(dirname(__FILE__));
+        $plugin_url = defined('TIGON_DMS_PLUGIN_URL') ? TIGON_DMS_PLUGIN_URL : plugin_dir_url(dirname(__FILE__));
+        $plugin_dir = defined('TIGON_DMS_PLUGIN_DIR') ? TIGON_DMS_PLUGIN_DIR : plugin_dir_path(dirname(__FILE__));
 
         // Enqueue Font Awesome
         wp_enqueue_style(
@@ -338,7 +338,7 @@ class DMS_Inventory_Widget extends \Elementor\Widget_Base
             'dms-inventory-filtered-css',
             $plugin_url . 'assets/css/dms-inventory-filtered.css',
             array('dms-font-awesome'),
-            file_exists($css_file) ? filemtime($css_file) : DMS_BRIDGE_VERSION
+            file_exists($css_file) ? filemtime($css_file) : TIGON_DMS_VERSION
         );
 
         // Enqueue API service JavaScript (dependency for inventory JS)
@@ -347,7 +347,7 @@ class DMS_Inventory_Widget extends \Elementor\Widget_Base
             'dms-api-service-js',
             $plugin_url . 'assets/js/dms-api-service.js',
             array('jquery'),
-            file_exists($api_service_file) ? filemtime($api_service_file) : DMS_BRIDGE_VERSION,
+            file_exists($api_service_file) ? filemtime($api_service_file) : TIGON_DMS_VERSION,
             true
         );
 
@@ -357,7 +357,7 @@ class DMS_Inventory_Widget extends \Elementor\Widget_Base
             'dms-inventory-filtered-js',
             $plugin_url . 'assets/js/dms-inventory-filtered.js',
             array('jquery', 'dms-api-service-js'),
-            file_exists($js_file) ? filemtime($js_file) : DMS_BRIDGE_VERSION,
+            file_exists($js_file) ? filemtime($js_file) : TIGON_DMS_VERSION,
             true
         );
 

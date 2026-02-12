@@ -25,7 +25,7 @@ class DMS_Bridge_Elementor_Widget extends \Elementor\Widget_Base {
      * Get widget title
      */
     public function get_title() {
-        return __('DMS Golf Carts', 'dms-bridge');
+        return __('DMS Golf Carts', 'tigon-dms-connect');
     }
 
     /**
@@ -51,7 +51,7 @@ class DMS_Bridge_Elementor_Widget extends \Elementor\Widget_Base {
         $this->start_controls_section(
             'content_section',
             [
-                'label' => __('Cart Settings', 'dms-bridge'),
+                'label' => __('Cart Settings', 'tigon-dms-connect'),
                 'tab' => \Elementor\Controls_Manager::TAB_CONTENT,
             ]
         );
@@ -59,14 +59,14 @@ class DMS_Bridge_Elementor_Widget extends \Elementor\Widget_Base {
         $this->add_control(
             'cart_type',
             [
-                'label' => __('Cart Type', 'dms-bridge'),
+                'label' => __('Cart Type', 'tigon-dms-connect'),
                 'type' => \Elementor\Controls_Manager::SELECT,
                 'default' => 'all',
                 'options' => [
-                    'all' => __('All Carts', 'dms-bridge'),
-                    'new' => __('New Carts Only', 'dms-bridge'),
-                    'used' => __('Used Carts Only', 'dms-bridge'),
-                    'popular' => __('Popular Carts Only', 'dms-bridge'),
+                    'all' => __('All Carts', 'tigon-dms-connect'),
+                    'new' => __('New Carts Only', 'tigon-dms-connect'),
+                    'used' => __('Used Carts Only', 'tigon-dms-connect'),
+                    'popular' => __('Popular Carts Only', 'tigon-dms-connect'),
                 ],
             ]
         );

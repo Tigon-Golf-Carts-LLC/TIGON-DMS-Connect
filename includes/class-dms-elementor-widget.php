@@ -22,7 +22,7 @@ class DMS_Elementor_Widget extends \Elementor\Widget_Base {
      * Get widget title
      */
     public function get_title() {
-        return __('DMS Carts', 'dms-bridge');
+        return __('DMS Carts', 'tigon-dms-connect');
     }
 
     /**
@@ -48,7 +48,7 @@ class DMS_Elementor_Widget extends \Elementor\Widget_Base {
         $this->start_controls_section(
             'content_section',
             [
-                'label' => __('Cart Settings', 'dms-bridge'),
+                'label' => __('Cart Settings', 'tigon-dms-connect'),
                 'tab' => \Elementor\Controls_Manager::TAB_CONTENT,
             ]
         );
@@ -56,15 +56,15 @@ class DMS_Elementor_Widget extends \Elementor\Widget_Base {
         $this->add_control(
             'cart_type',
             [
-                'label' => __('Cart Type', 'dms-bridge'),
+                'label' => __('Cart Type', 'tigon-dms-connect'),
                 'type' => \Elementor\Controls_Manager::SELECT,
                 'default' => 'all',
                 'options' => [
-                    'all' => __('All Carts (New + Used + Popular)', 'dms-bridge'),
-                    'new' => __('New Carts Only', 'dms-bridge'),
-                    'used' => __('Used Carts Only', 'dms-bridge'),
+                    'all' => __('All Carts (New + Used + Popular)', 'tigon-dms-connect'),
+                    'new' => __('New Carts Only', 'tigon-dms-connect'),
+                    'used' => __('Used Carts Only', 'tigon-dms-connect'),
                 ],
-                'description' => __('Popular carts only show on homepage.', 'dms-bridge'),
+                'description' => __('Popular carts only show on homepage.', 'tigon-dms-connect'),
             ]
         );
 
@@ -84,8 +84,8 @@ class DMS_Elementor_Widget extends \Elementor\Widget_Base {
         );
         
         // Ensure CSS is loaded (important for Elementor editor preview)
-        $plugin_url = defined('DMS_BRIDGE_PLUGIN_URL') ? DMS_BRIDGE_PLUGIN_URL : plugin_dir_url(dirname(__FILE__));
-        $plugin_dir = defined('DMS_BRIDGE_PLUGIN_DIR') ? DMS_BRIDGE_PLUGIN_DIR : plugin_dir_path(dirname(__FILE__));
+        $plugin_url = defined('TIGON_DMS_PLUGIN_URL') ? TIGON_DMS_PLUGIN_URL : plugin_dir_url(dirname(__FILE__));
+        $plugin_dir = defined('TIGON_DMS_PLUGIN_DIR') ? TIGON_DMS_PLUGIN_DIR : plugin_dir_path(dirname(__FILE__));
         $css_file_path = $plugin_dir . 'assets/css/dms-bridge.css';
         $version = file_exists($css_file_path) ? filemtime($css_file_path) : '1.0.1'; // Auto cache-busting
         
@@ -95,7 +95,7 @@ class DMS_Elementor_Widget extends \Elementor\Widget_Base {
         }
         
         wp_enqueue_style(
-            'dms-bridge-style',
+            'tigon-dms-connect-style',
             $plugin_url . 'assets/css/dms-bridge.css',
             $dependencies,
             $version

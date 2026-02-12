@@ -89,12 +89,12 @@ class DMS_Sync
                 $cart_id = $cart_data['_id'];
 
                 // Check if product already exists (for stats tracking)
-                $existing_product_id = dms_bridge_get_product_by_cart_id($cart_id);
+                $existing_product_id = tigon_dms_get_product_by_cart_id($cart_id);
                 $was_existing = (bool) $existing_product_id;
 
                 try {
                     // Use existing function to create/update product (idempotent)
-                    $product_id = dms_bridge_ensure_woo_product($cart_data, $cart_id);
+                    $product_id = tigon_dms_ensure_woo_product($cart_data, $cart_id);
                     
                     if ($product_id) {
                         // Handle images (featured + gallery)
