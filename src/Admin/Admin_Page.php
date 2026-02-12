@@ -18,7 +18,7 @@ class Admin_Page
      */
     public static function add_menu_page()
     {
-        $svg = file_get_contents(plugins_url("chimera/assets/images/tigondb.svg"));
+        $svg = file_get_contents(DMS_BRIDGE_PLUGIN_DIR . 'assets/images/tigondb.svg');
         $data_uri = 'data:image/svg+xml;base64,' . base64_encode($svg);
 
         $page_title = "Chimera";

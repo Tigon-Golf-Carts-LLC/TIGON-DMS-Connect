@@ -9,6 +9,24 @@ class Core
     {
     }
 
+    /**
+     * Get the base URL for Chimera assets (within the unified DMS Bridge plugin)
+     * @return string
+     */
+    public static function asset_url()
+    {
+        return DMS_BRIDGE_PLUGIN_URL . 'assets/js/chimera/';
+    }
+
+    /**
+     * Get the base CSS URL for Chimera assets
+     * @return string
+     */
+    public static function css_url()
+    {
+        return DMS_BRIDGE_PLUGIN_URL . 'assets/css/';
+    }
+
     public static function init()
     {
         // Enqueue scripts
@@ -38,39 +56,38 @@ class Core
         // Register REST routes
         add_action('rest_api_init', 'Tigon\Chimera\Core::register_rest_routes');
 
-        // Apply custom product sorting
-        //add_filter('woocommerce_get_catalog_ordering_args', 'Tigon\Chimera\Core::custom_product_sort', 9999);
-
-        // Plugin Lifecycle Hooks
-        register_activation_hook(WP_PLUGIN_DIR.'/chimera/chimera.php', 'Tigon\Chimera\Core::install');
-        //register_deactivation_hook(__FILE__, 'deactivate');
-        //register_uninstall_hook(__FILE__, 'uninstall');
+        // Plugin Lifecycle Hooks - use the main DMS Bridge plugin file
+        register_activation_hook(DMS_BRIDGE_PLUGIN_DIR . 'dms-bridge-plugin.php', 'Tigon\Chimera\Core::install');
 
         // Auto update through github
-        if (is_admin()) { // note the use of is_admin() to double check that this is happening in the admin
+        if (is_admin()) {
             global $wpdb;
             require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-            $config = array(
-                'slug' => plugin_basename(__FILE__), // this is the slug of your plugin
-                'proper_folder_name' => 'chimera', // this is the name of the folder your plugin lives in
-                'api_url' => 'https://api.github.com/repos/TigonGolfCarts/wordpress_connection', // the GitHub API url of your GitHub repo
-                'raw_url' => 'https://raw.github.com/TigonGolfCarts/wordpress_connection/main', // the GitHub raw url of your GitHub repo
-                'github_url' => 'https://github.com/TigonGolfCarts/wordpress_connection', // the GitHub url of your GitHub repo
-                'zip_url' => 'https://github.com/TigonGolfCarts/wordpress_connection/zipball/main', // the zip url of the GitHub repo
-                'sslverify' => true, // whether WP should check the validity of the SSL cert when getting an update, see https://github.com/jkudish/WordPress-GitHub-Plugin-Updater/issues/2 and https://github.com/jkudish/WordPress-GitHub-Plugin-Updater/issues/4 for details
-                'requires' => '3.0', // which version of WordPress does your plugin require?
-                'tested' => '3.3', // which version of WordPress is your plugin tested up to?
-                'readme' => 'README.md', // which file to use as the readme for the version number
-                'access_token' => $wpdb->get_var('SELECT option_value FROM '.$wpdb->prefix.'chimera_config WHERE option_name = "github_token"'), // Access private repositories by authorizing under Plugins > GitHub Updates when this example plugin is installed
-            );
-            new \Tigon\Chimera\Includes\WP_GitHub_Updater($config);
+            $table_name = $wpdb->prefix . 'chimera_config';
+            // Only load updater if config table exists
+            if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
+                $config = array(
+                    'slug' => 'dms-bridge-plugin/dms-bridge-plugin.php',
+                    'proper_folder_name' => basename(DMS_BRIDGE_PLUGIN_DIR),
+                    'api_url' => 'https://api.github.com/repos/TigonGolfCarts/wordpress_connection',
+                    'raw_url' => 'https://raw.github.com/TigonGolfCarts/wordpress_connection/main',
+                    'github_url' => 'https://github.com/TigonGolfCarts/wordpress_connection',
+                    'zip_url' => 'https://github.com/TigonGolfCarts/wordpress_connection/zipball/main',
+                    'sslverify' => true,
+                    'requires' => '3.0',
+                    'tested' => '3.3',
+                    'readme' => 'README.md',
+                    'access_token' => $wpdb->get_var('SELECT option_value FROM ' . $table_name . ' WHERE option_name = "github_token"'),
+                );
+                new \Tigon\Chimera\Includes\WP_GitHub_Updater($config);
+            }
         }
 
         // Add archive extension hooks
         add_action('pre_get_posts', 'Tigon\Chimera\Includes\Product_Archive_Extension::custom_order_products', 999999);
-        add_action( 'wp', 'Tigon\Chimera\Core::remove_image_zoom_support', 999999);
-        add_filter( 'pre_get_posts', 'Tigon\Chimera\Includes\Product_Archive_Extension::modify_sort_by_price',999999);
-        add_filter( 'woocommerce_catalog_orderby', 'Tigon\Chimera\Core::remove_popularity_sorting_option' );
+        add_action('wp', 'Tigon\Chimera\Core::remove_image_zoom_support', 999999);
+        add_filter('pre_get_posts', 'Tigon\Chimera\Includes\Product_Archive_Extension::modify_sort_by_price', 999999);
+        add_filter('woocommerce_catalog_orderby', 'Tigon\Chimera\Core::remove_popularity_sorting_option');
     }
 
     /**
@@ -79,8 +96,9 @@ class Core
      */
     public static function diagnostic_script_enqueue()
     {
-        wp_register_script('@chimera/globals', WP_PLUGIN_URL . '/chimera/assets/js/globals.js');
-        wp_register_script_module('@chimera/diagnostics', WP_PLUGIN_URL . '/chimera/assets/js/diagnostic.js', array('jquery'));
+        $js_url = self::asset_url();
+        wp_register_script('@chimera/globals', $js_url . 'globals.js');
+        wp_register_script_module('@chimera/diagnostics', $js_url . 'diagnostic.js', array('jquery'));
 
         wp_localize_script('@chimera/globals', 'globals', [
             'ajaxurl' => admin_url('admin-ajax.php'),
@@ -111,12 +129,13 @@ class Core
     
     public static function import_script_enqueue()
     {
-        wp_register_script('@chimera/globals', WP_PLUGIN_URL . '/chimera/assets/js/globals.js');
-        wp_register_script_module('@chimera/base64-js', WP_PLUGIN_URL . '/chimera/assets/js/node_modules/base64-js/index.js');
-        wp_register_script_module('@chimera/ieee754', WP_PLUGIN_URL . '/chimera/assets/js/node_modules/ieee754/index.js');
-        wp_register_script_module('@chimera/buffer', WP_PLUGIN_URL . '/chimera/assets/js/node_modules/buffer/index.js' , ['@chimera/base64-js', '@chimera/ieee754']);
-        wp_register_script_module('@chimera/php_serialize', WP_PLUGIN_URL . '/chimera/assets/js/node_modules/php-serialize/index.js');
-        wp_register_script_module('@chimera/import', WP_PLUGIN_URL . '/chimera/assets/js/import.js', ['jquery', '@chimera/php_serialize']);
+        $js_url = self::asset_url();
+        wp_register_script('@chimera/globals', $js_url . 'globals.js');
+        wp_register_script_module('@chimera/base64-js', $js_url . 'node_modules/base64-js/index.js');
+        wp_register_script_module('@chimera/ieee754', $js_url . 'node_modules/ieee754/index.js');
+        wp_register_script_module('@chimera/buffer', $js_url . 'node_modules/buffer/index.js', ['@chimera/base64-js', '@chimera/ieee754']);
+        wp_register_script_module('@chimera/php_serialize', $js_url . 'node_modules/php-serialize/index.js');
+        wp_register_script_module('@chimera/import', $js_url . 'import.js', ['jquery', '@chimera/php_serialize']);
 
         wp_localize_script('@chimera/globals', 'globals', [
             'ajaxurl' => admin_url('admin-ajax.php'),
@@ -131,8 +150,9 @@ class Core
 
     public static function settings_script_enqueue()
     {
-        wp_register_script('@chimera/globals', WP_PLUGIN_URL . '/chimera/assets/js/globals.js');
-        wp_register_script_module('@chimera/settings', WP_PLUGIN_URL . '/chimera/assets/js/settings.js', array('jquery'));
+        $js_url = self::asset_url();
+        wp_register_script('@chimera/globals', $js_url . 'globals.js');
+        wp_register_script_module('@chimera/settings', $js_url . 'settings.js', array('jquery'));
 
         wp_localize_script('@chimera/globals', 'globals', [
             'ajaxurl' => admin_url('admin-ajax.php'),

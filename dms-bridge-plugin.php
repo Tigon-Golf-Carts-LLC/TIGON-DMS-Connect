@@ -1,10 +1,12 @@
 <?php
 /**
  * Plugin Name: DMS Bridge Plugin
- * Description: Fetches featured carts from DMS and displays them.
- * Version: 1.0.0
- * Author: Tigon
+ * Description: Unified Tigon DMS Connection — fetches, imports, maps and displays golf carts from the DMS into WooCommerce. Combines DMS Bridge + Chimera functionality.
+ * Version: 2.0.0
+ * Author: Tigon Golf Carts
+ * Author URI: https://tigongolfcarts.com/
  * Text Domain: dms-bridge
+ * Requires Plugins: woocommerce
  */
 
 if (!defined('ABSPATH')) {
@@ -14,7 +16,7 @@ if (!defined('ABSPATH')) {
 /**
  * Plugin constants
  */
-define('DMS_BRIDGE_VERSION', '1.0.1');
+define('DMS_BRIDGE_VERSION', '2.0.0');
 define('DMS_BRIDGE_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('DMS_BRIDGE_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -27,11 +29,29 @@ if (!defined('DMS_BRIDGE_HIDE_DEFAULT_CONTENT')) {
 }
 
 /**
- * Load required files
+ * Load required files — DMS Bridge (original)
  */
 require_once DMS_BRIDGE_PLUGIN_DIR . 'includes/class-dms-api.php';
 require_once DMS_BRIDGE_PLUGIN_DIR . 'includes/class-dms-display.php';
 require_once DMS_BRIDGE_PLUGIN_DIR . 'includes/class-dms-sync.php';
+
+/**
+ * ============================================================================
+ * CHIMERA INTEGRATION — Full DMS import/mapping engine
+ * ============================================================================
+ *
+ * Chimera provides:
+ * - Admin UI (diagnostics, import wizard, settings)
+ * - REST API endpoints for DMS push (used/new carts, product grids)
+ * - Rich field mapping (50+ WooCommerce fields, 10+ taxonomies, 30+ attributes)
+ * - Direct database writes for high-performance imports
+ * - New cart template system (40+ pre-configured golf cart models)
+ * - Featured product grid management (Elementor)
+ * - Product archive extensions (custom ordering, price sort)
+ * - GitHub auto-updater
+ */
+require_once DMS_BRIDGE_PLUGIN_DIR . 'vendor/autoload.php';
+\Tigon\Chimera\Core::init();
 
 /**
  * ============================================================================
@@ -1178,11 +1198,13 @@ function dms_bridge_output_tab_styles() {
 }
 
 /**
- * Flush rewrite rules on activation
+ * Flush rewrite rules on activation + create Chimera tables
  */
 function dms_bridge_activation() {
     dms_bridge_add_cart_route();
     flush_rewrite_rules();
+    // Create Chimera database tables (config + cart lists)
+    \Tigon\Chimera\Core::install();
 }
 register_activation_hook(__FILE__, 'dms_bridge_activation');
 
