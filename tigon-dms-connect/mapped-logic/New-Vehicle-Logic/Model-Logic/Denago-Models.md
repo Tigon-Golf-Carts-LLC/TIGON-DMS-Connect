@@ -499,3 +499,593 @@ Black, Blue, Gray, Lava, White, Verdant
 ### Available Colors
 
 Black, Blue, Gray, Lava, White, Verdant
+
+---
+
+## Denago Rover XXL
+
+> **No converter defaults.** All values populated dynamically from the API payload.
+
+### posts (wp_posts)
+
+| Column | Value |
+|---|---|
+| `ID` | inherit |
+| `post_title` | `DENAGO(R) ROVER XXL {Color} In {City} {State}` |
+| `post_excerpt` | inherit |
+| `post_content` | inherit |
+| `post_status` | inherit |
+| `comment_status` | inherit |
+| `ping_status` | inherit |
+| `menu_order` | inherit |
+| `post_type` | inherit |
+| `comment_count` | inherit |
+| `post_author` | inherit |
+| `post_name` | inherit |
+
+### postmeta - WooCommerce
+
+| Meta Key | Value |
+|---|---|
+| `_sku` | inherit |
+| `_tax_status` | inherit |
+| `_tax_class` | inherit |
+| `_manage_stock` | inherit |
+| `_backorders` | inherit |
+| `_sold_individually` | inherit |
+| `_virtual` | inherit |
+| `_downloadable` | inherit |
+| `_download_limit` | inherit |
+| `_download_expiry` | inherit |
+| `_stock` | inherit |
+| `_stock_status` | inherit |
+| `_global_unique_id` | inherit |
+| `_product_attributes` | See Attributes below |
+| `_thumbnail_id` | inherit |
+| `_product_image_gallery` | inherit |
+| `_regular_price` | From API payload |
+| `_price` | inherit |
+
+### postmeta - Yoast SEO
+
+All values inherit.
+
+### postmeta - Product Tabs
+
+| Meta Key | Value |
+|---|---|
+| `_yikes_woo_products_tabs` | Tab 1: `DENAGO Warranty` (if applicable from API payload) |
+
+### postmeta - Custom Product Add-Ons
+
+| Meta Key | Value |
+|---|---|
+| `wcpa_exclude_global_forms` | inherit |
+| `_wcpa_product_meta` | `Denago(R) EV Rover XXL Add Ons` |
+
+### postmeta - Google for WooCommerce
+
+| Meta Key | Value |
+|---|---|
+| `_wc_gla_pattern` | `Rover XXL` |
+| All other keys | inherit |
+
+### postmeta - Facebook for WooCommerce
+
+| Meta Key | Value |
+|---|---|
+| `_wc_facebook_enhanced_catalog_attributes_pattern` | `Rover XXL` |
+| All other keys | inherit |
+
+### postmeta - Pinterest / Tigon Specific
+
+All values inherit.
+
+### Attributes (pa_*)
+
+| Attribute | Value |
+|---|---|
+| `pa_battery-type` | From API payload |
+| `pa_battery-warranty` | From API payload |
+| `pa_brush-guard` | inherit (`YES`) |
+| `pa_cargo-rack` | inherit (`NO`) |
+| `pa_drivetrain` | inherit (`2X4`) |
+| `pa_electric-bed-lift` | inherit (`NO`) |
+| `pa_extended-top` | From API payload |
+| `pa_fender-flares` | inherit (`YES`) |
+| `pa_led-accents` | inherit (`YES` + `LIGHT BAR`) |
+| `pa_lift-kit` | From API payload |
+| `pa_location` | inherit |
+| `pa_denago-cart-colors` | From API payload |
+| `pa_denago-seat-colors` | From API payload |
+| `pa_sound-system` | inherit (`DENAGO(R) SOUND SYSTEM`) |
+| `pa_passengers` | From API payload |
+| `pa_receiver-hitch` | From API payload |
+| `pa_return-policy` | inherit (`90 DAY` + `YES`) |
+| `pa_rim-size` | From API payload |
+| `pa_shipping` | inherit |
+| `pa_street-legal` | From API payload |
+| `pa_tire-profile` | From API payload |
+| `pa_vehicle-class` | inherit |
+| `pa_vehicle-warranty` | From API payload |
+| `pa_year-of-vehicle` | inherit |
+
+### DMS Defaults
+
+All values from API payload.
+
+### Available Colors
+
+From API payload
+
+---
+
+## Denago Rover XL6
+
+> **No converter defaults.** All values populated dynamically from the API payload.
+
+### posts (wp_posts)
+
+| Column | Value |
+|---|---|
+| `ID` | inherit |
+| `post_title` | `DENAGO(R) ROVER XL6 {Color} In {City} {State}` |
+| `post_excerpt` | inherit |
+| `post_content` | inherit |
+| `post_status` | inherit |
+| `comment_status` | inherit |
+| `ping_status` | inherit |
+| `menu_order` | inherit |
+| `post_type` | inherit |
+| `comment_count` | inherit |
+| `post_author` | inherit |
+| `post_name` | inherit |
+
+### postmeta - WooCommerce
+
+| Meta Key | Value |
+|---|---|
+| `_sku` | inherit |
+| `_tax_status` | inherit |
+| `_tax_class` | inherit |
+| `_manage_stock` | inherit |
+| `_backorders` | inherit |
+| `_sold_individually` | inherit |
+| `_virtual` | inherit |
+| `_downloadable` | inherit |
+| `_download_limit` | inherit |
+| `_download_expiry` | inherit |
+| `_stock` | inherit |
+| `_stock_status` | inherit |
+| `_global_unique_id` | inherit |
+| `_product_attributes` | See Attributes below |
+| `_thumbnail_id` | inherit |
+| `_product_image_gallery` | inherit |
+| `_regular_price` | From API payload |
+| `_price` | inherit |
+
+### postmeta - Yoast SEO
+
+All values inherit.
+
+### postmeta - Product Tabs
+
+| Meta Key | Value |
+|---|---|
+| `_yikes_woo_products_tabs` | Tab 1: `DENAGO Warranty` (if applicable from API payload) |
+
+### postmeta - Custom Product Add-Ons
+
+| Meta Key | Value |
+|---|---|
+| `wcpa_exclude_global_forms` | inherit |
+| `_wcpa_product_meta` | `Denago(R) EV Rover XL6 Add Ons` |
+
+### postmeta - Google for WooCommerce
+
+| Meta Key | Value |
+|---|---|
+| `_wc_gla_pattern` | `Rover XL6` |
+| All other keys | inherit |
+
+### postmeta - Facebook for WooCommerce
+
+| Meta Key | Value |
+|---|---|
+| `_wc_facebook_enhanced_catalog_attributes_pattern` | `Rover XL6` |
+| All other keys | inherit |
+
+### postmeta - Pinterest / Tigon Specific
+
+All values inherit.
+
+### Attributes (pa_*)
+
+| Attribute | Value |
+|---|---|
+| `pa_battery-type` | From API payload |
+| `pa_battery-warranty` | From API payload |
+| `pa_brush-guard` | inherit (`YES`) |
+| `pa_cargo-rack` | inherit (`NO`) |
+| `pa_drivetrain` | inherit (`2X4`) |
+| `pa_electric-bed-lift` | inherit (`NO`) |
+| `pa_extended-top` | From API payload |
+| `pa_fender-flares` | inherit (`YES`) |
+| `pa_led-accents` | inherit (`YES` + `LIGHT BAR`) |
+| `pa_lift-kit` | From API payload |
+| `pa_location` | inherit |
+| `pa_denago-cart-colors` | From API payload |
+| `pa_denago-seat-colors` | From API payload |
+| `pa_sound-system` | inherit (`DENAGO(R) SOUND SYSTEM`) |
+| `pa_passengers` | From API payload |
+| `pa_receiver-hitch` | From API payload |
+| `pa_return-policy` | inherit (`90 DAY` + `YES`) |
+| `pa_rim-size` | From API payload |
+| `pa_shipping` | inherit |
+| `pa_street-legal` | From API payload |
+| `pa_tire-profile` | From API payload |
+| `pa_vehicle-class` | inherit |
+| `pa_vehicle-warranty` | From API payload |
+| `pa_year-of-vehicle` | inherit |
+
+### DMS Defaults
+
+All values from API payload.
+
+### Available Colors
+
+From API payload
+
+---
+
+## Denago Rover XL Ultra
+
+> **No converter defaults.** All values populated dynamically from the API payload.
+
+### posts (wp_posts)
+
+| Column | Value |
+|---|---|
+| `ID` | inherit |
+| `post_title` | `DENAGO(R) ROVER XL ULTRA {Color} In {City} {State}` |
+| `post_excerpt` | inherit |
+| `post_content` | inherit |
+| `post_status` | inherit |
+| `comment_status` | inherit |
+| `ping_status` | inherit |
+| `menu_order` | inherit |
+| `post_type` | inherit |
+| `comment_count` | inherit |
+| `post_author` | inherit |
+| `post_name` | inherit |
+
+### postmeta - WooCommerce
+
+| Meta Key | Value |
+|---|---|
+| `_sku` | inherit |
+| `_tax_status` | inherit |
+| `_tax_class` | inherit |
+| `_manage_stock` | inherit |
+| `_backorders` | inherit |
+| `_sold_individually` | inherit |
+| `_virtual` | inherit |
+| `_downloadable` | inherit |
+| `_download_limit` | inherit |
+| `_download_expiry` | inherit |
+| `_stock` | inherit |
+| `_stock_status` | inherit |
+| `_global_unique_id` | inherit |
+| `_product_attributes` | See Attributes below |
+| `_thumbnail_id` | inherit |
+| `_product_image_gallery` | inherit |
+| `_regular_price` | From API payload |
+| `_price` | inherit |
+
+### postmeta - Yoast SEO
+
+All values inherit.
+
+### postmeta - Product Tabs
+
+| Meta Key | Value |
+|---|---|
+| `_yikes_woo_products_tabs` | Tab 1: `DENAGO Warranty` (if applicable from API payload) |
+
+### postmeta - Custom Product Add-Ons
+
+| Meta Key | Value |
+|---|---|
+| `wcpa_exclude_global_forms` | inherit |
+| `_wcpa_product_meta` | `Denago(R) EV Rover XL Ultra Add Ons` |
+
+### postmeta - Google for WooCommerce
+
+| Meta Key | Value |
+|---|---|
+| `_wc_gla_pattern` | `Rover XL Ultra` |
+| All other keys | inherit |
+
+### postmeta - Facebook for WooCommerce
+
+| Meta Key | Value |
+|---|---|
+| `_wc_facebook_enhanced_catalog_attributes_pattern` | `Rover XL Ultra` |
+| All other keys | inherit |
+
+### postmeta - Pinterest / Tigon Specific
+
+All values inherit.
+
+### Attributes (pa_*)
+
+| Attribute | Value |
+|---|---|
+| `pa_battery-type` | From API payload |
+| `pa_battery-warranty` | From API payload |
+| `pa_brush-guard` | inherit (`YES`) |
+| `pa_cargo-rack` | inherit (`NO`) |
+| `pa_drivetrain` | inherit (`2X4`) |
+| `pa_electric-bed-lift` | inherit (`NO`) |
+| `pa_extended-top` | From API payload |
+| `pa_fender-flares` | inherit (`YES`) |
+| `pa_led-accents` | inherit (`YES` + `LIGHT BAR`) |
+| `pa_lift-kit` | From API payload |
+| `pa_location` | inherit |
+| `pa_denago-cart-colors` | From API payload |
+| `pa_denago-seat-colors` | From API payload |
+| `pa_sound-system` | inherit (`DENAGO(R) SOUND SYSTEM`) |
+| `pa_passengers` | From API payload |
+| `pa_receiver-hitch` | From API payload |
+| `pa_return-policy` | inherit (`90 DAY` + `YES`) |
+| `pa_rim-size` | From API payload |
+| `pa_shipping` | inherit |
+| `pa_street-legal` | From API payload |
+| `pa_tire-profile` | From API payload |
+| `pa_vehicle-class` | inherit |
+| `pa_vehicle-warranty` | From API payload |
+| `pa_year-of-vehicle` | inherit |
+
+### DMS Defaults
+
+All values from API payload.
+
+### Available Colors
+
+From API payload
+
+---
+
+## Denago Scout
+
+> **No converter defaults.** All values populated dynamically from the API payload.
+
+### posts (wp_posts)
+
+| Column | Value |
+|---|---|
+| `ID` | inherit |
+| `post_title` | `DENAGO(R) SCOUT {Color} In {City} {State}` |
+| `post_excerpt` | inherit |
+| `post_content` | inherit |
+| `post_status` | inherit |
+| `comment_status` | inherit |
+| `ping_status` | inherit |
+| `menu_order` | inherit |
+| `post_type` | inherit |
+| `comment_count` | inherit |
+| `post_author` | inherit |
+| `post_name` | inherit |
+
+### postmeta - WooCommerce
+
+| Meta Key | Value |
+|---|---|
+| `_sku` | inherit |
+| `_tax_status` | inherit |
+| `_tax_class` | inherit |
+| `_manage_stock` | inherit |
+| `_backorders` | inherit |
+| `_sold_individually` | inherit |
+| `_virtual` | inherit |
+| `_downloadable` | inherit |
+| `_download_limit` | inherit |
+| `_download_expiry` | inherit |
+| `_stock` | inherit |
+| `_stock_status` | inherit |
+| `_global_unique_id` | inherit |
+| `_product_attributes` | See Attributes below |
+| `_thumbnail_id` | inherit |
+| `_product_image_gallery` | inherit |
+| `_regular_price` | From API payload |
+| `_price` | inherit |
+
+### postmeta - Yoast SEO
+
+All values inherit.
+
+### postmeta - Product Tabs
+
+| Meta Key | Value |
+|---|---|
+| `_yikes_woo_products_tabs` | Tab 1: `DENAGO Warranty` (if applicable from API payload) |
+
+### postmeta - Custom Product Add-Ons
+
+| Meta Key | Value |
+|---|---|
+| `wcpa_exclude_global_forms` | inherit |
+| `_wcpa_product_meta` | `Denago(R) EV Scout Add Ons` |
+
+### postmeta - Google for WooCommerce
+
+| Meta Key | Value |
+|---|---|
+| `_wc_gla_pattern` | `Scout` |
+| All other keys | inherit |
+
+### postmeta - Facebook for WooCommerce
+
+| Meta Key | Value |
+|---|---|
+| `_wc_facebook_enhanced_catalog_attributes_pattern` | `Scout` |
+| All other keys | inherit |
+
+### postmeta - Pinterest / Tigon Specific
+
+All values inherit.
+
+### Attributes (pa_*)
+
+| Attribute | Value |
+|---|---|
+| `pa_battery-type` | From API payload |
+| `pa_battery-warranty` | From API payload |
+| `pa_brush-guard` | inherit (`YES`) |
+| `pa_cargo-rack` | inherit (`NO`) |
+| `pa_drivetrain` | inherit (`2X4`) |
+| `pa_electric-bed-lift` | inherit (`NO`) |
+| `pa_extended-top` | From API payload |
+| `pa_fender-flares` | inherit (`YES`) |
+| `pa_led-accents` | inherit (`YES` + `LIGHT BAR`) |
+| `pa_lift-kit` | From API payload |
+| `pa_location` | inherit |
+| `pa_denago-cart-colors` | From API payload |
+| `pa_denago-seat-colors` | From API payload |
+| `pa_sound-system` | inherit (`DENAGO(R) SOUND SYSTEM`) |
+| `pa_passengers` | From API payload |
+| `pa_receiver-hitch` | From API payload |
+| `pa_return-policy` | inherit (`90 DAY` + `YES`) |
+| `pa_rim-size` | From API payload |
+| `pa_shipping` | inherit |
+| `pa_street-legal` | From API payload |
+| `pa_tire-profile` | From API payload |
+| `pa_vehicle-class` | inherit |
+| `pa_vehicle-warranty` | From API payload |
+| `pa_year-of-vehicle` | inherit |
+
+### DMS Defaults
+
+All values from API payload.
+
+### Available Colors
+
+From API payload
+
+---
+
+## Denago Oxen
+
+> **No converter defaults.** All values populated dynamically from the API payload.
+
+### posts (wp_posts)
+
+| Column | Value |
+|---|---|
+| `ID` | inherit |
+| `post_title` | `DENAGO(R) OXEN {Color} In {City} {State}` |
+| `post_excerpt` | inherit |
+| `post_content` | inherit |
+| `post_status` | inherit |
+| `comment_status` | inherit |
+| `ping_status` | inherit |
+| `menu_order` | inherit |
+| `post_type` | inherit |
+| `comment_count` | inherit |
+| `post_author` | inherit |
+| `post_name` | inherit |
+
+### postmeta - WooCommerce
+
+| Meta Key | Value |
+|---|---|
+| `_sku` | inherit |
+| `_tax_status` | inherit |
+| `_tax_class` | inherit |
+| `_manage_stock` | inherit |
+| `_backorders` | inherit |
+| `_sold_individually` | inherit |
+| `_virtual` | inherit |
+| `_downloadable` | inherit |
+| `_download_limit` | inherit |
+| `_download_expiry` | inherit |
+| `_stock` | inherit |
+| `_stock_status` | inherit |
+| `_global_unique_id` | inherit |
+| `_product_attributes` | See Attributes below |
+| `_thumbnail_id` | inherit |
+| `_product_image_gallery` | inherit |
+| `_regular_price` | From API payload |
+| `_price` | inherit |
+
+### postmeta - Yoast SEO
+
+All values inherit.
+
+### postmeta - Product Tabs
+
+| Meta Key | Value |
+|---|---|
+| `_yikes_woo_products_tabs` | Tab 1: `DENAGO Warranty` (if applicable from API payload) |
+
+### postmeta - Custom Product Add-Ons
+
+| Meta Key | Value |
+|---|---|
+| `wcpa_exclude_global_forms` | inherit |
+| `_wcpa_product_meta` | `Denago(R) EV Oxen Add Ons` |
+
+### postmeta - Google for WooCommerce
+
+| Meta Key | Value |
+|---|---|
+| `_wc_gla_pattern` | `Oxen` |
+| All other keys | inherit |
+
+### postmeta - Facebook for WooCommerce
+
+| Meta Key | Value |
+|---|---|
+| `_wc_facebook_enhanced_catalog_attributes_pattern` | `Oxen` |
+| All other keys | inherit |
+
+### postmeta - Pinterest / Tigon Specific
+
+All values inherit.
+
+### Attributes (pa_*)
+
+| Attribute | Value |
+|---|---|
+| `pa_battery-type` | From API payload |
+| `pa_battery-warranty` | From API payload |
+| `pa_brush-guard` | inherit (`YES`) |
+| `pa_cargo-rack` | inherit (`NO`) |
+| `pa_drivetrain` | inherit (`2X4`) |
+| `pa_electric-bed-lift` | inherit (`NO`) |
+| `pa_extended-top` | From API payload |
+| `pa_fender-flares` | inherit (`YES`) |
+| `pa_led-accents` | inherit (`YES` + `LIGHT BAR`) |
+| `pa_lift-kit` | From API payload |
+| `pa_location` | inherit |
+| `pa_denago-cart-colors` | From API payload |
+| `pa_denago-seat-colors` | From API payload |
+| `pa_sound-system` | inherit (`DENAGO(R) SOUND SYSTEM`) |
+| `pa_passengers` | From API payload |
+| `pa_receiver-hitch` | From API payload |
+| `pa_return-policy` | inherit (`90 DAY` + `YES`) |
+| `pa_rim-size` | From API payload |
+| `pa_shipping` | inherit |
+| `pa_street-legal` | From API payload |
+| `pa_tire-profile` | From API payload |
+| `pa_vehicle-class` | inherit |
+| `pa_vehicle-warranty` | From API payload |
+| `pa_year-of-vehicle` | inherit |
+
+### DMS Defaults
+
+All values from API payload.
+
+### Available Colors
+
+From API payload
