@@ -146,15 +146,17 @@ abstract class Abstract_Import_Controller
 
         // Generate possible slugs
         $location_id = $data['cartLocation']['locationId'];
-        $city = \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id]['city_short'] ??
-            \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id]['city'];
+        if (!isset(\Tigon\DmsConnect\Admin\Attributes::$locations[$location_id])) {
+            return new \WP_Error(400, ['pid' => 0, 'error' => "Unknown location: $location_id"]);
+        }
+        $loc = \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id];
+        $city = $loc['city_short'] ?? $loc['city'];
 
         $make = preg_replace('/\s+/', '-', trim(preg_replace('/\+/', ' plus ', $data['cartType']['make'])));
         $model = preg_replace('/\s+/', '-', trim(preg_replace('/\+/', ' plus ', $data['cartType']['model'])));
         $color = preg_replace('/\s+/', '-', $data['cartAttributes']['cartColor']);
         $seat = preg_replace('/\s+/', '-', $data['cartAttributes']['seatColor']);
-        $location = preg_replace('/\s+/', '-', $city . "-"
-            . \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id]['st']);
+        $location = preg_replace('/\s+/', '-', $city . "-" . $loc['st']);
         $year = preg_replace('/\s+/', '-', $data['cartType']['year']);
 
         $base_slug = strtolower("$make-$model-$color-seat-$seat-$location");

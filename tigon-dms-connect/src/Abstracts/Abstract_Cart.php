@@ -434,17 +434,23 @@ abstract class Abstract_Cart
     protected function generate_location_data() {
         $this->location_id = $this->cart['cartLocation']['locationId'];
         if($this->location_id === "Other") {
-            $this->location_id = $this->cart['cartLocation']['latestStoreId'];
+            $this->location_id = $this->cart['cartLocation']['latestStoreId'] ?? 'T1';
         }
 
-        $this->city_shortname = Attributes::$locations[$this->location_id]['city_short'] ?? Attributes::$locations[$this->location_id]['city'];
+        // Fallback to T1 if location is not recognized
+        if (!isset(Attributes::$locations[$this->location_id])) {
+            $this->location_id = 'T1';
+        }
+
+        $loc = Attributes::$locations[$this->location_id];
+        $this->city_shortname = $loc['city_short'] ?? $loc['city'];
 
         $this->tigonwm_text = 'TIGON®';
-        
+
         if ($this->location_id) {
             $this->tigonwm_text =
-                ( $this->city_shortname ) . 
-                ' ' . Attributes::$locations[$this->location_id]['st'];
+                ( $this->city_shortname ) .
+                ' ' . $loc['st'];
         }
         if (isset($this->cart['isRental']) && $this->cart['isRental']){
             $this->tigonwm_text = 'TIGON® RENTALS';  
