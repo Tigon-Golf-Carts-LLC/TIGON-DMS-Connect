@@ -1,309 +1,249 @@
-# Global New Vehicle Logic
+# Global New Vehicle Logic - Complete Database_Object Mapping
 
-All new vehicles flow through `Abstract_Cart.php` and then `New/Cart.php` applies overrides.
+> **How to edit:** Change any `Value` cell below. Manufacturer and Model files override values listed here.
 
-Source files:
-- `src/Abstracts/Abstract_Cart.php` (shared base)
-- `src/Admin/New/Cart.php` (new-specific overrides)
-- `src/Admin/New/New_Cart_Converter.php` (per-model template defaults)
+Source: `Abstract_Cart.php`, `New/Cart.php`, `Database_Object.php`
 
 ---
 
-## 1. SKU Generation (New/Cart.php `verify_data()`)
+## method
 
-**If cart IS in stock AND NOT in boneyard:**
-- Use VIN (`vinNo`) as SKU (highest priority)
-- Else use serial number (`serialNo`) as SKU
-- Flag `not_default = true`
-
-**If cart is NOT in stock OR is in boneyard (template/placeholder cart):**
-- SKU = first 3 chars of make + first 3 chars of model + first 3 chars of cartColor + first 3 chars of seatColor + first 3 chars of location city
-- All uppercased, whitespace stripped
-- `_id` is set to null (no monroney sticker generated)
-- `in_stock` forced to `outofstock`
-- `monroney_sticker` forced to `[pdf-embedder url=""]`
-
----
-
-## 2. Product Method (create / update / delete)
-
-Determined in `set_simple_fields()`:
-
-| Condition | Method |
+| Condition | Value |
 |---|---|
-| `isInStock=true` AND `isInBoneyard=false` AND `needOnWebsite=true` AND product already exists | `update` |
-| `isInStock=true` AND `isInBoneyard=false` AND `needOnWebsite=true` AND product does NOT exist | `create` |
-| Any other combination | `delete` |
+| `isInStock` AND `!isInBoneyard` AND `needOnWebsite` AND product exists | `update` |
+| `isInStock` AND `!isInBoneyard` AND `needOnWebsite` AND no product | `create` |
+| All other | `delete` |
 
 ---
 
-## 3. Name Generation (Abstract_Cart `create_name()`)
+## posts (wp_posts)
 
-Format: `{MAKE(R)} {MODEL} {Color} In {City} {State}`
-
-Example: `DENAGO(R) NOMAD XL Blue In Hatfield PA`
-
-- Make gets (R) symbol appended
-- Make and model are UPPERCASED
-- Color is ucwords()
-- If model == "Other", it becomes "Golf Cart"
-
----
-
-## 4. Slug Generation (New/Cart.php `create_slug()`)
-
-**If DMS provides `advertising.websiteUrl`:**
-- Slug = last path segment of the URL
-- `+` replaced with `-plus-`
-
-**If no DMS URL:**
-- Format: `{make}-{model}-{color}-seat-{seatColor}-{city}-{state}`
-- All lowercased, spaces replaced with hyphens
+| Column | Value |
+|---|---|
+| `ID` | Existing product ID or auto-generated |
+| `post_title` | `{MAKE(R)} {MODEL} {Color} In {City} {State}` |
+| `post_excerpt` | Auto-generated HTML short description (only on create, null on update) |
+| `post_content` | Auto-generated HTML spec table + call shortcode |
+| `post_status` | `draft` |
+| `comment_status` | `open` |
+| `ping_status` | `closed` |
+| `menu_order` | `0` |
+| `post_type` | `product` |
+| `comment_count` | `0` |
+| `post_author` | `3` |
+| `post_name` | DMS `websiteUrl` last segment OR `{make}-{model}-{color}-seat-{seat}-{city}-{state}` |
 
 ---
 
-## 5. Images (New/Cart.php `fetch_images()`)
+## postmeta - WooCommerce
 
-New carts set `images = null` (placeholder only).
-Image name: `woocommerce-placeholder`
-
-This means new template carts do NOT sideload images. Only used/in-stock carts get real images via `Abstract_Cart.fetch_images()`.
+| Meta Key | Value |
+|---|---|
+| `_sku` | VIN > Serial > Generated `{MAKE3}{MODEL3}{COLOR3}{SEAT3}{CITY3}` |
+| `_tax_status` | `taxable` |
+| `_tax_class` | `standard` |
+| `_manage_stock` | `no` |
+| `_backorders` | `no` |
+| `_sold_individually` | `no` |
+| `_virtual` | `no` |
+| `_downloadable` | `no` |
+| `_download_limit` | `-1` |
+| `_download_expiry` | `-1` |
+| `_stock` | `10000` |
+| `_stock_status` | `outofstock` (template/no serial) OR `instock`/`outofstock` from DMS |
+| `_global_unique_id` | Auto from SKU: last 14 chars of letter-to-digit conversion, left-padded 0s |
+| `_product_attributes` | Serialized `pa_*` attribute array (see Attributes section) |
+| `_thumbnail_id` | `null` (new templates have no images) |
+| `_product_image_gallery` | `null` (new templates have no images) |
+| `_regular_price` | `cart.retailPrice` |
+| `_price` | `cart.salePrice` |
 
 ---
 
-## 6. Monroney Sticker (Abstract_Cart `fetch_monroney()`)
+## postmeta - Yoast SEO
 
-- Only generated if `_id` is set (i.e., real inventory, not a template)
-- Sideloads PDF from `{file_source}/cart-window-stickers/{_id}.pdf`
-- Stored as shortcode: `[pdf-embedder url="{uploaded_url}"]`
-- For template carts (not_default=false): forced to `[pdf-embedder url=""]`
+| Meta Key | Value |
+|---|---|
+| `_yoast_wpseo_title` | `{post_title} - Tigon Golf Carts` |
+| `_yoast_wpseo_metadesc` | `{MAKE MODEL COLOR} At TIGON Golf Carts in {Location}. Call Now {Phone} Get 0% Financing, and Shipping Options Today!` |
+| `_yoast_wpseo_primary_product_cat` | Term ID for `{MAKE(R)}` category |
+| `_yoast_wpseo_primary_location` | Term ID for location city |
+| `_yoast_wpseo_primary_models` | `null` |
+| `_yoast_wpseo_primary_added-features` | `null` |
+| `_yoast_wpseo_is_cornerstone` | `1` |
+| `_yoast_wpseo_focus_kw` | Same as `post_title` |
+| `_yoast_wpseo_focus_keywords` | Same as `post_title` |
+| `_yoast_wpseo_bctitle` | Same as `post_title` |
+| `_yoast_wpseo_opengraph-title` | Same as `post_title` |
+| `_yoast_wpseo_opengraph-description` | Same as `_yoast_wpseo_metadesc` |
+| `_yoast_wpseo_opengraph-image-id` | Same as `_thumbnail_id` |
+| `_yoast_wpseo_opengraph-image` | Featured image URL via `wp_get_attachment_image_url` |
+| `_yoast_wpseo_twitter-image-id` | Same as `_thumbnail_id` |
+| `_yoast_wpseo_twitter-image` | Featured image URL |
 
 ---
 
-## 7. Categories & Tags (Abstract_Cart `attach_categories_tags()`)
+## postmeta - Product Tabs
 
-All new vehicles get:
+| Meta Key | Value |
+|---|---|
+| `_yikes_woo_products_tabs` | Serialized `[{name, id, title, content}]` - varies by make/model (see Manufacturer/Model files) |
+
+---
+
+## postmeta - Custom Product Add-Ons
+
+| Meta Key | Value |
+|---|---|
+| `wcpa_exclude_global_forms` | `1` |
+| `_wcpa_product_meta` | Serialized - single model add-on list (see Manufacturer files for format) |
+
+---
+
+## postmeta - Google for WooCommerce
+
+| Meta Key | Value |
+|---|---|
+| `_wc_gla_mpn` | Same as `_global_unique_id` |
+| `_wc_gla_condition` | `new` |
+| `_wc_gla_brand` | `{MAKE(R)}` UPPERCASED |
+| `_wc_gla_color` | `{CART_COLOR}` UPPERCASED |
+| `_wc_gla_pattern` | `{model}` original case |
+| `_wc_gla_gender` | `unisex` |
+| `_wc_gla_sizeSystem` | `US` |
+| `_wc_gla_adult` | `no` |
+
+---
+
+## postmeta - Pinterest for WooCommerce
+
+| Meta Key | Value |
+|---|---|
+| `_wc_pinterest_condition` | `new` |
+| `_wc_pinterest_google_product_category` | `Vehicles & Parts > Vehicles > Motor Vehicles > Golf Carts` |
+
+---
+
+## postmeta - Facebook for WooCommerce
+
+| Meta Key | Value |
+|---|---|
+| `_wc_facebook_enhanced_catalog_attributes_brand` | `{MAKE(R)}` UPPERCASED |
+| `_wc_facebook_enhanced_catalog_attributes_color` | `{CART_COLOR}` UPPERCASED |
+| `_wc_facebook_enhanced_catalog_attributes_pattern` | `{model}` original case |
+| `_wc_facebook_enhanced_catalog_attributes_gender` | `unisex` |
+| `_wc_facebook_enhanced_catalog_attributes_age_group` | `all ages` |
+| `_wc_facebook_product_image_source` | `product` |
+| `_wc_facebook_sync_enabled` | `yes` |
+| `_wc_fb_visibility` | `yes` |
+
+---
+
+## postmeta - Tigon Specific
+
+| Meta Key | Value |
+|---|---|
+| `monroney_sticker` | `[pdf-embedder url="{url}"]` or `[pdf-embedder url=""]` for templates |
+| `_monroney_sticker` | `field_66e3332abf481` |
+| `_tigonwm` | `{City Short} {ST}` or `TIGON(R) RENTALS` if rental |
+
+---
+
+## term_relationships - Categories
 
 | Category | Condition |
 |---|---|
-| `{MAKE(R)}` | Always (brand category) |
-| `{MAKE(R)} {MODEL}` | If category exists in system |
-| `{N} SEATER` | Based on passenger count |
+| `{MAKE(R)}` | Always |
+| `{MAKE(R)} {MODEL}` | If exists in system |
+| `{N} SEATER` | From passenger count |
 | `LIFTED` | If `isLifted=true` |
-| `NEW` | Always (not used) |
+| `NEW` | Always |
 | `ELECTRIC` | If `isElectric=true` |
 | `GAS` | If `isElectric=false` |
 | `ZERO EMISSION VEHICLES (ZEVS)` | If electric |
-| `LITHIUM` | If electric + battery type = Lithium |
-| `LEAD-ACID` | If electric + battery type = Lead |
-| `{voltage} VOLT` | If electric (e.g., "48 VOLT") |
+| `LITHIUM` | If battery.type = Lithium |
+| `LEAD-ACID` | If battery.type = Lead |
+| `{voltage} VOLT` | If electric |
 | `STREET LEGAL` | If electric + street legal |
 | `NEIGHBORHOOD ELECTRIC VEHICLES (NEVS)` | If electric + street legal |
 | `BATTERY ELECTRIC VEHICLES (BEVS)` | If electric + street legal |
 | `LOW SPEED VEHICLES (LSVS)` | If electric + street legal |
 | `MEDIUM SPEED VEHICLES (MSVS)` | If electric + street legal |
 | `PERSONAL TRANSPORTATION VEHICLES (PTVS)` | If gas |
-| `LOCAL NEW ACTIVE INVENTORY` | Always (new + not rental) |
-| `LOCAL NEW RENTAL INVENTORY` | If `isRental=true` |
-| `RENTAL` | If `isRental=true` |
+| `LOCAL NEW ACTIVE INVENTORY` | If not rental |
+| `LOCAL NEW RENTAL INVENTORY` | If rental |
+| `RENTAL` | If rental |
 | `GOLF CARTS` | Always |
-| `2X4` | Always (drivetrain) |
+| `2X4` | Always |
 | `TIGON DEALERSHIP` | Always |
-| `TIGON GOLF CARTS {CITY} {STATE}` | Always (location-specific) |
+| `TIGON GOLF CARTS {CITY} {STATE}` | Always |
 
-Tags added for all new vehicles:
-- `{MAKE(R)}`, `{MAKE(R)} {MODEL}`, `{MAKE(R) MODEL COLOR}`, full name
-- `{COLOR}`, `{N} SEATS`
-- `LIFTED` or `NON LIFTED`
-- `NEW`
-- `{CITY}`, `{CITY STATE}`, `{STATE}`, location dealership tags
-- `GOLF CART`, `ELECTRIC` or `GAS`
-- `NEV`, `LSV`, `MSV`, `STREET LEGAL` (if applicable)
-- `TIGON`, `TIGON GOLF CARTS`
+## term_relationships - Tags
 
----
-
-## 8. Product Attributes (Abstract_Cart `attach_attributes()`)
-
-All new vehicles get these WooCommerce product attributes (`pa_*`):
-
-| Attribute Slug | Value Source |
+| Tag | Condition |
 |---|---|
-| `pa_battery-type` | `battery.type` (only if electric) |
-| `pa_battery-warranty` | `battery.warrantyLength` (only if electric) |
-| `pa_brush-guard` | YES for Denago/Evolution, NO for all others |
-| `pa_cargo-rack` | NO (always) |
-| `pa_drivetrain` | 2X4 (always) |
-| `pa_electric-bed-lift` | NO (always) |
-| `pa_extended-top` | YES/NO from `hasExtendedTop` |
-| `pa_fender-flares` | YES (always) |
-| `pa_led-accents` | YES + LIGHT BAR for Denago, NO for all others |
-| `pa_lift-kit` | 3 INCH if lifted, NO if not |
-| `pa_location` | City+State from location data |
-| `pa_{make}-cart-colors` | Cart color (make-specific palette for known brands) |
-| `pa_{make}-seat-colors` | Seat color (make-specific palette for known brands) |
-| `pa_cart-color` | Cart color (fallback for unknown brands) |
-| `pa_seat-color` | Seat color (fallback for unknown brands) |
-| `pa_sound-system` | Make-specific sound system name, or YES |
-| `pa_passengers` | N SEATER |
-| `pa_receiver-hitch` | NO (always) |
-| `pa_return-policy` | 90 DAY + YES |
-| `pa_rim-size` | `tireRimSize` INCH |
-| `pa_shipping` | 1 TO 3 DAYS LOCAL, 3 TO 7 DAYS OTR, 5 TO 9 DAYS NATIONAL |
-| `pa_street-legal` | YES/NO from `title.isStreetLegal` |
-| `pa_tire-profile` | `tireType` (Street Tire, All-Terrain, etc.) |
-| `pa_vehicle-class` | Computed list (Golf Cart, NEV, ZEV, LSV, MSV, PTV, UTV) |
-| `pa_vehicle-warranty` | `warrantyLength` |
-| `pa_year-of-vehicle` | `cartType.year` |
+| `{MAKE(R)}` | Always |
+| `{MAKE(R)} {MODEL}` | Always |
+| `{MAKE(R)} {MODEL} {COLOR}` | Always |
+| `{full name}` | Always |
+| `{COLOR}` | Always |
+| `{N} SEATS` | Always |
+| `LIFTED` / `NON LIFTED` | From `isLifted` |
+| `NEW` | Always |
+| `{CITY}`, `{CITY STATE}`, `{STATE}` | Always |
+| `{CITY} GOLF CART DEALERSHIP` | Always |
+| `{STATE} GOLF CART DEALERSHIP` | Always |
+| `{CITY STATE} STREET LEGAL DEALERSHIP` | Always |
+| `GOLF CART` | Always |
+| `ELECTRIC` / `GAS` | From `isElectric` |
+| `NEV`, `LSV`, `MSV`, `STREET LEGAL` | If electric + street legal |
+| `PTV` | If gas |
+| `TIGON`, `TIGON GOLF CARTS` | Always |
 
-Known brands with dedicated color palettes:
-`bintelli, club-car, denago, epic, evolution, ezgo, icon, navitas, polaris, royal-ev, star-ev, swift, tomberlin, yamaha`
+## term_relationships - Product Attributes (pa_*)
 
----
+| Attribute | Value | Condition |
+|---|---|---|
+| `pa_battery-type` | `{battery.type}` | If electric |
+| `pa_battery-warranty` | `{battery.warrantyLength}` | If electric |
+| `pa_brush-guard` | `YES` / `NO` | YES: Denago, Evolution. NO: all others |
+| `pa_cargo-rack` | `NO` | Always |
+| `pa_drivetrain` | `2X4` | Always |
+| `pa_electric-bed-lift` | `NO` | Always |
+| `pa_extended-top` | `YES` / `NO` | From `hasExtendedTop` |
+| `pa_fender-flares` | `YES` | Always |
+| `pa_led-accents` | `YES` + `LIGHT BAR` / `NO` | YES: Denago. NO: all others |
+| `pa_lift-kit` | `3 INCH` / `NO` | From `isLifted` |
+| `pa_location` | `{City} {State}` | Always |
+| `pa_{make}-cart-colors` | `{cartColor}` | Known brands only |
+| `pa_{make}-seat-colors` | `{seatColor}` | Known brands only |
+| `pa_cart-color` | `{cartColor}` | Unknown brands fallback |
+| `pa_seat-color` | `{seatColor}` | Unknown brands fallback |
+| `pa_sound-system` | `{MAKE(R)} SOUND SYSTEM` / `YES` | Brand-specific |
+| `pa_passengers` | `{N} SEATER` | Always |
+| `pa_receiver-hitch` | `NO` | Always |
+| `pa_return-policy` | `90 DAY` + `YES` | Always |
+| `pa_rim-size` | `{tireRimSize} INCH` | From DMS |
+| `pa_shipping` | `1 TO 3 DAYS LOCAL`, `3 TO 7 DAYS OTR`, `5 TO 9 DAYS NATIONAL` | Always |
+| `pa_street-legal` | `YES` / `NO` | From `isStreetLegal` |
+| `pa_tire-profile` | `{tireType}` | From DMS |
+| `pa_vehicle-class` | Golf Cart + NEV/ZEV/LSV/MSV/PTV/UTV | Computed |
+| `pa_vehicle-warranty` | `{warrantyLength}` | From DMS |
+| `pa_year-of-vehicle` | `{year}` | From DMS |
 
-## 9. Taxonomies (Abstract_Cart `attach_taxonomies()`)
+Known brands with `pa_{make}-*` palettes: `bintelli, club-car, denago, epic, evolution, ezgo, icon, navitas, polaris, royal-ev, star-ev, swift, tomberlin, yamaha`
+
+## term_relationships - Custom Taxonomies
 
 | Taxonomy | Value |
 |---|---|
-| Location (city) | Location city term ID |
-| Location (state) | Location state term ID |
-| Manufacturer | Make-specific term (with name aliases: Swift EV -> SWIFT, Star -> STAR EV, etc.) |
-| Model | `{MAKE} {MODEL}` term (with aliases for DS, Precedent, 4L, 6L, Drive 2, Star, EZGO) |
+| Location (city) | City term ID |
+| Location (state) | State term ID |
+| Manufacturer | Make term (aliases: Swift EV->SWIFT, Star->STAR EV) |
+| Model | `{MAKE} {MODEL}` term (aliases: DS->DS ELECTRIC, etc.) |
 | Sound System | `{MAKE} SOUND SYSTEM` term |
-| Added Features | From `addedFeatures` flags: static stock, brush guard, clay basket, fender flares, LEDs, light bar, under glow, lift kit, tow hitch, stock options |
-| Vehicle Class | Golf Cart + NEV/ZEV/LSV/MSV/PTV/UTV based on electric/street legal/utility |
-| Inventory Status | LOCAL NEW ACTIVE INVENTORY or LOCAL NEW RENTAL INVENTORY |
-| Drivetrain | From `driveTrain` field, defaults to 2X4 |
-
----
-
-## 10. Custom Product Options / Add-Ons (Abstract_Cart `attach_custom_options()`)
-
-**New vehicles** get a single model-specific add-on list:
-- Format: `{Make} {Model} Add Ons`
-- Special formatting per brand:
-  - Denago: `Denago(R) EV {Model} Add Ons`
-  - Epic: `EPIC(R) {Model} Add Ons`
-  - Evolution: `EVolution(R) {Model} Add Ons` (D5 models get hyphenated: `D5-Maverick`)
-  - Icon: `ICON(R) {Model} Add Ons`
-  - Swift EV: `SWIFT EV(R) {Model} Add Ons`
-
----
-
-## 11. Custom Tabs (Abstract_Cart `attach_custom_tabs()`)
-
-New vehicles get tabs based on make and model. See Manufacturer-Logic and Model-Logic files for specifics per brand.
-
----
-
-## 12. Descriptions (Abstract_Cart `generate_descriptions()`)
-
-**Meta Description:**
-`{MAKE MODEL COLOR} At TIGON Golf Carts in {Location}. Call Now {Phone} Get 0% Financing, and Shipping Options Today!`
-
-**Short Description (only generated for new products, not updates):**
-- Auto-generated with randomized adjectives and intro/outro sentences
-- Contains make/model hyperlinks to tigongolfcarts.com
-- Includes voltage specs for electric, HP specs for gas, utility bed callout
-
-**Long Description:**
-- HTML table with: Make, Model, Year, Street Legal, Color, Seat Color, Tires, Rims
-- Battery/engine specs section
-- Additional features list from cart add-ons
-- "CALL TIGON GOLF CARTS" link shortcode with location phone number
-
----
-
-## 13. Simple/Static Fields (Abstract_Cart `set_simple_fields()`)
-
-These are the same for ALL vehicles (new and used):
-
-| Field | Value |
-|---|---|
-| `post_type` | product |
-| `published` | publish |
-| `comment_status` | open |
-| `ping_status` | closed |
-| `menu_order` | 0 |
-| `comment_count` | 0 |
-| `post_author` | 3 |
-| `price` | `retailPrice` from DMS |
-| `sale_price` | `salePrice` from DMS |
-| `tax_status` | taxable |
-| `tax_class` | standard |
-| `manage_stock` | no |
-| `backorders_allowed` | no |
-| `sold_individually` | no |
-| `is_virtual` | no |
-| `downloadable` | no |
-| `download_limit` | -1 |
-| `download_expiry` | -1 |
-| `bit_is_cornerstone` | 1 |
-| `attr_exclude_global_forms` | 1 |
-| `stock` | 10000 |
-| `condition` | new |
-| `google_brand` | MAKE(R) uppercased |
-| `google_color` | cart color uppercased |
-| `google_pattern` | model name |
-| `google_size_system` | US |
-| `gender` | unisex |
-| `adult_content` | no |
-| `age_group` | all ages |
-| `google_category` | Vehicles & Parts > Vehicles > Motor Vehicles > Golf Carts |
-| `product_image_source` | product |
-| `facebook_sync` | yes |
-| `facebook_visibility` | yes |
-| `monroney_container_id` | field_66e3332abf481 |
-| Shipping class term | 665 |
-
----
-
-## 14. New-Specific Overrides (New/Cart.php `field_overrides()`)
-
-After all the above, `New/Cart.php` forces:
-- `published = 'draft'` (new carts always start as draft)
-- If `not_default = false` (template/no serial): `in_stock = 'outofstock'`, `monroney_sticker = '[pdf-embedder url=""]'`
-
----
-
-## 15. Database Object Meta Key Mapping
-
-All the above fields map to these wp_postmeta keys:
-
-| Property | Meta Key |
-|---|---|
-| sku | `_sku` |
-| tax_status | `_tax_status` |
-| tax_class | `_tax_class` |
-| manage_stock | `_manage_stock` |
-| backorders_allowed | `_backorders` |
-| sold_individually | `_sold_individually` |
-| is_virtual | `_virtual` |
-| downloadable | `_downloadable` |
-| download_limit | `_download_limit` |
-| download_expiry | `_download_expiry` |
-| stock | `_stock` |
-| in_stock | `_stock_status` |
-| gui | `_global_unique_id` |
-| attributes | `_product_attributes` |
-| featured image | `_thumbnail_id` |
-| gallery images | `_product_image_gallery` |
-| price | `_regular_price` |
-| sale_price | `_price` |
-| yoast_seo_title | `_yoast_wpseo_title` |
-| meta_description | `_yoast_wpseo_metadesc` |
-| primary_category | `_yoast_wpseo_primary_product_cat` |
-| primary_location | `_yoast_wpseo_primary_location` |
-| primary_model | `_yoast_wpseo_primary_models` |
-| name | `_yoast_wpseo_focus_kw`, `_yoast_wpseo_focus_keywords`, `_yoast_wpseo_bctitle`, `_yoast_wpseo_opengraph-title` |
-| custom_tabs | `_yikes_woo_products_tabs` |
-| custom_product_options | `_wcpa_product_meta` |
-| condition | `_wc_gla_condition`, `_wc_pinterest_condition` |
-| google_brand | `_wc_gla_brand`, `_wc_facebook_enhanced_catalog_attributes_brand` |
-| google_color | `_wc_gla_color`, `_wc_facebook_enhanced_catalog_attributes_color` |
-| google_pattern | `_wc_gla_pattern`, `_wc_facebook_enhanced_catalog_attributes_pattern` |
-| gender | `_wc_gla_gender`, `_wc_facebook_enhanced_catalog_attributes_gender` |
-| google_category | `_wc_pinterest_google_product_category` |
-| monroney_sticker | `monroney_sticker` |
-| monroney_container_id | `_monroney_sticker` |
-| tigonwm_text | `_tigonwm` |
+| Added Features | From `addedFeatures` flags: staticStock, brushGuard, clayBasket, fenderFlares, LEDs, lightBar, underGlow, liftKit, towHitch, stockOptions |
+| Vehicle Class | Golf Cart + NEV/ZEV/LSV/MSV/PTV/UTV |
+| Inventory Status | `LOCAL NEW ACTIVE INVENTORY` / `LOCAL NEW RENTAL INVENTORY` |
+| Drivetrain | `2X4` (or from `driveTrain`) |
+| Shipping Class | Term ID `665` |
