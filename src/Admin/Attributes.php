@@ -1,9 +1,9 @@
 <?php
 
-namespace Tigon\Chimera\Admin;
+namespace Tigon\DmsConnect\Admin;
 
 use Attribute;
-use Tigon\Chimera\Includes\DMS_Connector;
+use Tigon\DmsConnect\Includes\DMS_Connector;
 
 class Attributes
 {
@@ -171,25 +171,25 @@ class Attributes
 
     public function __construct()
     {
-        $this->categories = Attributes::chimera_get_categories();
-        $this->tags = Attributes::chimera_get_tags();
-        $this->tabs = Attributes::chimera_get_tabs();
-        $this->attributes = Attributes::chimera_get_attributes();
-        $this->manufacturers_taxonomy = Attributes::chimera_get_manufacturers();
-        $this->models_taxonomy = Attributes::chimera_get_models();
-        $this->sound_systems_taxonomy = Attributes::chimera_get_sound_systems();
-        $this->vehicle_classes_taxonomy = Attributes::chimera_get_classes();
-        $this->added_features_taxonomy = Attributes::chimera_get_features();
-        $this->drivetrains_taxonomy = Attributes::chimera_get_drivetrains();
-        $this->inventory_status_taxonomy = Attributes::chimera_get_inventory_statuses();
-        $this->custom_options = Attributes::chimera_get_custom_options();
+        $this->categories = Attributes::get_categories();
+        $this->tags = Attributes::get_tags();
+        $this->tabs = Attributes::get_tabs();
+        $this->attributes = Attributes::get_attributes();
+        $this->manufacturers_taxonomy = Attributes::get_manufacturers();
+        $this->models_taxonomy = Attributes::get_models();
+        $this->sound_systems_taxonomy = Attributes::get_sound_systems();
+        $this->vehicle_classes_taxonomy = Attributes::get_classes();
+        $this->added_features_taxonomy = Attributes::get_features();
+        $this->drivetrains_taxonomy = Attributes::get_drivetrains();
+        $this->inventory_status_taxonomy = Attributes::get_inventory_statuses();
+        $this->custom_options = Attributes::get_custom_options();
     }
 
     /**
      * Gets all current categories, and returns them as an associative array
      * @return array
      */
-    private static function chimera_get_categories()
+    private static function get_categories()
     {
         $categories = array();
         $category_list = get_categories([
@@ -206,7 +206,7 @@ class Attributes
      * Gets all current tags, and returns them as an associative array
      * @return array
      */
-    private static function chimera_get_tags()
+    private static function get_tags()
     {
         $tags = array();
         $tag_list = get_tags([
@@ -225,7 +225,7 @@ class Attributes
      * string [term name] => int id
      * @return array
      */
-    private static function chimera_get_attributes()
+    private static function get_attributes()
     {
         $attributes = array();
         $attr_list = wc_get_attribute_taxonomies();
@@ -258,7 +258,7 @@ class Attributes
      * Gets all terms in the manufacturers taxonomy, and returns them as an associative array
      * @return array
      */
-    private static function chimera_get_manufacturers()
+    private static function get_manufacturers()
     {
         $manufacturers_taxonomy = array();
         $manufacturers = get_terms([
@@ -275,7 +275,7 @@ class Attributes
      * Gets all terms in the models taxonomy, and returns them as an associative array
      * @return array
      */
-    private static function chimera_get_models()
+    private static function get_models()
     {
         $models_taxonomy = array();
         $models = get_terms([
@@ -292,7 +292,7 @@ class Attributes
      * Gets all terms in the models taxonomy, and returns them as an associative array
      * @return array
      */
-    private static function chimera_get_classes()
+    private static function get_classes()
     {
         $classes_taxonomy = array();
         $classes = get_terms([
@@ -309,7 +309,7 @@ class Attributes
      * Gets all terms in the added features taxonomy, and returns them as an associative array
      * @return array
      */
-    private static function chimera_get_features()
+    private static function get_features()
     {
         $features_taxonomy = array();
         $features = get_terms([
@@ -326,7 +326,7 @@ class Attributes
      * Gets all terms in the sound systems taxonomy, and returns them as an associative array
      * @return array
      */
-    private static function chimera_get_sound_systems()
+    private static function get_sound_systems()
     {
         $sound_systems_taxonomy = array();
         $sound_systems = get_terms([
@@ -343,7 +343,7 @@ class Attributes
      * Gets all terms in the drivetrain taxonomy, and returns them as an associative array
      * @return array
      */
-    private static function chimera_get_drivetrains()
+    private static function get_drivetrains()
     {
         $drivetrain_taxonomy = array();
         $drivetrains = get_terms([
@@ -360,7 +360,7 @@ class Attributes
      * Gets all terms in the drivetrain taxonomy, and returns them as an associative array
      * @return array
      */
-    private static function chimera_get_inventory_statuses()
+    private static function get_inventory_statuses()
     {
         $inventory_status_taxonomy = array();
         $statuses = get_terms([
@@ -377,7 +377,7 @@ class Attributes
      * Gets all saved custom tabs, and returns them as an associative array
      * @return array
      */
-    private static function chimera_get_tabs() {
+    private static function get_tabs() {
         $tabs = array();
         $saved_tabs = get_option( 'yikes_woo_reusable_products_tabs' );
         foreach($saved_tabs as $tab) {
@@ -394,7 +394,7 @@ class Attributes
      * Gets all saved custom options, and returns them as an associative array
      * @return array
      */
-    private static function chimera_get_custom_options() {
+    private static function get_custom_options() {
         $options_list = array();
         $options = get_posts([
             'post_type' => 'wcpa_pt_forms',
@@ -406,7 +406,7 @@ class Attributes
         return $options_list;
     }
 
-    private static function chimera_categories_sanitize(string $response) {
+    private static function categories_sanitize(string $response) {
         $bom = pack('H*','EFBBBF');
         
         $response = preg_replace("/^$bom/", '', $response);
@@ -425,7 +425,7 @@ class Attributes
         return $response;
     }
 
-    private static function chimera_tags_sanitize(string $response) {
+    private static function tags_sanitize(string $response) {
         $response = preg_replace('/\\\u00ae/', '®', $response);
         $response = stripcslashes($response);
         $response = preg_replace('/[[:cntrl:]]/', '', $response);

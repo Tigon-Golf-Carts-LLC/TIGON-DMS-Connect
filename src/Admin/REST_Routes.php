@@ -1,12 +1,12 @@
 <?php
 
-namespace Tigon\Chimera\Admin;
+namespace Tigon\DmsConnect\Admin;
 
 use Automattic\WooCommerce\Blocks\Utils\Utils;
 use ErrorException;
-use Tigon\Chimera\Admin\Used\Cart as UsedCart;
-use Tigon\Chimera\Admin\New\Cart as NewCart;
-use Tigon\Chimera\Includes\Utilities;
+use Tigon\DmsConnect\Admin\Used\Cart as UsedCart;
+use Tigon\DmsConnect\Admin\New\Cart as NewCart;
+use Tigon\DmsConnect\Includes\Utilities;
 use WP_Error;
 use WP_REST_Response;
 
@@ -69,14 +69,14 @@ class REST_Routes
 
 
             if ($converted->get_value('method') == 'create' && $converted) {
-                $result = \Tigon\Chimera\Admin\REST_Import_Controller::import_create($converted);
+                $result = \Tigon\DmsConnect\Admin\REST_Import_Controller::import_create($converted);
                 if (is_wp_error($result)) return $result;
 
                 $result = json_decode($result, true);
                 $code = 201;
                 $message = 'Cart has been created';
             } else if ($converted->get_value('method') == 'update' && $converted) {
-                $result = \Tigon\Chimera\Admin\REST_Import_Controller::import_update($converted);
+                $result = \Tigon\DmsConnect\Admin\REST_Import_Controller::import_update($converted);
                 $code = 200;
                 $message = 'Cart has been updated';
             } else
@@ -129,7 +129,7 @@ class REST_Routes
             array_push($images, $featured);
             array_push($images, $monroney);
 
-            $result = \Tigon\Chimera\Admin\REST_Import_Controller::import_delete(new Database_Object(id: $request['pid']));
+            $result = \Tigon\DmsConnect\Admin\REST_Import_Controller::import_delete(new Database_Object(id: $request['pid']));
             if (isset($result['errors'])) {
                 $code = 500;
                 $message = $result;
@@ -171,7 +171,7 @@ class REST_Routes
         require_once(ABSPATH . 'wp-admin/includes/image.php');
         $processed_request = (is_object($request) && get_class($request) == 'WP_REST_Request') ? json_decode($request->get_body(), true) : $request;
         if (isset($processed_request['_id']) && isset($processed_request['pid']) && (isset($processed_request['vinNo']) || isset($processed_request['serialNo']))) {
-            $result = \Tigon\Chimera\Admin\REST_Import_Controller::replace_new($processed_request);
+            $result = \Tigon\DmsConnect\Admin\REST_Import_Controller::replace_new($processed_request);
             REST_Import_Controller::process_post_import();
             return $result;
         } else
@@ -188,7 +188,7 @@ class REST_Routes
     {
         $processed_request = (is_object($request) && get_class($request) == 'WP_REST_Request') ? json_decode($request->get_body(), true) : $request;
         if (isset($request['advertising']['websiteUrl'])) {
-            $result = \Tigon\Chimera\Admin\REST_Import_Controller::import_new($processed_request);
+            $result = \Tigon\DmsConnect\Admin\REST_Import_Controller::import_new($processed_request);
             REST_Import_Controller::process_post_import();
             return $result;
         } else
@@ -244,7 +244,7 @@ class REST_Routes
                     return new \WP_Error('Bad Request', 'Invalid showcase name', $processed_request['key']);
             }
 
-            $result = \Tigon\Chimera\Admin\REST_Product_Grid_Controller::set(
+            $result = \Tigon\DmsConnect\Admin\REST_Product_Grid_Controller::set(
                 landing_page: $landing_page,
                 archive: $archive,
                 data: $processed_request['data'],

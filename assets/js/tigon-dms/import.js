@@ -12,7 +12,7 @@ jQuery(document).ready(() => {
             type: "post",
             dataType: "json",
             url: global.ajaxurl,
-            data: { action: "chimera_dms_query", query: query, endpoint: endpoint }
+            data: { action: "tigon_dms_query", query: query, endpoint: endpoint }
         });
 
         dmsQuery.then(cartList => {
@@ -30,8 +30,8 @@ jQuery(document).ready(() => {
         jQuery(".input-list").prop("disabled", checked);
     });
 
-    jQuery(".chimera_action").click(e => {
-        jQuery(".chimera_action button").prop('disabled', true);
+    jQuery(".tigon_dms_action").click(e => {
+        jQuery(".tigon_dms_action button").prop('disabled', true);
         jQuery("#progress-bar").width(0);
         jQuery("#result-separator").attr('style', 'display:none;');
         jQuery("#result").html('');
@@ -43,7 +43,7 @@ jQuery(document).ready(() => {
             type: "post",
             dataType: "json",
             url: global.ajaxurl,
-            data: { action: "chimera_post_import", query: query, endpoint: endpoint }
+            data: { action: "tigon_dms_post_import", query: query, endpoint: endpoint }
         });
     }
 
@@ -60,13 +60,13 @@ jQuery(document).ready(() => {
             return jQuery.ajax({
                 dataType: 'json',
                 url: global.ajaxurl,
-                data: { action: "chimera_ajax_import_convert", data: JSON.stringify(targetCart) }
+                data: { action: "tigon_dms_ajax_import_convert", data: JSON.stringify(targetCart) }
             })
                 .catch(e => {
                     console.log(e);
                 })
                 .then(convertedCart => {
-                    convertedCart = unserialize(convertedCart.data, {'Tigon\\Chimera\\Admin\\Database_Object': Database_Object});
+                    convertedCart = unserialize(convertedCart.data, {'Tigon\\DmsConnect\\Admin\\Database_Object': Database_Object});
                     if(convertedCart.hasOwnProperty("data")) {
                         convertedCart.data._id = _id;
                     }
@@ -83,7 +83,7 @@ jQuery(document).ready(() => {
                 type: "post",
                 dataType: 'json',
                 url: global.ajaxurl,
-                data: { action: "chimera_ajax_import_create", data: targetCart }
+                data: { action: "tigon_dms_ajax_import_create", data: targetCart }
             })
                 .then(createdCart => {
                     count++;
@@ -101,7 +101,7 @@ jQuery(document).ready(() => {
                 type: "post",
                 dataType: 'json',
                 url: global.ajaxurl,
-                data: { action: "chimera_ajax_import_update", data: targetCart }
+                data: { action: "tigon_dms_ajax_import_update", data: targetCart }
             })
                 .then(updatedCart => {
                     count++;
@@ -119,7 +119,7 @@ jQuery(document).ready(() => {
                 type: "post",
                 dataType: 'json',
                 url: global.ajaxurl,
-                data: { action: "chimera_ajax_import_delete", data: targetCart }
+                data: { action: "tigon_dms_ajax_import_delete", data: targetCart }
             })
                 .then(deletedCart => {
                     count++;
@@ -146,7 +146,7 @@ jQuery(document).ready(() => {
                 else if (serial) query = '{"serialNo":"' + serial + '"}';
                 else {
                     jQuery("#progress-text").html('No Cart Selected');
-                    jQuery(".chimera_action button").prop('disabled', false);
+                    jQuery(".tigon_dms_action button").prop('disabled', false);
                     return;
                 }
             }
@@ -156,7 +156,7 @@ jQuery(document).ready(() => {
                 type: "post",
                 dataType: "json",
                 url: global.ajaxurl,
-                data: { action: "chimera_dms_query", query: query, endpoint: endpoint }
+                data: { action: "tigon_dms_query", query: query, endpoint: endpoint }
             });
 
             // Create array of convert promises, return Promise.all of array
@@ -187,7 +187,7 @@ jQuery(document).ready(() => {
             processedCartPromises.forEach(processedCartPromise => {
                 if(processedCartPromise.status == "fulfilled") {
                     let processedCart = processedCartPromise.value;
-                    let serializedCart = serialize(processedCart, {'Tigon\\Chimera\\Admin\\Database_Object': Database_Object});
+                    let serializedCart = serialize(processedCart, {'Tigon\\DmsConnect\\Admin\\Database_Object': Database_Object});
                     if (processedCart.data.method == "create" && !processedCart.data.posts.hasOwnProperty("ID")) {
                         createRequests.push(createCart(serializedCart));
                     } else if (processedCart.data.method == "update" && processedCart.data.posts.hasOwnProperty("ID")) {
@@ -211,10 +211,10 @@ jQuery(document).ready(() => {
         allImported.catch(response => {
             jQuery("#progress-text").html('Import Complete');
             jQuery("#progress-bar").width('100%');
-            jQuery(".chimera_action button").prop('disabled', false);
+            jQuery(".tigon_dms_action button").prop('disabled', false);
             jQuery("#result-separator").attr('style', 'display:block;');
             jQuery("#result").html('Error');
-            jQuery(".chimera_action button").prop('disabled', false);
+            jQuery(".tigon_dms_action button").prop('disabled', false);
         });
 
         // Display import results
@@ -250,7 +250,7 @@ jQuery(document).ready(() => {
             let ids = { "create": createIds.toString(), "update": updateIds.toString(), "delete": deleteIds.toString() };
             jQuery("#progress-text").html('Import Complete');
             jQuery("#progress-bar").width('100%');
-            jQuery(".chimera_action button").prop('disabled', false);
+            jQuery(".tigon_dms_action button").prop('disabled', false);
             jQuery("#result-separator").attr('style', 'display:block;');
             jQuery("#result").html(`
                 <div class="result-item">
@@ -280,7 +280,7 @@ jQuery(document).ready(() => {
                 dataType: "json",
                 url: global.ajaxurl,
                 data: {
-                    action: "chimera_ajax_import_new",
+                    action: "tigon_dms_ajax_import_new",
                     data: JSON.stringify(data),
                     forced: JSON.stringify(forcedFields)
                 }
@@ -297,7 +297,7 @@ jQuery(document).ready(() => {
             type: "post",
             dataType: "json",
             url: global.ajaxurl,
-            data: { action: "chimera_dms_query", query: query, endpoint: endpoint }
+            data: { action: "tigon_dms_query", query: query, endpoint: endpoint }
         });
 
         let allImported = dmsQuery.then(dmsCarts => {
@@ -347,7 +347,7 @@ jQuery(document).ready(() => {
             });
             jQuery("#progress-text").html('Import Complete');
             jQuery("#progress-bar").width('100%');
-            jQuery(".chimera_action button").prop('disabled', false);
+            jQuery(".tigon_dms_action button").prop('disabled', false);
             jQuery("#result-separator").attr('style', 'display:block;');
             jQuery("#result").html(`
                 <div class="result-item">
@@ -359,14 +359,14 @@ jQuery(document).ready(() => {
     });
 
     jQuery("#used-tab").click(e => {
-        jQuery(".chimera-tab").removeClass("active");
+        jQuery(".tigon-dms-tab").removeClass("active");
         jQuery("#used-tab").addClass("active");
         jQuery(".tabbed-panel .action-box").attr('style', 'display:none;');
         jQuery("#used-panel").attr('style', 'display:flex;');
     });
 
     jQuery("#new-tab").click(e => {
-        jQuery(".chimera-tab").removeClass("active");
+        jQuery(".tigon-dms-tab").removeClass("active");
         jQuery("#new-tab").addClass("active");
         jQuery(".tabbed-panel .action-box").attr('style', 'display:none;');
         jQuery("#new-panel").attr('style', 'display:flex;');

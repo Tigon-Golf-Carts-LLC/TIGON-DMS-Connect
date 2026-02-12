@@ -2,7 +2,7 @@
 /**
  * Single Cart Detail Page Template
  *
- * @package DMS_Bridge
+ * @package Tigon_DMS_Connect
  */
 
 if (!defined('ABSPATH')) {

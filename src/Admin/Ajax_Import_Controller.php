@@ -1,11 +1,11 @@
 <?php
 
-namespace Tigon\Chimera\Admin;
+namespace Tigon\DmsConnect\Admin;
 
-use Tigon\Chimera\Includes\Product_Fields;
-use Tigon\Chimera\Admin\Database_Write_Controller;
+use Tigon\DmsConnect\Includes\Product_Fields;
+use Tigon\DmsConnect\Admin\Database_Write_Controller;
 
-abstract class Ajax_Import_Controller extends \Tigon\Chimera\Abstracts\Abstract_Import_Controller
+abstract class Ajax_Import_Controller extends \Tigon\DmsConnect\Abstracts\Abstract_Import_Controller
 {
     private function __construct()
     {
@@ -26,7 +26,7 @@ abstract class Ajax_Import_Controller extends \Tigon\Chimera\Abstracts\Abstract_
             $endpoint = stripcslashes($_REQUEST['endpoint']);
             $query = stripcslashes($_REQUEST['query']);
 
-            echo \Tigon\Chimera\Includes\DMS_Connector::request($query, $endpoint, 'POST');
+            echo \Tigon\DmsConnect\Includes\DMS_Connector::request($query, $endpoint, 'POST');
         } else {
             header("Location: " . $_SERVER["HTTP_REFERER"]);
         }
@@ -79,7 +79,7 @@ abstract class Ajax_Import_Controller extends \Tigon\Chimera\Abstracts\Abstract_
                 } else $a_array['pid'] = null;
             }
 
-            $used_cart = new \Tigon\Chimera\Admin\Used\Cart($a_array);
+            $used_cart = new \Tigon\DmsConnect\Admin\Used\Cart($a_array);
 
             $data = $used_cart->convert();
 
@@ -108,7 +108,7 @@ abstract class Ajax_Import_Controller extends \Tigon\Chimera\Abstracts\Abstract_
             // convert_to_import accepts associative array
             $a_array = json_decode($stripped, true);
 
-            $new_cart = new \Tigon\Chimera\Admin\New\Cart($a_array);
+            $new_cart = new \Tigon\DmsConnect\Admin\New\Cart($a_array);
 
             $data = $new_cart->convert();
 
@@ -159,7 +159,7 @@ abstract class Ajax_Import_Controller extends \Tigon\Chimera\Abstracts\Abstract_
                 ]
             ]);
 
-            \Tigon\Chimera\Includes\DMS_Connector::request($pid_request, '/chimera/carts', 'PUT');
+            \Tigon\DmsConnect\Includes\DMS_Connector::request($pid_request, '/chimera/carts', 'PUT');
         } else {
             header("Location: " . $_SERVER["HTTP_REFERER"]);
         }
@@ -176,7 +176,7 @@ abstract class Ajax_Import_Controller extends \Tigon\Chimera\Abstracts\Abstract_
     {
 
         // update_item returns associative array, client wants JSON
-        return json_encode(\Tigon\Chimera\Admin\Database_Write_Controller::update_from_database_object($data));
+        return json_encode(\Tigon\DmsConnect\Admin\Database_Write_Controller::update_from_database_object($data));
     }
     // Ajax wrapper for above
     public static function ajax_import_update()
@@ -207,7 +207,7 @@ abstract class Ajax_Import_Controller extends \Tigon\Chimera\Abstracts\Abstract_
                 ]
             ]);
 
-            \Tigon\Chimera\Includes\DMS_Connector::request($pid_request, '/chimera/carts', 'PUT');
+            \Tigon\DmsConnect\Includes\DMS_Connector::request($pid_request, '/chimera/carts', 'PUT');
         } else {
             header("Location: " . $_SERVER["HTTP_REFERER"]);
         }
@@ -262,7 +262,7 @@ abstract class Ajax_Import_Controller extends \Tigon\Chimera\Abstracts\Abstract_
             $result = Ajax_Import_Controller::import_new($data, $forced_fields);
             echo json_encode($result);
             if(is_wp_error($result)) {
-                error_log('Chimera Fatal error: ' . json_encode($result));
+                error_log('Tigon DMS Connect error: ' . json_encode($result));
                 exit;
             }
 
@@ -275,7 +275,7 @@ abstract class Ajax_Import_Controller extends \Tigon\Chimera\Abstracts\Abstract_
                 "seatColor": "' . $data['cartAttributes']['seatColor'] . '",
                 "locationId": "' . $data['cartLocation']['locationId'] . '"
             }';
-            $new_pids = \Tigon\Chimera\Includes\DMS_Connector::request($dms_filter, '/chimera/lookup', 'POST');
+            $new_pids = \Tigon\DmsConnect\Includes\DMS_Connector::request($dms_filter, '/chimera/lookup', 'POST');
             $new_pids = json_decode($new_pids, true);
 
             $new_pids = array_map(function($cart) use ($result) {
@@ -286,11 +286,11 @@ abstract class Ajax_Import_Controller extends \Tigon\Chimera\Abstracts\Abstract_
                 return $query;
             }, $new_pids);
 
-            \Tigon\Chimera\Includes\DMS_Connector::request('['.implode(',', $new_pids).']', '/chimera/carts', 'PUT');
+            \Tigon\DmsConnect\Includes\DMS_Connector::request('['.implode(',', $new_pids).']', '/chimera/carts', 'PUT');
 
             // Update oldPid if set
             if($result['oldPid']) {
-                $update_pids = json_decode(\Tigon\Chimera\Includes\DMS_Connector::request($result['dmsSelector'], '/chimera/lookup', 'POST'), true);
+                $update_pids = json_decode(\Tigon\DmsConnect\Includes\DMS_Connector::request($result['dmsSelector'], '/chimera/lookup', 'POST'), true);
 
                 $update_pids = array_map(function($cart) use ($result) {
                     $query = '{
@@ -303,7 +303,7 @@ abstract class Ajax_Import_Controller extends \Tigon\Chimera\Abstracts\Abstract_
                     return $query;
                 }, $update_pids);
 
-                \Tigon\Chimera\Includes\DMS_Connector::request('['.implode(',', $update_pids).']', '/chimera/carts', 'PUT');
+                \Tigon\DmsConnect\Includes\DMS_Connector::request('['.implode(',', $update_pids).']', '/chimera/carts', 'PUT');
             }
         } else {
             header("Location: " . $_SERVER["HTTP_REFERER"]);

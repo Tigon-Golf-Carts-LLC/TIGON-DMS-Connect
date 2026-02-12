@@ -28,7 +28,7 @@ jQuery(document).ready(() => {
     var dmsProps = jQuery.ajax({
         dataType: 'json',
         url: global.ajaxurl,
-        data: { action: "chimera_get_dms_props" },
+        data: { action: "tigon_dms_get_dms_props" },
         complete: function(res) {
             jQuery("#dms-schema").html(res.responseText);
             jQuery(".caret").click(e => {
@@ -50,8 +50,8 @@ jQuery(document).ready(() => {
         }
     });
 
-    jQuery(".chimera_save").click(e => {
-        jQuery(".chimera_action button").prop('disabled', true);
+    jQuery(".tigon_dms_save").click(e => {
+        jQuery(".tigon_dms_action button").prop('disabled', true);
         var settings = {
             "github_token": jQuery("#txt-github-token").val(),
             "dms_url": jQuery("#txt-url").val(),
@@ -62,7 +62,7 @@ jQuery(document).ready(() => {
         jQuery.ajax({
             dataType: 'json',
             url: global.ajaxurl,
-            data: { action: "chimera_save_settings", data: settings }
+            data: { action: "tigon_dms_save_settings", data: settings }
         }).then(response => {
             location.reload();
         });
@@ -85,7 +85,7 @@ jQuery(document).ready(() => {
 
 
     jQuery("#general-tab").click(e => {
-        jQuery(".chimera-tab").removeClass("active");
+        jQuery(".tigon-dms-tab").removeClass("active");
         jQuery("#general-tab").addClass("active");
         jQuery(".tabbed-panel .action-box").attr('style', 'display:none;');
         jQuery("#general").attr('style', 'display:flex;');
@@ -95,7 +95,7 @@ jQuery(document).ready(() => {
 
 
     jQuery("#schema-tab").click(e => {
-        jQuery(".chimera-tab").removeClass("active");
+        jQuery(".tigon-dms-tab").removeClass("active");
         jQuery("#schema-tab").addClass("active");
         jQuery(".tabbed-panel .action-box").attr('style', 'display:none;');
         jQuery("#schema").attr('style', 'display:flex;');

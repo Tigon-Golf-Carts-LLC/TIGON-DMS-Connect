@@ -1,10 +1,10 @@
 <?php
 
-namespace Tigon\Chimera\Admin\Used;
+namespace Tigon\DmsConnect\Admin\Used;
 
 use WP_Error;
 
-class Cart extends \Tigon\Chimera\Abstracts\Abstract_Cart
+class Cart extends \Tigon\DmsConnect\Abstracts\Abstract_Cart
 {
     /**
      * Check if input cart is valid

@@ -1,6 +1,6 @@
 <?php
 
-namespace Tigon\Chimera\Admin;
+namespace Tigon\DmsConnect\Admin;
 
 class Ajax_Settings_Controller
 {
@@ -13,7 +13,7 @@ class Ajax_Settings_Controller
         if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
             header("Content-Type: application/json; charset=utf-8", true);
             global $wpdb;
-            $table_name = $wpdb->prefix . 'chimera_config';
+            $table_name = $wpdb->prefix . 'tigon_dms_config';
 
            // Data from AJAX request
             // AJAX produces unwanted slashes

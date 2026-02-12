@@ -1,6 +1,6 @@
 <?php
 
-namespace Tigon\Chimera\Admin;
+namespace Tigon\DmsConnect\Admin;
 
 final class Database_Write_Controller {
     protected static function write_database_object(Database_Object $database_object) : int {
@@ -57,8 +57,8 @@ final class Database_Write_Controller {
     public static function create_from_database_object(Database_Object $database_object) {
         if ( ! empty( $database_object->get_value('posts', 'ID') ) ) {
             return new \WP_Error(
-                "chimera_rest_{$database_object->get_value('posts', 'post_type')}_exists",
-                sprintf( __( 'Cannot create existing %s.', 'chimera' ), $database_object->get_value('posts', 'post_type') ),
+                "tigon_dms_rest_{$database_object->get_value('posts', 'post_type')}_exists",
+                sprintf( __( 'Cannot create existing %s.', 'tigon-dms-connect' ), $database_object->get_value('posts', 'post_type') ),
                 array( 'status' => 400 )
             );
         }
@@ -68,8 +68,8 @@ final class Database_Write_Controller {
             return ['pid' => $result, 'onWebsite' => true, 'websiteUrl' => get_permalink($result)];
         }
         return new \WP_Error(
-            "chimera_rest_{$database_object->get_value('posts', 'post_type')}_db_write_failure",
-            sprintf( __( 'failed to write %s to database.', 'chimera' ), $database_object->get_value('posts', 'post_type') ),
+            "tigon_dms_rest_{$database_object->get_value('posts', 'post_type')}_db_write_failure",
+            sprintf( __( 'failed to write %s to database.', 'tigon-dms-connect' ), $database_object->get_value('posts', 'post_type') ),
             array( 'status' => 400 )
         );
     }
@@ -87,8 +87,8 @@ final class Database_Write_Controller {
             return ['pid' => $result, 'onWebsite' => true, 'websiteUrl' => get_permalink($result)];
         }
         return new \WP_Error(
-            "chimera_rest_{$database_object->get_value('posts', 'post_type')}_db_write_failure",
-            sprintf( __( 'failed to write %s to database.', 'chimera' ), $database_object->get_value('posts', 'post_type') ),
+            "tigon_dms_rest_{$database_object->get_value('posts', 'post_type')}_db_write_failure",
+            sprintf( __( 'failed to write %s to database.', 'tigon-dms-connect' ), $database_object->get_value('posts', 'post_type') ),
             array( 'status' => 400 )
         );
     }
@@ -102,8 +102,8 @@ final class Database_Write_Controller {
 
         if ( empty( $id ) || empty( $post->ID )) {
 			return new \WP_Error(
-                "chimera_rest_invalid_id",
-                __( 'ID is invalid.', 'chimera' ),
+                "tigon_dms_rest_invalid_id",
+                __( 'ID is invalid.', 'tigon-dms-connect' ),
                 array( 'status' => 404 )
             );
 		}

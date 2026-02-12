@@ -1,6 +1,6 @@
 <?php
 
-namespace Tigon\Chimera\Includes;
+namespace Tigon\DmsConnect\Includes;
 
 use Automattic\WooCommerce\Admin\API\Reports\Categories\Query;
 use WP_Query;
@@ -9,7 +9,7 @@ class Product_Archive_Extension
 {
     public static function get_list_from_db($location_code, $manufacturer_code) {
         global $wpdb;
-        $table_name = $wpdb->prefix . 'chimera_cart_lists';
+        $table_name = $wpdb->prefix . 'tigon_dms_cart_lists';
 
         if(!$manufacturer_code) {
             return array_merge(
@@ -32,7 +32,7 @@ class Product_Archive_Extension
         $orderby = $_REQUEST['pf_filters'][$_REQUEST['pf_id'] ?? null]['orderby'] ?? null;
         if ( isset( $_REQUEST['pf_id'] ) && isset($orderby) ) {
             if ( $orderby == 'price' || $orderby == 'price-desc' ) {
-                add_filter( 'posts_clauses', 'Tigon\Chimera\Includes\Product_Archive_Extension::modify_posts_clauses',999999,2 );                
+                add_filter( 'posts_clauses', 'Tigon\DmsConnect\Includes\Product_Archive_Extension::modify_posts_clauses',999999,2 );                
             }
         } 
     }

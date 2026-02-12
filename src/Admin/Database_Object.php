@@ -1,6 +1,6 @@
 <?php
 
-namespace Tigon\Chimera\Admin;
+namespace Tigon\DmsConnect\Admin;
 
 class Database_Object
 {
@@ -258,7 +258,7 @@ class Database_Object
     }
 
     public function get_value(...$path) : mixed {
-        return \Tigon\Chimera\Includes\Utilities::array_access($this->data, ...$path);
+        return \Tigon\DmsConnect\Includes\Utilities::array_access($this->data, ...$path);
     }
     
     /**

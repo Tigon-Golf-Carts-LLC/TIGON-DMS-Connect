@@ -1,9 +1,9 @@
 <?php
 
-namespace Tigon\Chimera\Admin;
+namespace Tigon\DmsConnect\Admin;
 
-use Tigon\Chimera\Includes\DMS_Connector;
-use Tigon\Chimera\Includes\Product_Fields;
+use Tigon\DmsConnect\Includes\DMS_Connector;
+use Tigon\DmsConnect\Includes\Product_Fields;
 
 class Admin_Page
 {
@@ -13,19 +13,19 @@ class Admin_Page
     }
 
     /**
-     * Add Chimera to Admin Sidebar
+     * Add Tigon DMS Connect to Admin Sidebar
      * @return void
      */
     public static function add_menu_page()
     {
-        $svg = file_get_contents(DMS_BRIDGE_PLUGIN_DIR . 'assets/images/tigondb.svg');
+        $svg = file_get_contents(TIGON_DMS_PLUGIN_DIR . 'assets/images/tigondb.svg');
         $data_uri = 'data:image/svg+xml;base64,' . base64_encode($svg);
 
-        $page_title = "Chimera";
-        $menu_title = "Chimera";
+        $page_title = "Tigon DMS Connect";
+        $menu_title = "DMS Connect";
         $capability = "manage_options";
-        $menu_slug = "chimera";
-        $callback = 'Tigon\Chimera\Admin\Admin_Page::diagnostic_page';
+        $menu_slug = "tigon-dms-connect";
+        $callback = 'Tigon\DmsConnect\Admin\Admin_Page::diagnostic_page';
         $icon_url = $data_uri;
         $position = 55;
         add_menu_page($page_title, $menu_title, $capability, $menu_slug, $callback, $icon_url, $position);
@@ -34,32 +34,32 @@ class Admin_Page
     }
 
     /**
-     * Add Chimera > Import submenu
+     * Add Import submenu
      * @return void
      */
     public static function add_import_page()
     {
-        $parent_slug = "chimera";
-        $page_title = "Chimera Import";
+        $parent_slug = "tigon-dms-connect";
+        $page_title = "Tigon DMS Import";
         $menu_title = "Import";
         $capability = "manage_options";
         $menu_slug = "import";
-        $callback = 'Tigon\Chimera\Admin\Admin_Page::import_page';
+        $callback = 'Tigon\DmsConnect\Admin\Admin_Page::import_page';
         add_submenu_page($parent_slug, $page_title, $menu_title, $capability, $menu_slug, $callback);
     }
 
     /**
-     * Add Chimera > Settings submenu
+     * Add Settings submenu
      * @return void
      */
     public static function add_settings_page()
     {
-        $parent_slug = "chimera";
-        $page_title = "Chimera Settings";
+        $parent_slug = "tigon-dms-connect";
+        $page_title = "Tigon DMS Settings";
         $menu_title = "Settings";
         $capability = "manage_options";
         $menu_slug = "settings";
-        $callback = 'Tigon\Chimera\Admin\Admin_Page::settings_page';
+        $callback = 'Tigon\DmsConnect\Admin\Admin_Page::settings_page';
         add_submenu_page($parent_slug, $page_title, $menu_title, $capability, $menu_slug, $callback);
     }
 
@@ -77,8 +77,8 @@ class Admin_Page
         <style>' . $css . '</style>
 
         <div class="header">
-            <span class="chimera-icon">' . $svg . '</span>
-            <h1>Chimera - Tigon DMS Connection Tool</h1>
+            <span class="tigon-dms-icon">' . $svg . '</span>
+            <h1>Tigon DMS Connect</h1>
         </div>';
     }
 
@@ -312,20 +312,20 @@ class Admin_Page
 
     public static function import_page()
     {
-        $nonce = wp_create_nonce("chimera_run_import_nonce");
-        $link = admin_url('admin-ajax.php?action=chimera_run_import&nonce=' . $nonce);
+        $nonce = wp_create_nonce("tigon_dms_run_import_nonce");
+        $link = admin_url('admin-ajax.php?action=tigon_dms_run_import&nonce=' . $nonce);
 
         self::page_header();
 
         echo '
         <div class="body">
             <!--<div class="action-box" style="flex-direction:row;">
-                <a id="new" class="chimera_action chimera_import" data-nonce="' . $nonce . '" href="' . $link . '"><button>Import New Carts</button></a>
+                <a id="new" class="tigon_dms_action tigon_dms_import" data-nonce="' . $nonce . '" href="' . $link . '"><button>Import New Carts</button></a>
             </div>-->
             <div class="tabbed-panel">
-                <div class="chimera-nav" style="flex-direction:row;">
-                    <button class="chimera-tab active" id="used-tab">Used Carts</button>
-                    <button class="chimera-tab" id="new-tab">New Carts</button>
+                <div class="tigon-dms-nav" style="flex-direction:row;">
+                    <button class="tigon-dms-tab active" id="used-tab">Used Carts</button>
+                    <button class="tigon-dms-tab" id="new-tab">New Carts</button>
                 </div>
 
                 <div class="action-box" id="used-panel">
@@ -357,7 +357,7 @@ class Admin_Page
                     <div class="action-box-column">
                         <h3>Import Used Cart Data from DMS</h3>
                         <div id="warning" class="warning"><i>This process may take several minutes. This should only be done in the case that a large portion of the inventory is missing or outdated.</i></div>
-                        <a id="used" class="chimera_action chimera_import" data-nonce="' . $nonce . '" href="' . $link . '"><button>Import Selected</button></a>
+                        <a id="used" class="tigon_dms_action tigon_dms_import" data-nonce="' . $nonce . '" href="' . $link . '"><button>Import Selected</button></a>
                     </div>
                 </div>
 
@@ -365,7 +365,7 @@ class Admin_Page
                     <div class="action-box-column" style="max-width:28rem; align-self:unset">
                         <h3>Import New Cart Data from DMS</h3>
                         <div class="warning"><i>This process may take several minutes. This should only be done in the case that a large portion of the inventory is missing or outdated.</i></div>
-                        <a id="new" class="chimera_action chimera_import" data-nonce="' . $nonce . '" href="' . $link . '"><button>Import All</button></a>
+                        <a id="new" class="tigon_dms_action tigon_dms_import" data-nonce="' . $nonce . '" href="' . $link . '"><button>Import All</button></a>
                     </div>
 
                     <div class="action-box-column">
@@ -386,8 +386,8 @@ class Admin_Page
 
     public static function settings_page()
     {
-        $nonce = wp_create_nonce("chimera_run_import_nonce");
-        $link = admin_url('admin-ajax.php?action=chimera_save_settings&nonce=' . $nonce);
+        $nonce = wp_create_nonce("tigon_dms_run_import_nonce");
+        $link = admin_url('admin-ajax.php?action=tigon_dms_save_settings&nonce=' . $nonce);
 
         $dms_url = 'dms.com';
         $api_key = 'key';
@@ -396,7 +396,7 @@ class Admin_Page
         global $wpdb;
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
 
-        $table_name = $wpdb->prefix . 'chimera_config';
+        $table_name = $wpdb->prefix . 'tigon_dms_config';
 
         $github_token = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'github_token'") ?? 'e.g. github_pat_...';
         $github_token = substr($github_token, 0, 16) . '•••••••••••••••' . substr($github_token, -5);
@@ -422,9 +422,9 @@ class Admin_Page
         echo '
         <div class="body">
             <div class="tabbed-panel">
-                <div class="chimera-nav" style="flex-direction:row;">
-                    <button class="chimera-tab" id="general-tab">General</button>
-                    <button class="chimera-tab" id="schema-tab">Schema</button>
+                <div class="tigon-dms-nav" style="flex-direction:row;">
+                    <button class="tigon-dms-tab" id="general-tab">General</button>
+                    <button class="tigon-dms-tab" id="schema-tab">Schema</button>
                 </div>
 
                 <div class="action-box" id="general">
@@ -447,7 +447,7 @@ class Admin_Page
                             <input type="text" style="float:right" id="txt-file-source" placeholder="' . $file_source . '"></textarea>
                         </div>
                     </div>
-                    <a id="save" class="chimera_action chimera_save" data-nonce="' . $nonce . '"><button>Save Settings</button></a>
+                    <a id="save" class="tigon_dms_action tigon_dms_save" data-nonce="' . $nonce . '"><button>Save Settings</button></a>
                 </div>
 
                 <div class="action-box" id="schema">
@@ -615,7 +615,7 @@ class Admin_Page
                             loading dms properties...
                         </div>
                     </div>
-                    <a id="save" class="chimera_action chimera_schema_save" data-nonce="' . $nonce . '"><button>Save Settings</button></a>
+                    <a id="save" class="tigon_dms_action tigon_dms_schema_save" data-nonce="' . $nonce . '"><button>Save Settings</button></a>
                 </div>
             </div>
                 </div>

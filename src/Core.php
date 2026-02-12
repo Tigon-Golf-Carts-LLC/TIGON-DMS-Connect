@@ -1,6 +1,6 @@
 <?php
 
-namespace Tigon\Chimera;
+namespace Tigon\DmsConnect;
 
 class Core
 {
@@ -10,65 +10,65 @@ class Core
     }
 
     /**
-     * Get the base URL for Chimera assets (within the unified DMS Bridge plugin)
+     * Get the base URL for admin assets
      * @return string
      */
     public static function asset_url()
     {
-        return DMS_BRIDGE_PLUGIN_URL . 'assets/js/chimera/';
+        return TIGON_DMS_PLUGIN_URL . 'assets/js/tigon-dms/';
     }
 
     /**
-     * Get the base CSS URL for Chimera assets
+     * Get the base CSS URL
      * @return string
      */
     public static function css_url()
     {
-        return DMS_BRIDGE_PLUGIN_URL . 'assets/css/';
+        return TIGON_DMS_PLUGIN_URL . 'assets/css/';
     }
 
     public static function init()
     {
         // Enqueue scripts
-        add_action('load-toplevel_page_chimera', 'Tigon\Chimera\Core::diagnostic_script_enqueue');
-        add_action('load-chimera_page_import', 'Tigon\Chimera\Core::import_script_enqueue');
-        add_action('load-chimera_page_settings', 'Tigon\Chimera\Core::settings_script_enqueue');
+        add_action('load-toplevel_page_tigon-dms-connect', 'Tigon\DmsConnect\Core::diagnostic_script_enqueue');
+        add_action('load-tigon-dms-connect_page_import', 'Tigon\DmsConnect\Core::import_script_enqueue');
+        add_action('load-tigon-dms-connect_page_settings', 'Tigon\DmsConnect\Core::settings_script_enqueue');
 
         // Register Ajax functions
-        add_action('wp_ajax_chimera_dms_query', 'Tigon\Chimera\Admin\Ajax_Import_Controller::query_dms');
-        add_action('wp_ajax_chimera_get_new_carts', 'Tigon\Chimera\Admin\New\New_Cart_Converter::generate_new_carts');
-        add_action('wp_ajax_chimera_ajax_import_convert', 'Tigon\Chimera\Admin\Ajax_Import_Controller::ajax_import_convert');
-        add_action('wp_ajax_chimera_ajax_new_import_convert', 'Tigon\Chimera\Admin\Ajax_Import_Controller::ajax_new_import_convert');
-        add_action('wp_ajax_chimera_ajax_import_create', 'Tigon\Chimera\Admin\Ajax_Import_Controller::ajax_import_create');
-        add_action('wp_ajax_chimera_ajax_import_update', 'Tigon\Chimera\Admin\Ajax_Import_Controller::ajax_import_update');
-        add_action('wp_ajax_chimera_ajax_import_delete', 'Tigon\Chimera\Admin\Ajax_Import_Controller::ajax_import_delete');
-        add_action('wp_ajax_chimera_ajax_import_new', 'Tigon\Chimera\Admin\Ajax_Import_Controller::ajax_import_new');
-        add_action('wp_ajax_chimera_save_settings', 'Tigon\Chimera\Admin\Ajax_Settings_Controller::save_settings');
-        add_action('wp_ajax_chimera_get_dms_props', 'Tigon\Chimera\Admin\Ajax_Settings_Controller::get_dms_props');
-        add_action('wp_ajax_chimera_post_import', 'Tigon\Chimera\Admin\Ajax_Import_Controller::process_post_import');
+        add_action('wp_ajax_tigon_dms_query', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::query_dms');
+        add_action('wp_ajax_tigon_dms_get_new_carts', 'Tigon\DmsConnect\Admin\New\New_Cart_Converter::generate_new_carts');
+        add_action('wp_ajax_tigon_dms_ajax_import_convert', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_convert');
+        add_action('wp_ajax_tigon_dms_ajax_new_import_convert', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_new_import_convert');
+        add_action('wp_ajax_tigon_dms_ajax_import_create', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_create');
+        add_action('wp_ajax_tigon_dms_ajax_import_update', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_update');
+        add_action('wp_ajax_tigon_dms_ajax_import_delete', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_delete');
+        add_action('wp_ajax_tigon_dms_ajax_import_new', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_new');
+        add_action('wp_ajax_tigon_dms_save_settings', 'Tigon\DmsConnect\Admin\Ajax_Settings_Controller::save_settings');
+        add_action('wp_ajax_tigon_dms_get_dms_props', 'Tigon\DmsConnect\Admin\Ajax_Settings_Controller::get_dms_props');
+        add_action('wp_ajax_tigon_dms_post_import', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::process_post_import');
 
-        // Add Chimera page
-        add_action('admin_menu', 'Tigon\Chimera\Admin\Admin_Page::add_menu_page');
+        // Add admin page
+        add_action('admin_menu', 'Tigon\DmsConnect\Admin\Admin_Page::add_menu_page');
 
         // Allow for automatic taxonomy updates
-        add_action('woocommerce_rest_insert_product_object', 'Tigon\Chimera\Core::update_taxonomy', 10, 3);
+        add_action('woocommerce_rest_insert_product_object', 'Tigon\DmsConnect\Core::update_taxonomy', 10, 3);
 
         // Register REST routes
-        add_action('rest_api_init', 'Tigon\Chimera\Core::register_rest_routes');
+        add_action('rest_api_init', 'Tigon\DmsConnect\Core::register_rest_routes');
 
         // Plugin Lifecycle Hooks - use the main DMS Bridge plugin file
-        register_activation_hook(DMS_BRIDGE_PLUGIN_DIR . 'dms-bridge-plugin.php', 'Tigon\Chimera\Core::install');
+        register_activation_hook(TIGON_DMS_PLUGIN_DIR . 'dms-bridge-plugin.php', 'Tigon\DmsConnect\Core::install');
 
         // Auto update through github
         if (is_admin()) {
             global $wpdb;
             require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-            $table_name = $wpdb->prefix . 'chimera_config';
+            $table_name = $wpdb->prefix . 'tigon_dms_config';
             // Only load updater if config table exists
             if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
                 $config = array(
                     'slug' => 'dms-bridge-plugin/dms-bridge-plugin.php',
-                    'proper_folder_name' => basename(DMS_BRIDGE_PLUGIN_DIR),
+                    'proper_folder_name' => basename(TIGON_DMS_PLUGIN_DIR),
                     'api_url' => 'https://api.github.com/repos/TigonGolfCarts/wordpress_connection',
                     'raw_url' => 'https://raw.github.com/TigonGolfCarts/wordpress_connection/main',
                     'github_url' => 'https://github.com/TigonGolfCarts/wordpress_connection',
@@ -79,15 +79,15 @@ class Core
                     'readme' => 'README.md',
                     'access_token' => $wpdb->get_var('SELECT option_value FROM ' . $table_name . ' WHERE option_name = "github_token"'),
                 );
-                new \Tigon\Chimera\Includes\WP_GitHub_Updater($config);
+                new \Tigon\DmsConnect\Includes\WP_GitHub_Updater($config);
             }
         }
 
         // Add archive extension hooks
-        add_action('pre_get_posts', 'Tigon\Chimera\Includes\Product_Archive_Extension::custom_order_products', 999999);
-        add_action('wp', 'Tigon\Chimera\Core::remove_image_zoom_support', 999999);
-        add_filter('pre_get_posts', 'Tigon\Chimera\Includes\Product_Archive_Extension::modify_sort_by_price', 999999);
-        add_filter('woocommerce_catalog_orderby', 'Tigon\Chimera\Core::remove_popularity_sorting_option');
+        add_action('pre_get_posts', 'Tigon\DmsConnect\Includes\Product_Archive_Extension::custom_order_products', 999999);
+        add_action('wp', 'Tigon\DmsConnect\Core::remove_image_zoom_support', 999999);
+        add_filter('pre_get_posts', 'Tigon\DmsConnect\Includes\Product_Archive_Extension::modify_sort_by_price', 999999);
+        add_filter('woocommerce_catalog_orderby', 'Tigon\DmsConnect\Core::remove_popularity_sorting_option');
     }
 
     /**
@@ -97,17 +97,17 @@ class Core
     public static function diagnostic_script_enqueue()
     {
         $js_url = self::asset_url();
-        wp_register_script('@chimera/globals', $js_url . 'globals.js');
-        wp_register_script_module('@chimera/diagnostics', $js_url . 'diagnostic.js', array('jquery'));
+        wp_register_script('@tigon-dms/globals', $js_url . 'globals.js');
+        wp_register_script_module('@tigon-dms/diagnostics', $js_url . 'diagnostic.js', array('jquery'));
 
-        wp_localize_script('@chimera/globals', 'globals', [
+        wp_localize_script('@tigon-dms/globals', 'globals', [
             'ajaxurl' => admin_url('admin-ajax.php'),
             'siteurl' => get_site_url()
         ]);
 
-        wp_enqueue_script('@chimera/globals');
+        wp_enqueue_script('@tigon-dms/globals');
         wp_enqueue_script('jquery');
-        wp_enqueue_script_module('@chimera/diagnostics');
+        wp_enqueue_script_module('@tigon-dms/diagnostics');
     }
 
     /**
@@ -130,38 +130,38 @@ class Core
     public static function import_script_enqueue()
     {
         $js_url = self::asset_url();
-        wp_register_script('@chimera/globals', $js_url . 'globals.js');
-        wp_register_script_module('@chimera/base64-js', $js_url . 'node_modules/base64-js/index.js');
-        wp_register_script_module('@chimera/ieee754', $js_url . 'node_modules/ieee754/index.js');
-        wp_register_script_module('@chimera/buffer', $js_url . 'node_modules/buffer/index.js', ['@chimera/base64-js', '@chimera/ieee754']);
-        wp_register_script_module('@chimera/php_serialize', $js_url . 'node_modules/php-serialize/index.js');
-        wp_register_script_module('@chimera/import', $js_url . 'import.js', ['jquery', '@chimera/php_serialize']);
+        wp_register_script('@tigon-dms/globals', $js_url . 'globals.js');
+        wp_register_script_module('@tigon-dms/base64-js', $js_url . 'node_modules/base64-js/index.js');
+        wp_register_script_module('@tigon-dms/ieee754', $js_url . 'node_modules/ieee754/index.js');
+        wp_register_script_module('@tigon-dms/buffer', $js_url . 'node_modules/buffer/index.js', ['@tigon-dms/base64-js', '@tigon-dms/ieee754']);
+        wp_register_script_module('@tigon-dms/php_serialize', $js_url . 'node_modules/php-serialize/index.js');
+        wp_register_script_module('@tigon-dms/import', $js_url . 'import.js', ['jquery', '@tigon-dms/php_serialize']);
 
-        wp_localize_script('@chimera/globals', 'globals', [
+        wp_localize_script('@tigon-dms/globals', 'globals', [
             'ajaxurl' => admin_url('admin-ajax.php'),
             'siteurl' => get_site_url()
         ]);
 
-        wp_enqueue_script('@chimera/globals');
-        wp_enqueue_script_module('@chimera/php_serialize');
+        wp_enqueue_script('@tigon-dms/globals');
+        wp_enqueue_script_module('@tigon-dms/php_serialize');
         wp_enqueue_script('jquery');
-        wp_enqueue_script_module('@chimera/import');
+        wp_enqueue_script_module('@tigon-dms/import');
     }
 
     public static function settings_script_enqueue()
     {
         $js_url = self::asset_url();
-        wp_register_script('@chimera/globals', $js_url . 'globals.js');
-        wp_register_script_module('@chimera/settings', $js_url . 'settings.js', array('jquery'));
+        wp_register_script('@tigon-dms/globals', $js_url . 'globals.js');
+        wp_register_script_module('@tigon-dms/settings', $js_url . 'settings.js', array('jquery'));
 
-        wp_localize_script('@chimera/globals', 'globals', [
+        wp_localize_script('@tigon-dms/globals', 'globals', [
             'ajaxurl' => admin_url('admin-ajax.php'),
             'siteurl' => get_site_url()
         ]);
 
-        wp_enqueue_script('@chimera/globals');
+        wp_enqueue_script('@tigon-dms/globals');
         wp_enqueue_script('jquery');
-        wp_enqueue_script_module('@chimera/settings');
+        wp_enqueue_script_module('@tigon-dms/settings');
     }
 
     /**
@@ -243,26 +243,26 @@ class Core
      */
     public static function register_rest_routes()
     {
-        register_rest_route('chimera', 'used', [
+        register_rest_route('tigon-dms-connect', 'used', [
             'methods' => \WP_REST_Server::CREATABLE,
-            'callback' => 'Tigon\Chimera\Admin\REST_Routes::push_used_cart'
+            'callback' => 'Tigon\DmsConnect\Admin\REST_Routes::push_used_cart'
         ]);
-        register_rest_route('chimera', 'used', [
+        register_rest_route('tigon-dms-connect', 'used', [
             'methods' => \WP_REST_Server::DELETABLE,
-            'callback' => 'Tigon\Chimera\Admin\REST_Routes::delete_used_cart'
+            'callback' => 'Tigon\DmsConnect\Admin\REST_Routes::delete_used_cart'
         ]);
 
-        register_rest_route('chimera', 'new/update', [
+        register_rest_route('tigon-dms-connect', 'new/update', [
             'methods' => \WP_REST_Server::CREATABLE,
-            'callback' => 'Tigon\Chimera\Admin\REST_Routes::push_new_cart'
+            'callback' => 'Tigon\DmsConnect\Admin\REST_Routes::push_new_cart'
         ]);
-        register_rest_route('chimera', 'new/pid', [
+        register_rest_route('tigon-dms-connect', 'new/pid', [
             'methods' => \WP_REST_Server::CREATABLE,
-            'callback' => 'Tigon\Chimera\Admin\REST_Routes::id_by_slug'
+            'callback' => 'Tigon\DmsConnect\Admin\REST_Routes::id_by_slug'
         ]);
-        register_rest_route('chimera', 'showcase', [
+        register_rest_route('tigon-dms-connect', 'showcase', [
             'methods' => \WP_REST_Server::CREATABLE,
-            'callback' => 'Tigon\Chimera\Admin\REST_Routes::set_grid'
+            'callback' => 'Tigon\DmsConnect\Admin\REST_Routes::set_grid'
         ]);
     }
 
@@ -271,7 +271,20 @@ class Core
     {
         global $wpdb;
         $charset_collate = $wpdb->get_charset_collate();
-        $table_name = $wpdb->prefix . "chimera_config";
+
+        // Migrate old table names if they exist
+        $old_config = $wpdb->prefix . "chimera_config";
+        $new_config = $wpdb->prefix . "tigon_dms_config";
+        if ($wpdb->get_var("SHOW TABLES LIKE '$old_config'") == $old_config && $wpdb->get_var("SHOW TABLES LIKE '$new_config'") != $new_config) {
+            $wpdb->query("RENAME TABLE $old_config TO $new_config");
+        }
+        $old_lists = $wpdb->prefix . "chimera_cart_lists";
+        $new_lists = $wpdb->prefix . "tigon_dms_cart_lists";
+        if ($wpdb->get_var("SHOW TABLES LIKE '$old_lists'") == $old_lists && $wpdb->get_var("SHOW TABLES LIKE '$new_lists'") != $new_lists) {
+            $wpdb->query("RENAME TABLE $old_lists TO $new_lists");
+        }
+
+        $table_name = $wpdb->prefix . "tigon_dms_config";
 
         $sql = "CREATE TABLE $table_name (
     option_id INT(6) UNSIGNED AUTO_INCREMENT,
@@ -284,7 +297,7 @@ class Core
         dbDelta($sql);
 
         // Create cart lists table
-        $cart_list_table = $wpdb->prefix . "chimera_cart_lists";
+        $cart_list_table = $wpdb->prefix . "tigon_dms_cart_lists";
         $sql = "CREATE TABLE $cart_list_table (
     location_name varchar(32) NOT NULL,
     list_name varchar(32) NOT NULL,

@@ -1,6 +1,6 @@
 <?php
 
-namespace Tigon\Chimera\Includes;
+namespace Tigon\DmsConnect\Includes;
 
 final class DMS_Connector {
     /**
@@ -17,7 +17,7 @@ final class DMS_Connector {
         global $wpdb;
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
 
-        $table_name = $wpdb->prefix . 'chimera_config';
+        $table_name = $wpdb->prefix . 'tigon_dms_config';
 
         $url = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'dms_url'") . $endpoint;
         $user_token = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'user_token'");
@@ -57,7 +57,7 @@ final class DMS_Connector {
         global $wpdb;
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
 
-        $table_name = $wpdb->prefix . 'chimera_config';
+        $table_name = $wpdb->prefix . 'tigon_dms_config';
 
         $url = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'dms_url'") . '/auth';
         //$data = json_encode(['token' => $token]);

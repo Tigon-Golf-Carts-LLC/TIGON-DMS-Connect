@@ -1,12 +1,12 @@
 <?php
 
-namespace Tigon\Chimera\Abstracts;
+namespace Tigon\DmsConnect\Abstracts;
 
 use ErrorException;
-use Tigon\Chimera\Includes\DMS_Connector;
-use Tigon\Chimera\Includes\Product_Fields;
-use Tigon\Chimera\Admin\Database_Object;
-use Tigon\Chimera\Admin\Database_Write_Controller;
+use Tigon\DmsConnect\Includes\DMS_Connector;
+use Tigon\DmsConnect\Includes\Product_Fields;
+use Tigon\DmsConnect\Admin\Database_Object;
+use Tigon\DmsConnect\Admin\Database_Write_Controller;
 use WP_Error;
 
 abstract class Abstract_Import_Controller
@@ -72,14 +72,14 @@ abstract class Abstract_Import_Controller
                 "isUsed":false,
                 "isInBoneyard":false
             }';
-            $dms_carts = json_decode(\Tigon\Chimera\Includes\DMS_Connector::request($dms_filter, '/chimera/lookup', 'POST'), true);
+            $dms_carts = json_decode(\Tigon\DmsConnect\Includes\DMS_Connector::request($dms_filter, '/chimera/lookup', 'POST'), true);
             if (count($dms_carts ?? []) > 0) {
                 $data = $dms_carts[0];
             }
         }
 
 
-        $new_cart = new \Tigon\Chimera\Admin\New\Cart($data);
+        $new_cart = new \Tigon\DmsConnect\Admin\New\Cart($data);
 
         $converted_cart = $new_cart->convert(SKU ^ PRICE ^ SALE_PRICE ^ IN_STOCK ^ MONRONEY_STICKER);
 
@@ -130,7 +130,7 @@ abstract class Abstract_Import_Controller
                 "isInStock":true,
                 "isInBoneyard":false
             }';
-            $dms_result = json_decode(\Tigon\Chimera\Includes\DMS_Connector::request($dms_filter, '/chimera/lookup', 'POST'), true) ?? [];
+            $dms_result = json_decode(\Tigon\DmsConnect\Includes\DMS_Connector::request($dms_filter, '/chimera/lookup', 'POST'), true) ?? [];
             $valid_replacement = null;
             foreach ($dms_result as $cart) {
                 if ($cart['_id'] != $data['_id']) {
@@ -146,15 +146,15 @@ abstract class Abstract_Import_Controller
 
         // Generate possible slugs
         $location_id = $data['cartLocation']['locationId'];
-        $city = \Tigon\Chimera\Admin\Attributes::$locations[$location_id]['city_short'] ??
-            \Tigon\Chimera\Admin\Attributes::$locations[$location_id]['city'];
+        $city = \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id]['city_short'] ??
+            \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id]['city'];
 
         $make = preg_replace('/\s+/', '-', trim(preg_replace('/\+/', ' plus ', $data['cartType']['make'])));
         $model = preg_replace('/\s+/', '-', trim(preg_replace('/\+/', ' plus ', $data['cartType']['model'])));
         $color = preg_replace('/\s+/', '-', $data['cartAttributes']['cartColor']);
         $seat = preg_replace('/\s+/', '-', $data['cartAttributes']['seatColor']);
         $location = preg_replace('/\s+/', '-', $city . "-"
-            . \Tigon\Chimera\Admin\Attributes::$locations[$location_id]['st']);
+            . \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id]['st']);
         $year = preg_replace('/\s+/', '-', $data['cartType']['year']);
 
         $base_slug = strtolower("$make-$model-$color-seat-$seat-$location");
@@ -173,7 +173,7 @@ abstract class Abstract_Import_Controller
                     "locationId": "' . $data['cartLocation']['locationId'] . '",
                     "isUsed":false
                 }';
-                $dms_result = json_decode(\Tigon\Chimera\Includes\DMS_Connector::request($dms_filter, '/chimera/lookup', 'POST'), true) ?? [];
+                $dms_result = json_decode(\Tigon\DmsConnect\Includes\DMS_Connector::request($dms_filter, '/chimera/lookup', 'POST'), true) ?? [];
                 $update_query = array_map(function ($cart) use ($base_slug) {
                     return [
                         '_id' => $cart['_id'],
@@ -219,7 +219,7 @@ abstract class Abstract_Import_Controller
                         "locationId": "' . $data['cartLocation']['locationId'] . '",
                         "isUsed":false
                     }';
-                    $dms_result = json_decode(\Tigon\Chimera\Includes\DMS_Connector::request($dms_filter, '/chimera/lookup', 'POST'), true) ?? [];
+                    $dms_result = json_decode(\Tigon\DmsConnect\Includes\DMS_Connector::request($dms_filter, '/chimera/lookup', 'POST'), true) ?? [];
                     $dms_count = count($dms_result);
 
                     // Carts were found at this year
@@ -244,7 +244,7 @@ abstract class Abstract_Import_Controller
                                     "locationId": "' . $data['cartLocation']['locationId'] . '",
                                     "isUsed":false
                                 }';
-                                $dms_result = json_decode(\Tigon\Chimera\Includes\DMS_Connector::request($dms_filter, '/chimera/lookup', 'POST'), true) ?? [];
+                                $dms_result = json_decode(\Tigon\DmsConnect\Includes\DMS_Connector::request($dms_filter, '/chimera/lookup', 'POST'), true) ?? [];
                                 $update_query = array_map(function ($cart) use ($base_pid, $base_slug, $base_year) {
                                     return [
                                         '_id' => $cart['_id'],
@@ -383,7 +383,7 @@ abstract class Abstract_Import_Controller
             }
 
             // Check if the page currently contains a valid cart
-            $srl_exists = count(json_decode(\Tigon\Chimera\Includes\DMS_Connector::request(
+            $srl_exists = count(json_decode(\Tigon\DmsConnect\Includes\DMS_Connector::request(
                 '{
                     "serialNo":"' . $post_sku . '",
                     "isInBoneyard":false,
@@ -392,7 +392,7 @@ abstract class Abstract_Import_Controller
                 '/chimera/lookup',
                 'POST'
             ))) > 0;
-            $vin_exists = count(json_decode(\Tigon\Chimera\Includes\DMS_Connector::request(
+            $vin_exists = count(json_decode(\Tigon\DmsConnect\Includes\DMS_Connector::request(
                 '{
                     "vinNo":"' . $post_sku . '",
                     "isInBoneyard":false,
@@ -414,7 +414,7 @@ abstract class Abstract_Import_Controller
         $conflict_pid = wc_get_product_id_by_sku($req_sku) ?? 0;
         if ($conflict_pid && $conflict_pid != $pid) {
             // Check if there is another cart at the conflict pid
-            $dms_result = json_decode(\Tigon\Chimera\Includes\DMS_Connector::request('{"pid": "' . $conflict_pid . '"}', '/chimera/lookup', 'POST'), true) ?? [];
+            $dms_result = json_decode(\Tigon\DmsConnect\Includes\DMS_Connector::request('{"pid": "' . $conflict_pid . '"}', '/chimera/lookup', 'POST'), true) ?? [];
             $conflict_replacement = null;
             foreach ($dms_result as $cart) {
                 if ($cart['_id'] != $data['_id']) {
@@ -443,7 +443,7 @@ abstract class Abstract_Import_Controller
 
         // Create page if doesn't exist or if it needs a force update
         if (!$pid || $forced_fields) {
-            $new_carts = new \Tigon\Chimera\Admin\New\New_Cart_Converter();
+            $new_carts = new \Tigon\DmsConnect\Admin\New\New_Cart_Converter();
 
             // Fill empty data with defaults if available
             $cart_defaults = $new_carts->get_specific(preg_replace('/\+$/', ' Plus', $data['cartType']['model']));
@@ -453,7 +453,7 @@ abstract class Abstract_Import_Controller
             $cart['advertising']['cartAddOns'] = ['Standard Add Ons'];
             $cart['pid'] = $pid;
 
-            $new_cart = new \Tigon\Chimera\Admin\New\Cart($cart);
+            $new_cart = new \Tigon\DmsConnect\Admin\New\Cart($cart);
 
             $converted = $new_cart->convert($pid ? $forced_fields : ALL_FIELDS);
 

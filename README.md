@@ -1,2 +1,5 @@
-# DMS-BRIDGE-PLUGIN-BAR-NOAH
-BABAR AND NOAH'S MIX
+# Tigon DMS Connect
+
+Tigon DMS Connect — fetches, imports, maps and displays golf carts from the DMS into WooCommerce.
+
+By Noah Jaslow and Jaslow Digital

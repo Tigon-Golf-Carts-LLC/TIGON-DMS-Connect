@@ -6,7 +6,7 @@
  * - Homepage (national)
  * - Location pages (/hatfield, /ocean_view, etc)
  *
- * @package DMS_Bridge
+ * @package Tigon_DMS_Connect
  */
 
 if (!defined('ABSPATH')) {

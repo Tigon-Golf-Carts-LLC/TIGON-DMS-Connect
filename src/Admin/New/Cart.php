@@ -1,14 +1,14 @@
 <?php
 
-namespace Tigon\Chimera\Admin\New;
+namespace Tigon\DmsConnect\Admin\New;
 
 use ErrorException;
-use Tigon\Chimera\Admin\Attributes;
+use Tigon\DmsConnect\Admin\Attributes;
 
-use Tigon\Chimera\Core;
+use Tigon\DmsConnect\Core;
 use WP_Error;
 
-class Cart extends \Tigon\Chimera\Abstracts\Abstract_Cart
+class Cart extends \Tigon\DmsConnect\Abstracts\Abstract_Cart
 {
     private $not_default = false;
 

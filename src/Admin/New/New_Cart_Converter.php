@@ -1,6 +1,6 @@
 <?php
 
-namespace Tigon\Chimera\Admin\New;
+namespace Tigon\DmsConnect\Admin\New;
 
 use Automattic\WooCommerce\Blocks\Domain\Services\GoogleAnalytics;
 use WP_Error;

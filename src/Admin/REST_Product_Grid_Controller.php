@@ -1,8 +1,8 @@
 <?php
 
-namespace Tigon\Chimera\Admin;
+namespace Tigon\DmsConnect\Admin;
 
-use \Tigon\Chimera\Includes\Utilities as U;
+use \Tigon\DmsConnect\Includes\Utilities as U;
 
 class REST_Product_Grid_Controller
 {
@@ -54,7 +54,7 @@ class REST_Product_Grid_Controller
         if($location_name === 'national') {
             $set_locations = $wpdb->get_col(
                 'SELECT REPLACE(lists.location_name, "tigon_", "")
-                FROM '.$wpdb->prefix.'chimera_cart_lists AS lists
+                FROM '.$wpdb->prefix.'tigon_dms_cart_lists AS lists
                 GROUP BY lists.location_name;'
             );
 
@@ -102,7 +102,7 @@ class REST_Product_Grid_Controller
         // Save lists to db for archive ordering
         $archive_changed = 0;
         foreach($data as $key => $list) {
-            $archive_changed += self::insert_chimera_cart_list($location_name, $key, $list);
+            $archive_changed += self::insert_tigon_dms_cart_list($location_name, $key, $list);
         }
 
         return [
@@ -206,7 +206,7 @@ class REST_Product_Grid_Controller
                 $popular_grid['eael_product_grid_products_in'] = $popular_pids;
                 $popular_grid['eael_product_grid_product_filter'] = 'manual';
                 $popular_grid['orderby'] = 'menu_order';
-                self::insert_chimera_cart_list($location_name,'popular',$popular_pids);
+                self::insert_tigon_dms_cart_list($location_name,'popular',$popular_pids);
             }
         }
         // Save updated elementor data to database
@@ -268,18 +268,18 @@ class REST_Product_Grid_Controller
     }
 
     /**
-     * Save list to the chimera_cart_lists table
+     * Save list to the tigon_dms_cart_lists table
      *
      * @param String $location_name
      * @param String $list_name
      * @param Array $ids
      * @return Int|Boolean
      */
-    public static function insert_chimera_cart_list(String $location_name, String $list_name, Array $ids){
+    public static function insert_tigon_dms_cart_list(String $location_name, String $list_name, Array $ids){
         global $wpdb;
-        $insert_table = $wpdb->prefix . "chimera_cart_lists";
+        $insert_table = $wpdb->prefix . "tigon_dms_cart_lists";
 
-        //Insert new data in table 'dev_chimera_cart_lists'
+        //Insert new data in table 'dev_tigon_dms_cart_lists'
         $value_check = $wpdb->query("SELECT * FROM $insert_table WHERE location_name = '$location_name' AND list_name = '$list_name'");
 
         array_filter($ids);

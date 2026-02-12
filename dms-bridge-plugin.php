@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name: DMS Bridge Plugin
- * Description: Unified Tigon DMS Connection — fetches, imports, maps and displays golf carts from the DMS into WooCommerce. Combines DMS Bridge + Chimera functionality.
+ * Description: Tigon DMS Connect — fetches, imports, maps and displays golf carts from the DMS into WooCommerce.
  * Version: 2.0.0
  * Author: Tigon Golf Carts
  * Author URI: https://tigongolfcarts.com/
- * Text Domain: dms-bridge
+ * Text Domain: tigon-dms-connect
  * Requires Plugins: woocommerce
  */
 
@@ -16,31 +16,31 @@ if (!defined('ABSPATH')) {
 /**
  * Plugin constants
  */
-define('DMS_BRIDGE_VERSION', '2.0.0');
-define('DMS_BRIDGE_PLUGIN_DIR', plugin_dir_path(__FILE__));
-define('DMS_BRIDGE_PLUGIN_URL', plugin_dir_url(__FILE__));
+define('TIGON_DMS_VERSION', '2.0.0');
+define('TIGON_DMS_PLUGIN_DIR', plugin_dir_path(__FILE__));
+define('TIGON_DMS_PLUGIN_URL', plugin_dir_url(__FILE__));
 
 /**
  * Configuration: Set to false to show carts WITH default homepage content
  * Set to true to replace homepage entirely with carts (no default content)
  */
-if (!defined('DMS_BRIDGE_HIDE_DEFAULT_CONTENT')) {
-    define('DMS_BRIDGE_HIDE_DEFAULT_CONTENT', false); // Default: show both
+if (!defined('TIGON_DMS_HIDE_DEFAULT_CONTENT')) {
+    define('TIGON_DMS_HIDE_DEFAULT_CONTENT', false); // Default: show both
 }
 
 /**
  * Load required files — DMS Bridge (original)
  */
-require_once DMS_BRIDGE_PLUGIN_DIR . 'includes/class-dms-api.php';
-require_once DMS_BRIDGE_PLUGIN_DIR . 'includes/class-dms-display.php';
-require_once DMS_BRIDGE_PLUGIN_DIR . 'includes/class-dms-sync.php';
+require_once TIGON_DMS_PLUGIN_DIR . 'includes/class-dms-api.php';
+require_once TIGON_DMS_PLUGIN_DIR . 'includes/class-dms-display.php';
+require_once TIGON_DMS_PLUGIN_DIR . 'includes/class-dms-sync.php';
 
 /**
  * ============================================================================
- * CHIMERA INTEGRATION — Full DMS import/mapping engine
+ * DMS CONNECT — Full DMS import/mapping engine
  * ============================================================================
  *
- * Chimera provides:
+ * DMS Connect provides:
  * - Admin UI (diagnostics, import wizard, settings)
  * - REST API endpoints for DMS push (used/new carts, product grids)
  * - Rich field mapping (50+ WooCommerce fields, 10+ taxonomies, 30+ attributes)
@@ -50,8 +50,8 @@ require_once DMS_BRIDGE_PLUGIN_DIR . 'includes/class-dms-sync.php';
  * - Product archive extensions (custom ordering, price sort)
  * - GitHub auto-updater
  */
-require_once DMS_BRIDGE_PLUGIN_DIR . 'vendor/autoload.php';
-\Tigon\Chimera\Core::init();
+require_once TIGON_DMS_PLUGIN_DIR . 'vendor/autoload.php';
+\Tigon\DmsConnect\Core::init();
 
 /**
  * ============================================================================
@@ -63,29 +63,29 @@ require_once DMS_BRIDGE_PLUGIN_DIR . 'vendor/autoload.php';
 /**
  * Add rewrite rule for /dms/cart/{id}
  */
-function dms_bridge_add_cart_route() {
+function tigon_dms_add_cart_route() {
     add_rewrite_rule(
         '^dms/cart/([a-zA-Z0-9]+)/?$',
         'index.php?dms_cart_id=$matches[1]',
         'top'
     );
 }
-add_action('init', 'dms_bridge_add_cart_route');
+add_action('init', 'tigon_dms_add_cart_route');
 
 /**
  * Register query var for cart ID
  */
-function dms_bridge_add_query_vars($vars) {
+function tigon_dms_add_query_vars($vars) {
     $vars[] = 'dms_cart_id';
     return $vars;
 }
-add_filter('query_vars', 'dms_bridge_add_query_vars');
+add_filter('query_vars', 'tigon_dms_add_query_vars');
 
 /**
  * Handle /dms/cart/{id} route - create/update product and redirect
  * No UI rendered - redirect only
  */
-function dms_bridge_handle_cart_route() {
+function tigon_dms_handle_cart_route() {
     $cart_id = get_query_var('dms_cart_id');
     
     if (empty($cart_id)) {
@@ -102,7 +102,7 @@ function dms_bridge_handle_cart_route() {
     }
     
     // Create or update WooCommerce product
-    $product_id = dms_bridge_ensure_woo_product($cart_data, $cart_id);
+    $product_id = tigon_dms_ensure_woo_product($cart_data, $cart_id);
     
     if (!$product_id) {
         // Failed to create product - redirect to shop
@@ -115,7 +115,7 @@ function dms_bridge_handle_cart_route() {
     wp_redirect($product_url, 302);
     exit;
 }
-add_action('template_redirect', 'dms_bridge_handle_cart_route', 5);
+add_action('template_redirect', 'tigon_dms_handle_cart_route', 5);
 
 /**
  * Normalize DMS cart title for consistency
@@ -127,7 +127,7 @@ add_action('template_redirect', 'dms_bridge_handle_cart_route', 5);
  * @param string $title Raw DMS cart title
  * @return string Normalized title with " In "
  */
-function dms_bridge_normalize_title($title) {
+function tigon_dms_normalize_title($title) {
     // Convert en-dash (–) to " In "
     $normalized = str_replace(' – ', ' In ', $title);
     
@@ -149,7 +149,7 @@ function dms_bridge_normalize_title($title) {
  * @param array $cart_data Full DMS cart payload from API
  * @return array Parsed specs array with Feature => Description pairs
  */
-function dms_bridge_parse_cart_specs($cart_data) {
+function tigon_dms_parse_cart_specs($cart_data) {
     $specs = array();
     
     // ========== DESCRIPTION TAB FIELDS ==========
@@ -338,7 +338,7 @@ function dms_bridge_parse_cart_specs($cart_data) {
  * @param array $cart_data Full DMS cart payload
  * @return array Array of image filenames/URLs
  */
-function dms_bridge_parse_cart_images($cart_data) {
+function tigon_dms_parse_cart_images($cart_data) {
     return $cart_data['imageUrls'] ?? array();
 }
 
@@ -348,7 +348,7 @@ function dms_bridge_parse_cart_images($cart_data) {
  * @param array $cart_data Full DMS cart payload
  * @return array Warranty data array
  */
-function dms_bridge_parse_cart_warranty($cart_data) {
+function tigon_dms_parse_cart_warranty($cart_data) {
     $warranty = array();
     
     // Extract any warranty-related fields from cart data
@@ -367,7 +367,7 @@ function dms_bridge_parse_cart_warranty($cart_data) {
  * @param string $cart_id   DMS cart ID (_id)
  * @return int|false Product ID or false on failure
  */
-function dms_bridge_ensure_woo_product($cart_data, $cart_id) {
+function tigon_dms_ensure_woo_product($cart_data, $cart_id) {
     // Check if WooCommerce is active
     if (!class_exists('WooCommerce')) {
         return false;
@@ -404,20 +404,20 @@ function dms_bridge_ensure_woo_product($cart_data, $cart_id) {
     }
     
     // Parse DMS cart data for meta storage
-    $specs = dms_bridge_parse_cart_specs($cart_data);
-    $images = dms_bridge_parse_cart_images($cart_data);
-    $warranty = dms_bridge_parse_cart_warranty($cart_data);
+    $specs = tigon_dms_parse_cart_specs($cart_data);
+    $images = tigon_dms_parse_cart_images($cart_data);
+    $warranty = tigon_dms_parse_cart_warranty($cart_data);
     
     // Check if product already exists
-    $existing_product_id = dms_bridge_get_product_by_cart_id($cart_id);
+    $existing_product_id = tigon_dms_get_product_by_cart_id($cart_id);
     
     if ($existing_product_id) {
         // Update existing product
-        return dms_bridge_update_woo_product($existing_product_id, $title, $retail_price, $cart_data, $specs, $images, $warranty);
+        return tigon_dms_update_woo_product($existing_product_id, $title, $retail_price, $cart_data, $specs, $images, $warranty);
     }
     
     // Create new product
-    return dms_bridge_create_woo_product($cart_id, $title, $retail_price, $cart_data, $specs, $images, $warranty);
+    return tigon_dms_create_woo_product($cart_id, $title, $retail_price, $cart_data, $specs, $images, $warranty);
 }
 
 /**
@@ -427,7 +427,7 @@ function dms_bridge_ensure_woo_product($cart_data, $cart_id) {
  * @param int    $parent_id     Parent category ID (0 for top-level, or pass to find child)
  * @return int Category term ID, or 0 if not found
  */
-function dms_bridge_get_existing_category($category_name, $parent_id = null) {
+function tigon_dms_get_existing_category($category_name, $parent_id = null) {
     if (empty($category_name)) {
         return 0;
     }
@@ -455,7 +455,7 @@ function dms_bridge_get_existing_category($category_name, $parent_id = null) {
  * @param string $cart_id DMS cart ID
  * @return int|false Product ID or false if not found
  */
-function dms_bridge_get_product_by_cart_id($cart_id) {
+function tigon_dms_get_product_by_cart_id($cart_id) {
     global $wpdb;
     
     $product_id = $wpdb->get_var(
@@ -482,9 +482,9 @@ function dms_bridge_get_product_by_cart_id($cart_id) {
  * @param array  $warranty   Warranty data array
  * @return int|false Product ID or false on failure
  */
-function dms_bridge_create_woo_product($cart_id, $title, $price, $cart_data, $specs = array(), $images = array(), $warranty = array()) {
+function tigon_dms_create_woo_product($cart_id, $title, $price, $cart_data, $specs = array(), $images = array(), $warranty = array()) {
     // Normalize title for consistency (e.g., "In" → "-")
-    $normalized_title = dms_bridge_normalize_title($title);
+    $normalized_title = tigon_dms_normalize_title($title);
     
     // Create product post
     $product_id = wp_insert_post(array(
@@ -519,14 +519,14 @@ function dms_bridge_create_woo_product($cart_id, $title, $price, $cart_data, $sp
     
     // 1. Make + Model categories (keep existing logic)
     if (!empty($make)) {
-        $make_cat_id = dms_bridge_get_existing_category($make, 0);
+        $make_cat_id = tigon_dms_get_existing_category($make, 0);
         if ($make_cat_id) {
             $categories[] = $make_cat_id;
             
             // Make+Model subcategory
             if (!empty($model)) {
                 $make_model = trim($make . ' ' . $model);
-                $model_cat_id = dms_bridge_get_existing_category($make_model, $make_cat_id);
+                $model_cat_id = tigon_dms_get_existing_category($make_model, $make_cat_id);
                 if ($model_cat_id) {
                     $categories[] = $model_cat_id;
                 }
@@ -535,10 +535,10 @@ function dms_bridge_create_woo_product($cart_id, $title, $price, $cart_data, $sp
     }
     
     // 2. Condition category (keep existing logic)
-    $condition_parent_id = dms_bridge_get_existing_category('Condition', 0);
+    $condition_parent_id = tigon_dms_get_existing_category('Condition', 0);
     if ($condition_parent_id) {
         $condition = $is_used ? 'Used' : 'New';
-        $condition_cat_id = dms_bridge_get_existing_category($condition, $condition_parent_id);
+        $condition_cat_id = tigon_dms_get_existing_category($condition, $condition_parent_id);
         if ($condition_cat_id) {
             $categories[] = $condition_cat_id;
         }
@@ -546,14 +546,14 @@ function dms_bridge_create_woo_product($cart_id, $title, $price, $cart_data, $sp
     
     // 3. DriveTrain category
     if (!empty($drive_train)) {
-        $drivetrain_parent_id = dms_bridge_get_existing_category('DriveTrain', 0);
+        $drivetrain_parent_id = tigon_dms_get_existing_category('DriveTrain', 0);
         if ($drivetrain_parent_id) {
             // Normalize driveTrain value (e.g., "2X4" -> "2x4", "4X4" -> "4x4")
             $drivetrain_value = strtolower($drive_train);
-            $drivetrain_cat_id = dms_bridge_get_existing_category($drivetrain_value, $drivetrain_parent_id);
+            $drivetrain_cat_id = tigon_dms_get_existing_category($drivetrain_value, $drivetrain_parent_id);
             if (!$drivetrain_cat_id) {
                 // Try uppercase version
-                $drivetrain_cat_id = dms_bridge_get_existing_category(strtoupper($drive_train), $drivetrain_parent_id);
+                $drivetrain_cat_id = tigon_dms_get_existing_category(strtoupper($drive_train), $drivetrain_parent_id);
             }
             if ($drivetrain_cat_id) {
                 $categories[] = $drivetrain_cat_id;
@@ -568,13 +568,13 @@ function dms_bridge_create_woo_product($cart_id, $title, $price, $cart_data, $sp
         $state = $store_data['state'] ?? '';
         
         if (!empty($state)) {
-            $location_parent_id = dms_bridge_get_existing_category('Location', 0);
+            $location_parent_id = tigon_dms_get_existing_category('Location', 0);
             if ($location_parent_id) {
                 // Find state category (child of Location)
-                $state_cat_id = dms_bridge_get_existing_category($state, $location_parent_id);
+                $state_cat_id = tigon_dms_get_existing_category($state, $location_parent_id);
                 if ($state_cat_id && !empty($city)) {
                     // Find city category (child of State)
-                    $city_cat_id = dms_bridge_get_existing_category($city, $state_cat_id);
+                    $city_cat_id = tigon_dms_get_existing_category($city, $state_cat_id);
                     if ($city_cat_id) {
                         $categories[] = $city_cat_id;
                     }
@@ -587,9 +587,9 @@ function dms_bridge_create_woo_product($cart_id, $title, $price, $cart_data, $sp
     if (!empty($passengers)) {
         // Normalize passengers value (e.g., "6 Passenger" -> "6 seater")
         $passengers_normalized = strtolower(str_replace(' passenger', ' seater', $passengers));
-        $passengers_parent_id = dms_bridge_get_existing_category('Passengers', 0);
+        $passengers_parent_id = tigon_dms_get_existing_category('Passengers', 0);
         if ($passengers_parent_id) {
-            $passengers_cat_id = dms_bridge_get_existing_category($passengers_normalized, $passengers_parent_id);
+            $passengers_cat_id = tigon_dms_get_existing_category($passengers_normalized, $passengers_parent_id);
             if ($passengers_cat_id) {
                 $categories[] = $passengers_cat_id;
             }
@@ -604,9 +604,9 @@ function dms_bridge_create_woo_product($cart_id, $title, $price, $cart_data, $sp
         
         if (!empty($city) && !empty($state)) {
             $dealership_name = 'TIGON Golf Carts ' . $city . ' ' . $state;
-            $dealership_parent_id = dms_bridge_get_existing_category('TIGON Dealership', 0);
+            $dealership_parent_id = tigon_dms_get_existing_category('TIGON Dealership', 0);
             if ($dealership_parent_id) {
-                $dealership_cat_id = dms_bridge_get_existing_category($dealership_name, $dealership_parent_id);
+                $dealership_cat_id = tigon_dms_get_existing_category($dealership_name, $dealership_parent_id);
                 if ($dealership_cat_id) {
                     $categories[] = $dealership_cat_id;
                 }
@@ -666,9 +666,9 @@ function dms_bridge_create_woo_product($cart_id, $title, $price, $cart_data, $sp
  * @param array  $warranty   Warranty data array
  * @return int Product ID
  */
-function dms_bridge_update_woo_product($product_id, $title, $price, $cart_data, $specs = array(), $images = array(), $warranty = array()) {
+function tigon_dms_update_woo_product($product_id, $title, $price, $cart_data, $specs = array(), $images = array(), $warranty = array()) {
     // Normalize title for consistency (e.g., "In" → "-")
-    $normalized_title = dms_bridge_normalize_title($title);
+    $normalized_title = tigon_dms_normalize_title($title);
     
     // Update post title and slug
     wp_update_post(array(
@@ -702,14 +702,14 @@ function dms_bridge_update_woo_product($product_id, $title, $price, $cart_data, 
     
     // 1. Make + Model categories (keep existing logic)
     if (!empty($make)) {
-        $make_cat_id = dms_bridge_get_existing_category($make, 0);
+        $make_cat_id = tigon_dms_get_existing_category($make, 0);
         if ($make_cat_id) {
             $categories[] = $make_cat_id;
             
             // Make+Model subcategory
             if (!empty($model)) {
                 $make_model = trim($make . ' ' . $model);
-                $model_cat_id = dms_bridge_get_existing_category($make_model, $make_cat_id);
+                $model_cat_id = tigon_dms_get_existing_category($make_model, $make_cat_id);
                 if ($model_cat_id) {
                     $categories[] = $model_cat_id;
                 }
@@ -718,10 +718,10 @@ function dms_bridge_update_woo_product($product_id, $title, $price, $cart_data, 
     }
     
     // 2. Condition category (keep existing logic)
-    $condition_parent_id = dms_bridge_get_existing_category('Condition', 0);
+    $condition_parent_id = tigon_dms_get_existing_category('Condition', 0);
     if ($condition_parent_id) {
         $condition = $is_used ? 'Used' : 'New';
-        $condition_cat_id = dms_bridge_get_existing_category($condition, $condition_parent_id);
+        $condition_cat_id = tigon_dms_get_existing_category($condition, $condition_parent_id);
         if ($condition_cat_id) {
             $categories[] = $condition_cat_id;
         }
@@ -729,14 +729,14 @@ function dms_bridge_update_woo_product($product_id, $title, $price, $cart_data, 
     
     // 3. DriveTrain category
     if (!empty($drive_train)) {
-        $drivetrain_parent_id = dms_bridge_get_existing_category('DriveTrain', 0);
+        $drivetrain_parent_id = tigon_dms_get_existing_category('DriveTrain', 0);
         if ($drivetrain_parent_id) {
             // Normalize driveTrain value (e.g., "2X4" -> "2x4", "4X4" -> "4x4")
             $drivetrain_value = strtolower($drive_train);
-            $drivetrain_cat_id = dms_bridge_get_existing_category($drivetrain_value, $drivetrain_parent_id);
+            $drivetrain_cat_id = tigon_dms_get_existing_category($drivetrain_value, $drivetrain_parent_id);
             if (!$drivetrain_cat_id) {
                 // Try uppercase version
-                $drivetrain_cat_id = dms_bridge_get_existing_category(strtoupper($drive_train), $drivetrain_parent_id);
+                $drivetrain_cat_id = tigon_dms_get_existing_category(strtoupper($drive_train), $drivetrain_parent_id);
             }
             if ($drivetrain_cat_id) {
                 $categories[] = $drivetrain_cat_id;
@@ -751,13 +751,13 @@ function dms_bridge_update_woo_product($product_id, $title, $price, $cart_data, 
         $state = $store_data['state'] ?? '';
         
         if (!empty($state)) {
-            $location_parent_id = dms_bridge_get_existing_category('Location', 0);
+            $location_parent_id = tigon_dms_get_existing_category('Location', 0);
             if ($location_parent_id) {
                 // Find state category (child of Location)
-                $state_cat_id = dms_bridge_get_existing_category($state, $location_parent_id);
+                $state_cat_id = tigon_dms_get_existing_category($state, $location_parent_id);
                 if ($state_cat_id && !empty($city)) {
                     // Find city category (child of State)
-                    $city_cat_id = dms_bridge_get_existing_category($city, $state_cat_id);
+                    $city_cat_id = tigon_dms_get_existing_category($city, $state_cat_id);
                     if ($city_cat_id) {
                         $categories[] = $city_cat_id;
                     }
@@ -770,9 +770,9 @@ function dms_bridge_update_woo_product($product_id, $title, $price, $cart_data, 
     if (!empty($passengers)) {
         // Normalize passengers value (e.g., "6 Passenger" -> "6 seater")
         $passengers_normalized = strtolower(str_replace(' passenger', ' seater', $passengers));
-        $passengers_parent_id = dms_bridge_get_existing_category('Passengers', 0);
+        $passengers_parent_id = tigon_dms_get_existing_category('Passengers', 0);
         if ($passengers_parent_id) {
-            $passengers_cat_id = dms_bridge_get_existing_category($passengers_normalized, $passengers_parent_id);
+            $passengers_cat_id = tigon_dms_get_existing_category($passengers_normalized, $passengers_parent_id);
             if ($passengers_cat_id) {
                 $categories[] = $passengers_cat_id;
             }
@@ -787,9 +787,9 @@ function dms_bridge_update_woo_product($product_id, $title, $price, $cart_data, 
         
         if (!empty($city) && !empty($state)) {
             $dealership_name = 'TIGON Golf Carts ' . $city . ' ' . $state;
-            $dealership_parent_id = dms_bridge_get_existing_category('TIGON Dealership', 0);
+            $dealership_parent_id = tigon_dms_get_existing_category('TIGON Dealership', 0);
             if ($dealership_parent_id) {
-                $dealership_cat_id = dms_bridge_get_existing_category($dealership_name, $dealership_parent_id);
+                $dealership_cat_id = tigon_dms_get_existing_category($dealership_name, $dealership_parent_id);
                 if ($dealership_cat_id) {
                     $categories[] = $dealership_cat_id;
                 }
@@ -844,7 +844,7 @@ function dms_bridge_update_woo_product($product_id, $title, $price, $cart_data, 
  * @param int $product_id Product ID
  * @return array Array with 'specs', 'images', 'warranty' keys
  */
-function dms_bridge_get_dms_product_data($product_id) {
+function tigon_dms_get_dms_product_data($product_id) {
     $specs = get_post_meta($product_id, '_dms_cart_specs', true);
     $images = get_post_meta($product_id, '_dms_cart_images', true);
     $warranty = get_post_meta($product_id, '_dms_cart_warranty', true);
@@ -856,15 +856,15 @@ function dms_bridge_get_dms_product_data($product_id) {
             $cart_data = json_decode($payload_json, true);
             if (is_array($cart_data) && !empty($cart_data)) {
                 if (empty($specs)) {
-                    $specs = dms_bridge_parse_cart_specs($cart_data);
+                    $specs = tigon_dms_parse_cart_specs($cart_data);
                     update_post_meta($product_id, '_dms_cart_specs', $specs);
                 }
                 if (empty($images)) {
-                    $images = dms_bridge_parse_cart_images($cart_data);
+                    $images = tigon_dms_parse_cart_images($cart_data);
                     update_post_meta($product_id, '_dms_cart_images', $images);
                 }
                 if (empty($warranty)) {
-                    $warranty = dms_bridge_parse_cart_warranty($cart_data);
+                    $warranty = tigon_dms_parse_cart_warranty($cart_data);
                     update_post_meta($product_id, '_dms_cart_warranty', $warranty);
                 }
             }
@@ -887,7 +887,7 @@ function dms_bridge_get_dms_product_data($product_id) {
  * @param array $tabs Existing product tabs
  * @return array Modified tabs array
  */
-function dms_bridge_override_product_tabs($tabs) {
+function tigon_dms_override_product_tabs($tabs) {
     global $product;
     
     // Only process on single product pages
@@ -914,33 +914,33 @@ function dms_bridge_override_product_tabs($tabs) {
     
     // Add "Description" tab with DMS specs
     $tabs['dms_description'] = array(
-        'title'    => __('Description', 'dms-bridge'),
+        'title'    => __('Description', 'tigon-dms-connect'),
         'priority' => 10,
         'callback' => function() use ($product_id) {
-            dms_bridge_render_description_tab($product_id);
+            tigon_dms_render_description_tab($product_id);
         },
     );
     
     // Add "Additional Information" tab with detailed features
     $tabs['dms_additional_info'] = array(
-        'title'    => __('Additional Information', 'dms-bridge'),
+        'title'    => __('Additional Information', 'tigon-dms-connect'),
         'priority' => 20,
         'callback' => function() use ($product_id) {
-            dms_bridge_render_additional_info_tab($product_id);
+            tigon_dms_render_additional_info_tab($product_id);
         },
     );
     
     return $tabs;
 }
-add_filter('woocommerce_product_tabs', 'dms_bridge_override_product_tabs', 98);
+add_filter('woocommerce_product_tabs', 'tigon_dms_override_product_tabs', 98);
 
 /**
  * Render the Description tab content (main specs from first image)
  * 
  * @param int $product_id Product ID
  */
-function dms_bridge_render_description_tab($product_id) {
-    $dms_data = dms_bridge_get_dms_product_data($product_id);
+function tigon_dms_render_description_tab($product_id) {
+    $dms_data = tigon_dms_get_dms_product_data($product_id);
     $specs = $dms_data['specs'];
     
     // Main specs fields for Description tab (from /get-cart-by-id API)
@@ -964,7 +964,7 @@ function dms_bridge_render_description_tab($product_id) {
     }
     
     if (empty($main_specs)) {
-        echo '<p>' . esc_html__('No description data available.', 'dms-bridge') . '</p>';
+        echo '<p>' . esc_html__('No description data available.', 'tigon-dms-connect') . '</p>';
         return;
     }
     ?>
@@ -990,7 +990,7 @@ function dms_bridge_render_description_tab($product_id) {
         </table>
     </div>
     <?php
-    dms_bridge_output_tab_styles();
+    tigon_dms_output_tab_styles();
 }
 
 /**
@@ -998,8 +998,8 @@ function dms_bridge_render_description_tab($product_id) {
  * 
  * @param int $product_id Product ID
  */
-function dms_bridge_render_additional_info_tab($product_id) {
-    $dms_data = dms_bridge_get_dms_product_data($product_id);
+function tigon_dms_render_additional_info_tab($product_id) {
+    $dms_data = tigon_dms_get_dms_product_data($product_id);
     $specs = $dms_data['specs'];
     
     // Additional info fields (from /get-cart-by-id API) - all fields not in Description tab
@@ -1070,13 +1070,13 @@ function dms_bridge_render_additional_info_tab($product_id) {
         </table>
     </div>
     <?php
-    dms_bridge_output_tab_styles();
+    tigon_dms_output_tab_styles();
 }
 
 /**
  * Output shared CSS styles for DMS tabs (only once per page)
  */
-function dms_bridge_output_tab_styles() {
+function tigon_dms_output_tab_styles() {
     static $styles_output = false;
     if ($styles_output) {
         return;
@@ -1198,23 +1198,23 @@ function dms_bridge_output_tab_styles() {
 }
 
 /**
- * Flush rewrite rules on activation + create Chimera tables
+ * Flush rewrite rules on activation + create database tables
  */
-function dms_bridge_activation() {
-    dms_bridge_add_cart_route();
+function tigon_dms_activation() {
+    tigon_dms_add_cart_route();
     flush_rewrite_rules();
-    // Create Chimera database tables (config + cart lists)
-    \Tigon\Chimera\Core::install();
+    // Create DMS Connect database tables (config + cart lists)
+    \Tigon\DmsConnect\Core::install();
 }
-register_activation_hook(__FILE__, 'dms_bridge_activation');
+register_activation_hook(__FILE__, 'tigon_dms_activation');
 
 /**
  * Flush rewrite rules on deactivation
  */
-function dms_bridge_deactivation() {
+function tigon_dms_deactivation() {
     flush_rewrite_rules();
 }
-register_deactivation_hook(__FILE__, 'dms_bridge_deactivation');
+register_deactivation_hook(__FILE__, 'tigon_dms_deactivation');
 
 /**
  * ============================================================================
@@ -1232,22 +1232,22 @@ register_deactivation_hook(__FILE__, 'dms_bridge_deactivation');
  * SAFE TO REMOVE after running once successfully.
  * ============================================================================
  */
-function dms_bridge_add_recovery_menu() {
+function tigon_dms_add_recovery_menu() {
     add_submenu_page(
         null, // Hidden from menu
         'DMS Recover Products',
         'DMS Recover Products',
         'manage_woocommerce',
         'dms-recover-products',
-        'dms_bridge_recover_products_page'
+        'tigon_dms_recover_products_page'
     );
 }
-add_action('admin_menu', 'dms_bridge_add_recovery_menu');
+add_action('admin_menu', 'tigon_dms_add_recovery_menu');
 
 /**
  * One-time recovery: Remove exclude-from-search term from DMS products
  */
-function dms_bridge_recover_products_page() {
+function tigon_dms_recover_products_page() {
     if (!current_user_can('manage_woocommerce')) {
         wp_die('Unauthorized access');
     }
@@ -1363,22 +1363,22 @@ function dms_bridge_recover_products_page() {
  * SAFE TO REMOVE after running once successfully.
  * ============================================================================
  */
-function dms_bridge_add_normalize_menu() {
+function tigon_dms_add_normalize_menu() {
     add_submenu_page(
         null, // Hidden from menu
         'DMS Normalize Titles',
         'DMS Normalize Titles',
         'manage_woocommerce',
         'dms-normalize-titles',
-        'dms_bridge_normalize_titles_page'
+        'tigon_dms_normalize_titles_page'
     );
 }
-add_action('admin_menu', 'dms_bridge_add_normalize_menu');
+add_action('admin_menu', 'tigon_dms_add_normalize_menu');
 
 /**
  * One-time migration: Normalize DMS product titles
  */
-function dms_bridge_normalize_titles_page() {
+function tigon_dms_normalize_titles_page() {
     if (!current_user_can('manage_woocommerce')) {
         wp_die('Unauthorized access');
     }
@@ -1406,7 +1406,7 @@ function dms_bridge_normalize_titles_page() {
         $original_slug  = $product->post_name;
         
         // Normalize title
-        $normalized_title = dms_bridge_normalize_title($original_title);
+        $normalized_title = tigon_dms_normalize_title($original_title);
         $normalized_slug  = sanitize_title($normalized_title);
         
         // Check if normalization changed anything
@@ -1477,22 +1477,22 @@ function dms_bridge_normalize_titles_page() {
 /**
  * Add admin menu for updating product titles with ® symbol
  */
-function dms_bridge_add_update_titles_menu() {
+function tigon_dms_add_update_titles_menu() {
     add_submenu_page(
         null, // Hidden from menu
         'DMS Update Titles with ®',
         'DMS Update Titles with ®',
         'manage_options',
         'dms-update-titles-reg',
-        'dms_bridge_update_titles_reg_page'
+        'tigon_dms_update_titles_reg_page'
     );
 }
-add_action('admin_menu', 'dms_bridge_add_update_titles_menu');
+add_action('admin_menu', 'tigon_dms_add_update_titles_menu');
 
 /**
  * One-time migration: Update DMS product titles to include ® symbol
  */
-function dms_bridge_update_titles_reg_page() {
+function tigon_dms_update_titles_reg_page() {
     if (!current_user_can('manage_options')) {
         wp_die('Unauthorized access');
     }
@@ -1565,7 +1565,7 @@ function dms_bridge_update_titles_reg_page() {
         }
         
         // Normalize title
-        $normalized_title = dms_bridge_normalize_title($new_title);
+        $normalized_title = tigon_dms_normalize_title($new_title);
         $normalized_slug = sanitize_title($normalized_title);
         
         // Check if title changed
@@ -1666,7 +1666,7 @@ function dms_bridge_update_titles_reg_page() {
 /**
  * Enqueue DMS injection script on WooCommerce product pages
  */
-function dms_bridge_enqueue_woo_inject_script() {
+function tigon_dms_enqueue_woo_inject_script() {
     // Only on single product pages (frontend)
     if (!is_singular('product') || is_admin()) {
         return;
@@ -1700,18 +1700,18 @@ function dms_bridge_enqueue_woo_inject_script() {
     // Enqueue API service first (dependency for dms-woo-inject)
     wp_enqueue_script(
         'dms-api-service-js',
-        DMS_BRIDGE_PLUGIN_URL . 'assets/js/dms-api-service.js',
+        TIGON_DMS_PLUGIN_URL . 'assets/js/dms-api-service.js',
         array('jquery'),
-        filemtime(DMS_BRIDGE_PLUGIN_DIR . 'assets/js/dms-api-service.js'),
+        filemtime(TIGON_DMS_PLUGIN_DIR . 'assets/js/dms-api-service.js'),
         true
     );
     
     // Enqueue the injection script
     wp_enqueue_script(
         'dms-woo-inject',
-        DMS_BRIDGE_PLUGIN_URL . 'assets/js/dms-woo-inject.js',
+        TIGON_DMS_PLUGIN_URL . 'assets/js/dms-woo-inject.js',
         array('jquery', 'dms-api-service-js'), // Dependencies: jQuery and API service
-        filemtime(DMS_BRIDGE_PLUGIN_DIR . 'assets/js/dms-woo-inject.js'),
+        filemtime(TIGON_DMS_PLUGIN_DIR . 'assets/js/dms-woo-inject.js'),
         true // Load in footer
     );
     
@@ -1721,7 +1721,7 @@ function dms_bridge_enqueue_woo_inject_script() {
         'imageUrls' => $image_urls,
     ));
 }
-add_action('wp_enqueue_scripts', 'dms_bridge_enqueue_woo_inject_script');
+add_action('wp_enqueue_scripts', 'tigon_dms_enqueue_woo_inject_script');
 
 /**
  * Add data attribute to Extended Warranty add-on for easier JS targeting
@@ -1729,7 +1729,7 @@ add_action('wp_enqueue_scripts', 'dms_bridge_enqueue_woo_inject_script');
  * This filter adds data-addon="extended-warranty" to the add-on wrapper
  * when the add-on name contains "warranty" (case-insensitive).
  */
-function dms_bridge_addon_field_class($classes, $addon, $i) {
+function tigon_dms_addon_field_class($classes, $addon, $i) {
     $addon_name = strtolower($addon['name'] ?? '');
     
     // Check if this is the Extended Warranty add-on
@@ -1739,12 +1739,12 @@ function dms_bridge_addon_field_class($classes, $addon, $i) {
     
     return $classes;
 }
-add_filter('woocommerce_product_addons_field_class', 'dms_bridge_addon_field_class', 10, 3);
+add_filter('woocommerce_product_addons_field_class', 'tigon_dms_addon_field_class', 10, 3);
 
 /**
  * Add data attribute to Extended Warranty add-on wrapper
  */
-function dms_bridge_addon_start($addon, $product_id, $type) {
+function tigon_dms_addon_start($addon, $product_id, $type) {
     $addon_name = strtolower($addon['name'] ?? '');
     
     // Check if this is the Extended Warranty add-on
@@ -1760,7 +1760,7 @@ function dms_bridge_addon_start($addon, $product_id, $type) {
         </script>';
     }
 }
-add_action('woocommerce_product_addon_start', 'dms_bridge_addon_start', 10, 3);
+add_action('woocommerce_product_addon_start', 'tigon_dms_addon_start', 10, 3);
 
 /**
  * Disable caching for pages that display DMS inventory
@@ -1769,7 +1769,7 @@ add_action('woocommerce_product_addon_start', 'dms_bridge_addon_start', 10, 3);
  * Defines DONOTCACHEPAGE, DONOTCACHEOBJECT, and DONOTCACHEDB constants
  * to bypass WordPress, hosting, and CDN caching for frontend pages with DMS inventory
  */
-function dms_bridge_disable_cache() {
+function tigon_dms_disable_cache() {
     
     // Only on frontend (not admin)
     if (is_admin()) {
@@ -1792,7 +1792,7 @@ function dms_bridge_disable_cache() {
         }
         
         // Check if page has DMS shortcode in content
-        if (has_shortcode($post->post_content, 'dms_carts')) {
+        if (has_shortcode($post->post_content, 'tigon_dms_carts')) {
             $should_disable_cache = true;
         }
         // Check if page is built with Elementor (could have DMS widget)
@@ -1806,7 +1806,7 @@ function dms_bridge_disable_cache() {
         }
         
         // If template override is enabled, all pages show carts via template
-        if (DMS_BRIDGE_HIDE_DEFAULT_CONTENT) {
+        if (TIGON_DMS_HIDE_DEFAULT_CONTENT) {
             $should_disable_cache = true;
         }
         // If content injection is enabled, all non-Elementor pages show carts
@@ -1831,21 +1831,21 @@ function dms_bridge_disable_cache() {
 }
 // Use 'template_redirect' hook with priority 1 - runs very early in frontend, after query is set but before template loads
 // This is early enough for most caching plugins to respect the constants
-add_action('template_redirect', 'dms_bridge_disable_cache', 1);
+add_action('template_redirect', 'tigon_dms_disable_cache', 1);
 
 /**
  * Register Elementor Widgets
  * - DMS Carts (homepage/location pages)
  * - DMS Inventory Filtered (inventory page with filters)
  */
-function dms_bridge_register_elementor_widget($widgets_manager) {
+function tigon_dms_register_elementor_widget($widgets_manager) {
     // Check if Elementor is available
     if (!class_exists('\Elementor\Widget_Base')) {
         return;
     }
     
     // Load and register DMS Carts widget (existing)
-    $widget_file = DMS_BRIDGE_PLUGIN_DIR . 'includes/class-dms-elementor-widget.php';
+    $widget_file = TIGON_DMS_PLUGIN_DIR . 'includes/class-dms-elementor-widget.php';
     if (file_exists($widget_file)) {
         require_once $widget_file;
         
@@ -1862,7 +1862,7 @@ function dms_bridge_register_elementor_widget($widgets_manager) {
     }
     
     // Load and register DMS Inventory Filtered widget (NEW)
-    $inventory_widget_file = DMS_BRIDGE_PLUGIN_DIR . 'includes/class-dms-inventory-widget.php';
+    $inventory_widget_file = TIGON_DMS_PLUGIN_DIR . 'includes/class-dms-inventory-widget.php';
     if (file_exists($inventory_widget_file)) {
         require_once $inventory_widget_file;
         
@@ -1875,14 +1875,14 @@ function dms_bridge_register_elementor_widget($widgets_manager) {
         }
     }
 }
-add_action('elementor/widgets/register', 'dms_bridge_register_elementor_widget');
+add_action('elementor/widgets/register', 'tigon_dms_register_elementor_widget');
 
 /**
  * ============================================================================
  * DMS INVENTORY FILTERED SHORTCODE
  * ============================================================================
  * 
- * Shortcode: [dms_inventory_filtered]
+ * Shortcode: [tigon_dms_inventory_filtered]
  * 
  * Attributes:
  *   show_filters   - "yes" or "no" (default: "yes")
@@ -1890,10 +1890,10 @@ add_action('elementor/widgets/register', 'dms_bridge_register_elementor_widget')
  *   per_page       - Number of carts per page (default: 20)
  * 
  * Usage:
- *   [dms_inventory_filtered]
- *   [dms_inventory_filtered show_filters="no" per_page="12"]
+ *   [tigon_dms_inventory_filtered]
+ *   [tigon_dms_inventory_filtered show_filters="no" per_page="12"]
  */
-function dms_bridge_inventory_filtered_shortcode($atts) {
+function tigon_dms_inventory_filtered_shortcode($atts) {
     // Parse shortcode attributes
     $atts = shortcode_atts(
         array(
@@ -1902,7 +1902,7 @@ function dms_bridge_inventory_filtered_shortcode($atts) {
             'per_page'        => 20,
         ),
         $atts,
-        'dms_inventory_filtered'
+        'tigon_dms_inventory_filtered'
     );
     
     $show_filters    = ($atts['show_filters'] === 'yes');
@@ -1910,7 +1910,7 @@ function dms_bridge_inventory_filtered_shortcode($atts) {
     $per_page        = intval($atts['per_page']);
     
     // Load widget class if not already loaded
-    $widget_file = DMS_BRIDGE_PLUGIN_DIR . 'includes/class-dms-inventory-widget.php';
+    $widget_file = TIGON_DMS_PLUGIN_DIR . 'includes/class-dms-inventory-widget.php';
     if (!class_exists('DMS_Inventory_Widget') && file_exists($widget_file)) {
         require_once $widget_file;
     }
@@ -1926,13 +1926,13 @@ function dms_bridge_inventory_filtered_shortcode($atts) {
     
     return ob_get_clean();
 }
-add_shortcode('dms_inventory_filtered', 'dms_bridge_inventory_filtered_shortcode');
+add_shortcode('tigon_dms_inventory_filtered', 'tigon_dms_inventory_filtered_shortcode');
 
 /**
  * Enqueue plugin styles on frontend
  * Note: Also enqueued directly in widget render() and shortcode for Elementor editor compatibility
  */
-function dms_bridge_enqueue_assets() {
+function tigon_dms_enqueue_assets() {
     // Always enqueue Font Awesome for our plugin
     wp_enqueue_style(
         'dms-font-awesome',
@@ -1948,14 +1948,14 @@ function dms_bridge_enqueue_assets() {
     }
     
     wp_enqueue_style(
-        'dms-bridge-style',
-        DMS_BRIDGE_PLUGIN_URL . 'assets/css/dms-bridge.css',
+        'tigon-dms-connect-style',
+        TIGON_DMS_PLUGIN_URL . 'assets/css/dms-bridge.css',
         $dependencies,
-        filemtime(DMS_BRIDGE_PLUGIN_DIR . 'assets/css/dms-bridge.css') // Auto cache-busting
+        filemtime(TIGON_DMS_PLUGIN_DIR . 'assets/css/dms-bridge.css') // Auto cache-busting
     );
 }
-add_action('wp_enqueue_scripts', 'dms_bridge_enqueue_assets', 20); // Higher priority to load after Elementor
-add_action('elementor/editor/before_enqueue_styles', 'dms_bridge_enqueue_assets', 20); // Elementor editor
+add_action('wp_enqueue_scripts', 'tigon_dms_enqueue_assets', 20); // Higher priority to load after Elementor
+add_action('elementor/editor/before_enqueue_styles', 'tigon_dms_enqueue_assets', 20); // Elementor editor
 
 /**
  * DISABLED: WooCommerce product integration (was causing fatal errors)
@@ -1970,20 +1970,20 @@ add_action('elementor/editor/before_enqueue_styles', 'dms_bridge_enqueue_assets'
  * Template override (only if HIDE_DEFAULT_CONTENT is enabled)
  * For location pages (/hatfield, /ocean_view)
  */
-function dms_bridge_template_override($template) {
+function tigon_dms_template_override($template) {
 
     if (is_admin()) {
         return $template;
     }
 
     // Only override if configured to hide default content
-    if (!DMS_BRIDGE_HIDE_DEFAULT_CONTENT) {
+    if (!TIGON_DMS_HIDE_DEFAULT_CONTENT) {
         return $template;
     }
 
     // Homepage
     if (is_front_page()) {
-        $custom = DMS_BRIDGE_PLUGIN_DIR . 'templates/homepage-carts.php';
+        $custom = TIGON_DMS_PLUGIN_DIR . 'templates/homepage-carts.php';
         if (file_exists($custom)) {
             return $custom;
         }
@@ -1991,7 +1991,7 @@ function dms_bridge_template_override($template) {
 
     // Location pages
     if (is_page()) {
-        $custom = DMS_BRIDGE_PLUGIN_DIR . 'templates/homepage-carts.php';
+        $custom = TIGON_DMS_PLUGIN_DIR . 'templates/homepage-carts.php';
         if (file_exists($custom)) {
             return $custom;
         }
@@ -2004,10 +2004,10 @@ function dms_bridge_template_override($template) {
  * Inject carts into non-Elementor pages (when NOT hiding default content)
  * Elementor pages should use the Elementor widget instead
  */
-function dms_bridge_inject_carts($content) {
+function tigon_dms_inject_carts($content) {
     
     // Skip if we're hiding default content (full template override)
-    if (DMS_BRIDGE_HIDE_DEFAULT_CONTENT) {
+    if (TIGON_DMS_HIDE_DEFAULT_CONTENT) {
         return $content;
     }
 
@@ -2040,13 +2040,13 @@ function dms_bridge_inject_carts($content) {
     // Append carts after page content
     return $content . $carts_html;
 }
-add_filter('the_content', 'dms_bridge_inject_carts', 20);
+add_filter('the_content', 'tigon_dms_inject_carts', 20);
 
 /**
  * Shortcode (optional)
- * Usage: [dms_carts], [dms_carts type="new"]
+ * Usage: [tigon_dms_carts], [tigon_dms_carts type="new"]
  */
-function dms_bridge_shortcode($atts) {
+function tigon_dms_shortcode($atts) {
     // Enqueue Font Awesome
     wp_enqueue_style(
         'dms-font-awesome',
@@ -2057,10 +2057,10 @@ function dms_bridge_shortcode($atts) {
     
     // Ensure CSS is loaded when shortcode is used
     wp_enqueue_style(
-        'dms-bridge-style',
-        DMS_BRIDGE_PLUGIN_URL . 'assets/css/dms-bridge.css',
+        'tigon-dms-connect-style',
+        TIGON_DMS_PLUGIN_URL . 'assets/css/dms-bridge.css',
         array('dms-font-awesome'),
-        filemtime(DMS_BRIDGE_PLUGIN_DIR . 'assets/css/dms-bridge.css') // Auto cache-busting
+        filemtime(TIGON_DMS_PLUGIN_DIR . 'assets/css/dms-bridge.css') // Auto cache-busting
     );
 
     if (!class_exists('DMS_Display')) {
@@ -2075,7 +2075,7 @@ function dms_bridge_shortcode($atts) {
     DMS_Display::render_carts($atts['type']);
     return ob_get_clean();
 }
-add_shortcode('dms_carts', 'dms_bridge_shortcode');
+add_shortcode('tigon_dms_carts', 'tigon_dms_shortcode');
 
 /**
  * Change WooCommerce products per page to 20 (5 rows of 4 products)
@@ -2083,10 +2083,10 @@ add_shortcode('dms_carts', 'dms_bridge_shortcode');
  * By default WooCommerce shows 16 products per page (4 rows of 4).
  * This filter increases it to 20 products per page (5 rows of 4).
  */
-function dms_bridge_products_per_page($cols) {
+function tigon_dms_products_per_page($cols) {
     return 20;
 }
-add_filter('loop_shop_per_page', 'dms_bridge_products_per_page', 20);
+add_filter('loop_shop_per_page', 'tigon_dms_products_per_page', 20);
 
 /**
  * ============================================================================
@@ -2104,35 +2104,35 @@ add_filter('loop_shop_per_page', 'dms_bridge_products_per_page', 20);
 /**
  * Schedule WP-Cron event for inventory sync
  */
-function dms_bridge_schedule_sync()
+function tigon_dms_schedule_sync()
 {
-    if (!wp_next_scheduled('dms_bridge_sync_inventory')) {
+    if (!wp_next_scheduled('tigon_dms_sync_inventory')) {
         $interval = DMS_Sync::get_sync_interval();
-        wp_schedule_event(time(), 'dms_bridge_sync_interval', 'dms_bridge_sync_inventory');
+        wp_schedule_event(time(), 'tigon_dms_sync_interval', 'tigon_dms_sync_inventory');
     }
 }
-add_action('wp', 'dms_bridge_schedule_sync');
+add_action('wp', 'tigon_dms_schedule_sync');
 
 /**
  * Register custom cron interval for sync
  */
-function dms_bridge_add_sync_cron_interval($schedules)
+function tigon_dms_add_sync_cron_interval($schedules)
 {
     $interval = DMS_Sync::get_sync_interval();
     
-    $schedules['dms_bridge_sync_interval'] = array(
+    $schedules['tigon_dms_sync_interval'] = array(
         'interval' => $interval * HOUR_IN_SECONDS,
-        'display'  => sprintf(__('Every %d hour(s)', 'dms-bridge'), $interval),
+        'display'  => sprintf(__('Every %d hour(s)', 'tigon-dms-connect'), $interval),
     );
     
     return $schedules;
 }
-add_filter('cron_schedules', 'dms_bridge_add_sync_cron_interval');
+add_filter('cron_schedules', 'tigon_dms_add_sync_cron_interval');
 
 /**
  * Handle scheduled sync event
  */
-function dms_bridge_run_scheduled_sync()
+function tigon_dms_run_scheduled_sync()
 {
     if (!class_exists('DMS_Sync')) {
         return;
@@ -2140,21 +2140,21 @@ function dms_bridge_run_scheduled_sync()
     
     DMS_Sync::sync_inventory();
 }
-add_action('dms_bridge_sync_inventory', 'dms_bridge_run_scheduled_sync');
+add_action('tigon_dms_sync_inventory', 'tigon_dms_run_scheduled_sync');
 
 /**
  * Reschedule sync when interval changes
  */
-function dms_bridge_reschedule_sync()
+function tigon_dms_reschedule_sync()
 {
-    wp_clear_scheduled_hook('dms_bridge_sync_inventory');
-    dms_bridge_schedule_sync();
+    wp_clear_scheduled_hook('tigon_dms_sync_inventory');
+    tigon_dms_schedule_sync();
 }
 
 /**
  * Add admin menu for inventory sync
  */
-function dms_bridge_add_sync_menu()
+function tigon_dms_add_sync_menu()
 {
     add_submenu_page(
         'woocommerce',
@@ -2162,15 +2162,15 @@ function dms_bridge_add_sync_menu()
         'DMS Sync',
         'manage_woocommerce',
         'dms-inventory-sync',
-        'dms_bridge_sync_page'
+        'tigon_dms_sync_page'
     );
 }
-add_action('admin_menu', 'dms_bridge_add_sync_menu');
+add_action('admin_menu', 'tigon_dms_add_sync_menu');
 
 /**
  * Render sync admin page
  */
-function dms_bridge_sync_page()
+function tigon_dms_sync_page()
 {
     if (!current_user_can('manage_woocommerce')) {
         wp_die('Unauthorized access');
@@ -2201,31 +2201,31 @@ function dms_bridge_sync_page()
         $new_interval = max(1, min(168, $new_interval)); // Clamp between 1-168 hours (1 week)
         
         DMS_Sync::set_sync_interval($new_interval);
-        dms_bridge_reschedule_sync();
+        tigon_dms_reschedule_sync();
         
         $sync_interval = $new_interval;
         
         echo '<div class="notice notice-success is-dismissible"><p>';
-        echo esc_html__('Sync interval updated successfully.', 'dms-bridge');
+        echo esc_html__('Sync interval updated successfully.', 'tigon-dms-connect');
         echo '</p></div>';
     }
     
     // Get next scheduled sync time
-    $next_sync = wp_next_scheduled('dms_bridge_sync_inventory');
+    $next_sync = wp_next_scheduled('tigon_dms_sync_inventory');
     
     ?>
     <div class="wrap">
-        <h1><?php echo esc_html__('DMS Inventory Sync', 'dms-bridge'); ?></h1>
+        <h1><?php echo esc_html__('DMS Inventory Sync', 'tigon-dms-connect'); ?></h1>
         
         <div class="card" style="max-width: 800px;">
-            <h2><?php echo esc_html__('Manual Sync', 'dms-bridge'); ?></h2>
-            <p><?php echo esc_html__('Manually trigger a full inventory sync from the DMS API. This may take several minutes depending on the number of carts.', 'dms-bridge'); ?></p>
+            <h2><?php echo esc_html__('Manual Sync', 'tigon-dms-connect'); ?></h2>
+            <p><?php echo esc_html__('Manually trigger a full inventory sync from the DMS API. This may take several minutes depending on the number of carts.', 'tigon-dms-connect'); ?></p>
             
             <form method="post" action="">
                 <?php wp_nonce_field('dms_manual_sync', 'dms_sync_nonce'); ?>
                 <p>
                     <button type="submit" name="dms_manual_sync" class="button button-primary button-large">
-                        <?php echo esc_html__('Sync Inventory Now', 'dms-bridge'); ?>
+                        <?php echo esc_html__('Sync Inventory Now', 'tigon-dms-connect'); ?>
                     </button>
                 </p>
             </form>
@@ -2234,41 +2234,41 @@ function dms_bridge_sync_page()
                 <?php if ($sync_results['success']): ?>
                     <?php $stats = $sync_results['stats']; ?>
                     <div class="notice notice-success" style="margin-top: 15px;">
-                        <h3><?php echo esc_html__('Sync Completed', 'dms-bridge'); ?></h3>
+                        <h3><?php echo esc_html__('Sync Completed', 'tigon-dms-connect'); ?></h3>
                         <ul>
-                            <li><strong><?php echo esc_html__('Total carts processed:', 'dms-bridge'); ?></strong> <?php echo esc_html($stats['total']); ?></li>
-                            <li><strong><?php echo esc_html__('Products created:', 'dms-bridge'); ?></strong> <?php echo esc_html($stats['created']); ?></li>
-                            <li><strong><?php echo esc_html__('Products updated:', 'dms-bridge'); ?></strong> <?php echo esc_html($stats['updated']); ?></li>
-                            <li><strong><?php echo esc_html__('Skipped:', 'dms-bridge'); ?></strong> <?php echo esc_html($stats['skipped']); ?></li>
-                            <li><strong><?php echo esc_html__('Errors:', 'dms-bridge'); ?></strong> <?php echo esc_html($stats['errors']); ?></li>
+                            <li><strong><?php echo esc_html__('Total carts processed:', 'tigon-dms-connect'); ?></strong> <?php echo esc_html($stats['total']); ?></li>
+                            <li><strong><?php echo esc_html__('Products created:', 'tigon-dms-connect'); ?></strong> <?php echo esc_html($stats['created']); ?></li>
+                            <li><strong><?php echo esc_html__('Products updated:', 'tigon-dms-connect'); ?></strong> <?php echo esc_html($stats['updated']); ?></li>
+                            <li><strong><?php echo esc_html__('Skipped:', 'tigon-dms-connect'); ?></strong> <?php echo esc_html($stats['skipped']); ?></li>
+                            <li><strong><?php echo esc_html__('Errors:', 'tigon-dms-connect'); ?></strong> <?php echo esc_html($stats['errors']); ?></li>
                         </ul>
                     </div>
                 <?php else: ?>
                     <div class="notice notice-error" style="margin-top: 15px;">
-                        <p><strong><?php echo esc_html__('Sync Failed:', 'dms-bridge'); ?></strong> <?php echo esc_html($sync_results['message'] ?? 'Unknown error'); ?></p>
+                        <p><strong><?php echo esc_html__('Sync Failed:', 'tigon-dms-connect'); ?></strong> <?php echo esc_html($sync_results['message'] ?? 'Unknown error'); ?></p>
                     </div>
                 <?php endif; ?>
             <?php endif; ?>
         </div>
         
         <div class="card" style="max-width: 800px; margin-top: 20px;">
-            <h2><?php echo esc_html__('Scheduled Sync', 'dms-bridge'); ?></h2>
+            <h2><?php echo esc_html__('Scheduled Sync', 'tigon-dms-connect'); ?></h2>
             
             <form method="post" action="">
                 <?php wp_nonce_field('dms_update_interval', 'dms_interval_nonce'); ?>
                 <table class="form-table">
                     <tr>
                         <th scope="row">
-                            <label for="sync_interval"><?php echo esc_html__('Sync Interval (hours)', 'dms-bridge'); ?></label>
+                            <label for="sync_interval"><?php echo esc_html__('Sync Interval (hours)', 'tigon-dms-connect'); ?></label>
                         </th>
                         <td>
                             <input type="number" id="sync_interval" name="sync_interval" value="<?php echo esc_attr($sync_interval); ?>" min="1" max="168" step="1" class="small-text">
-                            <p class="description"><?php echo esc_html__('How often to automatically sync inventory (1-168 hours).', 'dms-bridge'); ?></p>
+                            <p class="description"><?php echo esc_html__('How often to automatically sync inventory (1-168 hours).', 'tigon-dms-connect'); ?></p>
                         </td>
                     </tr>
                     <?php if ($next_sync): ?>
                     <tr>
-                        <th scope="row"><?php echo esc_html__('Next Scheduled Sync', 'dms-bridge'); ?></th>
+                        <th scope="row"><?php echo esc_html__('Next Scheduled Sync', 'tigon-dms-connect'); ?></th>
                         <td>
                             <p><?php echo esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $next_sync)); ?></p>
                         </td>
@@ -2277,7 +2277,7 @@ function dms_bridge_sync_page()
                 </table>
                 <p>
                     <button type="submit" name="dms_update_interval" class="button button-primary">
-                        <?php echo esc_html__('Update Interval', 'dms-bridge'); ?>
+                        <?php echo esc_html__('Update Interval', 'tigon-dms-connect'); ?>
                     </button>
                 </p>
             </form>
@@ -2289,20 +2289,20 @@ function dms_bridge_sync_page()
 /**
  * Schedule sync on plugin activation
  */
-function dms_bridge_activation_sync()
+function tigon_dms_activation_sync()
 {
-    dms_bridge_schedule_sync();
+    tigon_dms_schedule_sync();
 }
-register_activation_hook(__FILE__, 'dms_bridge_activation_sync');
+register_activation_hook(__FILE__, 'tigon_dms_activation_sync');
 
 /**
  * Clear sync schedule on plugin deactivation
  */
-function dms_bridge_deactivation_sync()
+function tigon_dms_deactivation_sync()
 {
-    wp_clear_scheduled_hook('dms_bridge_sync_inventory');
+    wp_clear_scheduled_hook('tigon_dms_sync_inventory');
 }
-register_deactivation_hook(__FILE__, 'dms_bridge_deactivation_sync');
+register_deactivation_hook(__FILE__, 'tigon_dms_deactivation_sync');
 
 /**
  * ============================================================================
@@ -2369,7 +2369,7 @@ function dms_sync_inventory()
  * When a logged-in admin visits /wp-admin/?run_dms_inventory_sync=1
  * Execute dms_sync_inventory() and log progress.
  */
-function dms_bridge_admin_sync_trigger()
+function tigon_dms_admin_sync_trigger()
 {
     // Check for query parameter first (works in both admin and frontend for testing)
     if (!isset($_GET['run_dms_inventory_sync']) || $_GET['run_dms_inventory_sync'] !== '1') {
@@ -2424,5 +2424,5 @@ function dms_bridge_admin_sync_trigger()
     exit;
 }
 // Hook early on both admin_init and init (fallback) for better compatibility
-add_action('admin_init', 'dms_bridge_admin_sync_trigger', 1);
-add_action('init', 'dms_bridge_admin_sync_trigger', 1);
+add_action('admin_init', 'tigon_dms_admin_sync_trigger', 1);
+add_action('init', 'tigon_dms_admin_sync_trigger', 1);

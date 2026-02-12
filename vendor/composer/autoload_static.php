@@ -9,12 +9,12 @@ class ComposerStaticInit5e21d35482b46899f49fe56e9425e426
     public static $prefixLengthsPsr4 = array (
         'T' => 
         array (
-            'Tigon\\Chimera\\' => 14,
+            'Tigon\\DmsConnect\\' => 17,
         ),
     );
 
     public static $prefixDirsPsr4 = array (
-        'Tigon\\Chimera\\' => 
+        'Tigon\\DmsConnect\\' => 
         array (
             0 => __DIR__ . '/../..' . '/src',
         ),
@@ -22,26 +22,6 @@ class ComposerStaticInit5e21d35482b46899f49fe56e9425e426
 
     public static $classMap = array (
         'Composer\\InstalledVersions' => __DIR__ . '/..' . '/composer/InstalledVersions.php',
-        'Tigon\\Chimera\\Abstracts\\Abstract_Cart' => __DIR__ . '/../..' . '/src/Abstracts/Abstract_Cart.php',
-        'Tigon\\Chimera\\Abstracts\\Abstract_Import_Controller' => __DIR__ . '/../..' . '/src/Abstracts/Abstract_Import_Controller.php',
-        'Tigon\\Chimera\\Admin\\Admin_Page' => __DIR__ . '/../..' . '/src/Admin/Admin_Page.php',
-        'Tigon\\Chimera\\Admin\\Ajax_Import_Controller' => __DIR__ . '/../..' . '/src/Admin/Ajax_Import_Controller.php',
-        'Tigon\\Chimera\\Admin\\Ajax_Settings_Controller' => __DIR__ . '/../..' . '/src/Admin/Ajax_Settings_Controller.php',
-        'Tigon\\Chimera\\Admin\\Attributes' => __DIR__ . '/../..' . '/src/Admin/Attributes.php',
-        'Tigon\\Chimera\\Admin\\Database_Object' => __DIR__ . '/../..' . '/src/Admin/Database_Object.php',
-        'Tigon\\Chimera\\Admin\\Database_Write_Controller' => __DIR__ . '/../..' . '/src/Admin/Database_Write_Controller.php',
-        'Tigon\\Chimera\\Admin\\New\\Cart' => __DIR__ . '/../..' . '/src/Admin/New/Cart.php',
-        'Tigon\\Chimera\\Admin\\New\\New_Cart_Converter' => __DIR__ . '/../..' . '/src/Admin/New/New_Cart_Converter.php',
-        'Tigon\\Chimera\\Admin\\REST_Import_Controller' => __DIR__ . '/../..' . '/src/Admin/REST_Import_Controller.php',
-        'Tigon\\Chimera\\Admin\\REST_Product_Grid_Controller' => __DIR__ . '/../..' . '/src/Admin/REST_Product_Grid_Controller.php',
-        'Tigon\\Chimera\\Admin\\REST_Routes' => __DIR__ . '/../..' . '/src/Admin/REST_Routes.php',
-        'Tigon\\Chimera\\Admin\\Used\\Cart' => __DIR__ . '/../..' . '/src/Admin/Used/Cart.php',
-        'Tigon\\Chimera\\Core' => __DIR__ . '/../..' . '/src/Core.php',
-        'Tigon\\Chimera\\Includes\\DMS_Connector' => __DIR__ . '/../..' . '/src/Includes/DMS_Connector.php',
-        'Tigon\\Chimera\\Includes\\Product_Fields' => __DIR__ . '/../..' . '/src/Includes/Product_Fields.php',
-        'Tigon\\Chimera\\Includes\\Somatic' => __DIR__ . '/../..' . '/src/Includes/Somatic.php',
-        'Tigon\\Chimera\\Includes\\Utilities' => __DIR__ . '/../..' . '/src/Includes/Utilities.php',
-        'Tigon\\Chimera\\Includes\\WP_GitHub_Updater' => __DIR__ . '/../..' . '/src/Includes/WP_GitHub_Updater.php',
     );
 
     public static function getInitializer(ClassLoader $loader)

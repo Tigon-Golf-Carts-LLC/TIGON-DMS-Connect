@@ -3,7 +3,7 @@
  * Template for DMS Cart on Inventory Page
  * This template is used when /inventory/slug matches a DMS cart
  *
- * @package DMS_Bridge
+ * @package Tigon_DMS_Connect
  */
 
 if (!defined('ABSPATH')) {

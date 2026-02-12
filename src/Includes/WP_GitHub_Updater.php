@@ -1,6 +1,6 @@
 <?php
 
-namespace Tigon\Chimera\Includes;
+namespace Tigon\DmsConnect\Includes;
 
 /**
  *

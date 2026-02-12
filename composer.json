@@ -1,16 +1,16 @@
 {
-    "name": "tigon/chimera",
-    "description": "Tigon DMS Connection",
+    "name": "tigon/dms-connect",
+    "description": "Tigon DMS Connect",
     "type": "wordpress-plugin",
     "autoload": {
         "psr-4": {
-            "Tigon\\Chimera\\": "src/"
+            "Tigon\\DmsConnect\\": "src/"
         }
     },
     "authors": [
         {
-            "name": "Joseph Shapiro",
-            "email": "jdshap@comcast.net"
+            "name": "Noah Jaslow",
+            "homepage": "https://jaslowdigital.com"
         }
     ],
     "require": {}

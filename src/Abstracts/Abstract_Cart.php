@@ -1,9 +1,9 @@
 <?php
 
-namespace Tigon\Chimera\Abstracts;
+namespace Tigon\DmsConnect\Abstracts;
 
-use Tigon\Chimera\Admin\Attributes;
-use Tigon\Chimera\Admin\Database_Object;
+use Tigon\DmsConnect\Admin\Attributes;
+use Tigon\DmsConnect\Admin\Database_Object;
 
 use WP_Error;
 
@@ -189,7 +189,7 @@ abstract class Abstract_Cart
 
     public function __construct($input_cart)
     {
-        \Tigon\Chimera\Includes\Product_Fields::define_constants();
+        \Tigon\DmsConnect\Includes\Product_Fields::define_constants();
         $this->cart = array_filter($input_cart, function ($v) {
             return !($v === null) && !($v === "");
         });
@@ -205,7 +205,7 @@ abstract class Abstract_Cart
         global $wpdb;
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
 
-        $table_name = $wpdb->prefix . 'chimera_config';
+        $table_name = $wpdb->prefix . 'tigon_dms_config';
 
         $this->file_source = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'file_source'");
 
@@ -540,7 +540,7 @@ abstract class Abstract_Cart
                 '_wp_attachment_image_alt' => $this->name
             ];
 
-            $new_image_id = \Tigon\Chimera\Includes\Somatic::attach_external_image(
+            $new_image_id = \Tigon\DmsConnect\Includes\Somatic::attach_external_image(
                 url: "$this->file_source/carts/$remote_image_name",
                 filename: $image_filename,
                 post_data: $image_data,
@@ -602,7 +602,7 @@ abstract class Abstract_Cart
                 '_wp_attachment_image_alt' => $this->name
             ];
 
-            $site_monroney_url = \Tigon\Chimera\Includes\Somatic::attach_external_image(
+            $site_monroney_url = \Tigon\DmsConnect\Includes\Somatic::attach_external_image(
                 url: "$this->file_source/cart-window-stickers/$remote_monroney_name",
                 filename: $monroney_filename,
                 post_data: $monroney_data,
