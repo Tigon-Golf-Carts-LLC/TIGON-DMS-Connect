@@ -1,10 +1,10 @@
 <?php
 /**
- * Plugin Name: DMS Bridge Plugin
- * Description: Tigon DMS Connect — fetches, imports, maps and displays golf carts from the DMS into WooCommerce.
+ * Plugin Name: TIGON DMS Connect
+ * Description: TIGON DMS Connect — fetches, imports, maps and displays golf carts from the DMS into WooCommerce.
  * Version: 2.0.0
- * Author: Tigon Golf Carts
- * Author URI: https://tigongolfcarts.com/
+ * Author: Jaslow Digital | Noah Jaslow
+ * Author URI: https://jaslowdigital.com/
  * Text Domain: tigon-dms-connect
  * Requires Plugins: woocommerce
  */
