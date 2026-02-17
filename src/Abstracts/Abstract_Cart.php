@@ -891,30 +891,37 @@ abstract class Abstract_Cart
 
     protected function get_model_term_keys(): array
     {
-        $manufacturer_key = $this->get_manufacturer_term_key();
-        $model_key = strtoupper(trim($this->cart['modelMd'] ?? $this->cart['cartType']['model']));
+        $manufacturer_keys = $this->get_manufacturer_term_keys();
+        $model_keys = array_values(array_unique(array_filter([
+            strtoupper(trim($this->cart['modelMd'] ?? '')),
+            strtoupper(trim($this->cart['cartType']['model'] ?? '')),
+        ])));
+
         $keys = [];
 
-        switch ($model_key) {
-            case 'DS':
-                $keys[] = $manufacturer_key . ' DS ELECTRIC';
-                break;
-            case 'PRECEDENT':
-                $keys[] = $manufacturer_key . ' PRECEDENT ELECTRIC';
-                break;
-            case '4L':
-                $keys[] = $manufacturer_key . ' CROWN 4 LIFTED';
-                break;
-            case '6L':
-                $keys[] = $manufacturer_key . ' CROWN 6 LIFTED';
-                break;
-            case 'DRIVE 2':
-                $keys[] = $manufacturer_key . ' DRIVE2';
-                break;
-        }
+        foreach ($manufacturer_keys as $manufacturer_key) {
+            foreach ($model_keys as $model_key) {
+                switch ($model_key) {
+                    case 'DS':
+                        $keys[] = $manufacturer_key . ' DS ELECTRIC';
+                        break;
+                    case 'PRECEDENT':
+                        $keys[] = $manufacturer_key . ' PRECEDENT ELECTRIC';
+                        break;
+                    case '4L':
+                        $keys[] = $manufacturer_key . ' CROWN 4 LIFTED';
+                        break;
+                    case '6L':
+                        $keys[] = $manufacturer_key . ' CROWN 6 LIFTED';
+                        break;
+                    case 'DRIVE 2':
+                        $keys[] = $manufacturer_key . ' DRIVE2';
+                        break;
+                }
 
-        $keys[] = $manufacturer_key . ' ' . $model_key;
-        $keys[] = strtoupper($this->make_with_symbol) . ' ' . $model_key;
+                $keys[] = $manufacturer_key . ' ' . $model_key;
+            }
+        }
 
         return array_values(array_unique(array_filter($keys)));
     }
