@@ -408,6 +408,7 @@ class Admin_Page
         $api_key = substr_replace(preg_replace('/[^-]/', '•', $api_key), $shown_key, -6, 6);
         
         $file_source = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'file_source'") ?? 'e.g. https://s3.amazonaws.com/your.bucket.s3';
+        $locations_json = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'locations_json'") ?? '';
 
         self::page_header();
 
@@ -446,6 +447,18 @@ class Admin_Page
                             <span>File source:</span>
                             <input type="text" style="float:right" id="txt-file-source" placeholder="' . $file_source . '"></textarea>
                         </div>
+                        <div>
+                            <span>Locations JSON (T1, T2...):</span>
+                            <textarea id="txt-locations-json" style="width:100%;min-height:220px;">' . esc_textarea($locations_json) . '</textarea>
+                        </div>
+                    </div>
+                    <div class="settings form" style="margin-top:1rem;">
+                        <h3>Inventory Operations</h3>
+                        <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+                            <button id="btn-refresh-active" type="button">Refresh Active Inventory (non-static)</button>
+                            <button id="btn-repull-dms" type="button">Repull DMS Inventory (full sync)</button>
+                        </div>
+                        <div id="ops-result" style="margin-top:.75rem;"></div>
                     </div>
                     <a id="save" class="tigon_dms_action tigon_dms_save" data-nonce="' . $nonce . '"><button>Save Settings</button></a>
                 </div>

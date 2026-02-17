@@ -2157,7 +2157,7 @@ function tigon_dms_reschedule_sync()
 function tigon_dms_add_sync_menu()
 {
     add_submenu_page(
-        'woocommerce',
+        'tigon-dms-connect',
         'DMS Inventory Sync',
         'DMS Sync',
         'manage_woocommerce',

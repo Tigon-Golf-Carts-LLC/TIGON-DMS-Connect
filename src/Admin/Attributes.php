@@ -155,6 +155,50 @@ class Attributes
         ]
     ];
 
+    public static function load_custom_locations()
+    {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'tigon_dms_config';
+        $json = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'locations_json'");
+        if (!$json) {
+            return;
+        }
+
+        $custom_locations = json_decode($json, true);
+        if (!is_array($custom_locations)) {
+            return;
+        }
+
+        foreach ($custom_locations as $location_id => $location_data) {
+            if (!is_array($location_data)) {
+                continue;
+            }
+
+            if (!preg_match('/^T\d+$/', $location_id)) {
+                continue;
+            }
+
+            self::$locations[$location_id] = array_merge(
+                self::$locations[$location_id] ?? [],
+                [
+                    'address' => $location_data['address'] ?? '',
+                    'city' => $location_data['city'] ?? ($location_data['city_short'] ?? ''),
+                    'city_short' => $location_data['city_short'] ?? null,
+                    'state' => $location_data['state'] ?? '',
+                    'st' => $location_data['st'] ?? '',
+                    'zip' => $location_data['zip'] ?? '',
+                    'city_id' => intval($location_data['city_id'] ?? 0),
+                    'state_id' => intval($location_data['state_id'] ?? 0),
+                    'phone' => $location_data['phone'] ?? '',
+                    'url' => $location_data['url'] ?? '',
+                    'google_cid' => $location_data['google_cid'] ?? '',
+                    'facebook_url' => $location_data['facebook_url'] ?? '',
+                    'youtube_url' => $location_data['youtube_url'] ?? '',
+                ]
+            );
+        }
+    }
+
     //Automatically propagated
     public $categories = [];
     public $tags = [];
