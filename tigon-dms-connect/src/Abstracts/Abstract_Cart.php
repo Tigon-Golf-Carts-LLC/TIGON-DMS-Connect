@@ -434,23 +434,17 @@ abstract class Abstract_Cart
     protected function generate_location_data() {
         $this->location_id = $this->cart['cartLocation']['locationId'];
         if($this->location_id === "Other") {
-            $this->location_id = $this->cart['cartLocation']['latestStoreId'] ?? 'T1';
+            $this->location_id = $this->cart['cartLocation']['latestStoreId'];
         }
 
-        // Fallback to T1 if location is not recognized
-        if (!isset(Attributes::$locations[$this->location_id])) {
-            $this->location_id = 'T1';
-        }
-
-        $loc = Attributes::$locations[$this->location_id];
-        $this->city_shortname = $loc['city_short'] ?? $loc['city'];
+        $this->city_shortname = Attributes::$locations[$this->location_id]['city_short'] ?? Attributes::$locations[$this->location_id]['city'];
 
         $this->tigonwm_text = 'TIGON®';
-
+        
         if ($this->location_id) {
             $this->tigonwm_text =
-                ( $this->city_shortname ) .
-                ' ' . $loc['st'];
+                ( $this->city_shortname ) . 
+                ' ' . Attributes::$locations[$this->location_id]['st'];
         }
         if (isset($this->cart['isRental']) && $this->cart['isRental']){
             $this->tigonwm_text = 'TIGON® RENTALS';  
@@ -655,10 +649,11 @@ abstract class Abstract_Cart
             $tag_seats = $this->number_seats . ' SEATS';
         }
 
-        $manufacturer_term_key = $this->get_manufacturer_term_key();
+        $manufacturer_term_keys = $this->get_manufacturer_term_keys();
+        $manufacturer_term_key = $manufacturer_term_keys[0];
         $manufacturer_category_id = $this->find_first_existing_term_id(
             $this->generated_attributes->categories,
-            [$manufacturer_term_key]
+            $manufacturer_term_keys
         );
         $model_category_id = $this->find_first_existing_term_id(
             $this->generated_attributes->categories,
@@ -867,17 +862,31 @@ abstract class Abstract_Cart
         $this->primary_category = $model_category_id ?: $manufacturer_category_id;
     }
 
+    protected function get_manufacturer_term_keys(): array
+    {
+        $raw_make_key = trim($this->cart['manufacturerMd'] ?? $this->make_with_symbol ?? '');
+        $normalized_make_key = $this->normalize_taxonomy_key($raw_make_key);
+
+        $primary_key = match ($normalized_make_key) {
+            'SWIFT EV', 'SWIFT' => 'SWIFT®',
+            'STAR', 'STAR EV' => 'STAR EV®',
+            'EZGO', 'E Z GO' => 'EZ-GO®',
+            default => strtoupper($raw_make_key),
+        };
+
+        return array_values(array_unique(array_filter([
+            $primary_key,
+            strtoupper($raw_make_key),
+            strtoupper($this->make_with_symbol ?? ''),
+            strtoupper($this->cart['cartType']['make'] ?? ''),
+        ])));
+    }
 
     protected function get_manufacturer_term_key(): string
     {
-        $make_key = strtoupper(trim($this->cart['manufacturerMd'] ?? $this->make_with_symbol));
+        $keys = $this->get_manufacturer_term_keys();
 
-        return match ($make_key) {
-            'SWIFT EV®' => 'SWIFT®',
-            'STAR®', 'STAR EV®' => 'STAR EV®',
-            'EZGO®' => 'EZ-GO®',
-            default => $make_key,
-        };
+        return $keys[0] ?? strtoupper($this->make_with_symbol ?? '');
     }
 
     protected function get_model_term_keys(): array
@@ -918,8 +927,30 @@ abstract class Abstract_Cart
             }
         }
 
+        $normalized_term_map = [];
+        foreach ($terms as $key => $term_id) {
+            $normalized_term_map[$this->normalize_taxonomy_key($key)] = $term_id;
+        }
+
+        foreach ($keys as $key) {
+            $normalized_key = $this->normalize_taxonomy_key($key);
+            if (isset($normalized_term_map[$normalized_key])) {
+                return $normalized_term_map[$normalized_key];
+            }
+        }
+
         return null;
     }
+
+    protected function normalize_taxonomy_key(string $value): string
+    {
+        $value = strtoupper($value);
+        $value = preg_replace('/[®™]/u', '', $value);
+        $value = preg_replace('/[^A-Z0-9]+/u', ' ', $value);
+
+        return trim(preg_replace('/\s+/', ' ', $value));
+    }
+
 
     protected function attach_attributes()
     {
@@ -1211,7 +1242,7 @@ abstract class Abstract_Cart
         // Manufacturers
         $manufacturer_taxonomy_id = $this->find_first_existing_term_id(
             $this->generated_attributes->manufacturers_taxonomy,
-            [$this->get_manufacturer_term_key()]
+            $this->get_manufacturer_term_keys()
         );
         if ($manufacturer_taxonomy_id) {
             array_push($this->taxonomy_terms, $manufacturer_taxonomy_id);
