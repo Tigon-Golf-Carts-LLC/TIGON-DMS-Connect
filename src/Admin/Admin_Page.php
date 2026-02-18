@@ -138,14 +138,23 @@ class Admin_Page
             if (str_contains(strtoupper($cart['serialNo']), 'DELETE') || str_contains(strtoupper($cart['vinNo']), 'DELETE'))
                 return '--DELETE--';
 
-            $location_id = $cart['cartLocation']['locationId'];
-            $city = Attributes::$locations[$location_id]['city_short']??Attributes::$locations[$location_id]['city'];
+            $location_id = $cart['cartLocation']['locationId'] ?? 'T1';
+            if ($location_id === 'Other') {
+                $location_id = $cart['cartLocation']['latestStoreId'] ?? 'T1';
+            }
+
+            if (!isset(Attributes::$locations[$location_id])) {
+                $location_id = 'T1';
+            }
+
+            $city = Attributes::$locations[$location_id]['city_short'] ?? Attributes::$locations[$location_id]['city'];
+            $state_abbr = Attributes::$locations[$location_id]['st'] ?? '';
 
             $make = preg_replace('/\s+/', '-', trim(preg_replace('/\+/', ' plus ', $cart['cartType']['make'])));
             $model = preg_replace('/\s+/', '-', trim(preg_replace('/\+/', ' plus ', $cart['cartType']['model'])));
             $color = preg_replace('/\s+/', '-', $cart['cartAttributes']['cartColor']);
             $seat = preg_replace('/\s+/', '-', $cart['cartAttributes']['seatColor']);
-            $location = preg_replace('/\s+/', '-', $city . "-" . Attributes::$locations[$location_id]['st']);
+            $location = preg_replace('/\s+/', '-', $city . "-" . $state_abbr);
             $year = preg_replace('/\s+/', '-', $cart['cartType']['year']);
             return json_encode(['url' => strtolower("$make-$model-$color-seat-$seat-$location"), 'year' => $year]);
         }, $dms_new);
