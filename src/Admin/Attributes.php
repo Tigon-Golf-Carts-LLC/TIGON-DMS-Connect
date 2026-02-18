@@ -152,8 +152,51 @@ class Attributes
             "state_id" => 72816,
             "phone" => "1-844-844-6638",
             "url" => ""
+        ],
+        "NATIONAL" => [
+            "address" => "",
+            "city" => "National",
+            "city_short" => "National",
+            "state" => "US",
+            "st" => "US",
+            "zip" => "",
+            "city_id" => 0,
+            "state_id" => 0,
+            "phone" => "",
+            "url" => ""
         ]
     ];
+
+    public static function resolve_location_id($cart_location): string
+    {
+        $location_id = 'T1';
+        $latest_store_id = null;
+
+        if (is_array($cart_location)) {
+            $location_id = $cart_location['locationId'] ?? 'T1';
+            $latest_store_id = $cart_location['latestStoreId'] ?? null;
+        } else if (is_string($cart_location) && $cart_location !== '') {
+            $location_id = $cart_location;
+        }
+
+        if ($location_id === 'Other' && $latest_store_id) {
+            $location_id = $latest_store_id;
+        }
+
+        if (isset(self::$locations[$location_id])) {
+            return $location_id;
+        }
+
+        if ($latest_store_id && isset(self::$locations[$latest_store_id])) {
+            return $latest_store_id;
+        }
+
+        if (strtoupper((string)$location_id) === 'NATIONAL' && isset(self::$locations['NATIONAL'])) {
+            return 'NATIONAL';
+        }
+
+        return isset(self::$locations['T1']) ? 'T1' : array_key_first(self::$locations);
+    }
 
     public static function load_custom_locations()
     {
@@ -174,7 +217,7 @@ class Attributes
                 continue;
             }
 
-            if (!preg_match('/^T\d+$/', $location_id)) {
+            if (!preg_match('/^(T\d+|NATIONAL)$/', strtoupper($location_id))) {
                 continue;
             }
 

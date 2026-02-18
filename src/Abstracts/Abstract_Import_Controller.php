@@ -160,16 +160,15 @@ abstract class Abstract_Import_Controller
         }
 
         // Generate possible slugs
-        $location_id = $data['cartLocation']['locationId'];
-        $city = \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id]['city_short'] ??
-            \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id]['city'];
+        $location_id = \Tigon\DmsConnect\Admin\Attributes::resolve_location_id($data['cartLocation'] ?? []);
+        $location_data = \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id] ?? [];
+        $city = $location_data['city_short'] ?? ($location_data['city'] ?? 'National');
 
         $make = preg_replace('/\s+/', '-', trim(preg_replace('/\+/', ' plus ', $data['cartType']['make'])));
         $model = preg_replace('/\s+/', '-', trim(preg_replace('/\+/', ' plus ', $data['cartType']['model'])));
         $color = preg_replace('/\s+/', '-', $data['cartAttributes']['cartColor']);
         $seat = preg_replace('/\s+/', '-', $data['cartAttributes']['seatColor']);
-        $location = preg_replace('/\s+/', '-', $city . "-"
-            . \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id]['st']);
+        $location = preg_replace('/\s+/', '-', $city . "-" . ($location_data['st'] ?? 'US'));
         $year = preg_replace('/\s+/', '-', $data['cartType']['year']);
 
         $base_slug = strtolower("$make-$model-$color-seat-$seat-$location");

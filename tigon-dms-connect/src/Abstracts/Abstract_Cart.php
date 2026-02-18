@@ -432,10 +432,7 @@ abstract class Abstract_Cart
      * @return void
      */
     protected function generate_location_data() {
-        $this->location_id = $this->cart['cartLocation']['locationId'];
-        if($this->location_id === "Other") {
-            $this->location_id = $this->cart['cartLocation']['latestStoreId'];
-        }
+        $this->location_id = Attributes::resolve_location_id($this->cart['cartLocation'] ?? []);
 
         $this->city_shortname = Attributes::$locations[$this->location_id]['city_short'] ?? Attributes::$locations[$this->location_id]['city'];
 
