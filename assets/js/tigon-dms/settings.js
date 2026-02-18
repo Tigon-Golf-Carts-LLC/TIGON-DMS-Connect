@@ -56,7 +56,8 @@ jQuery(document).ready(() => {
             "github_token": jQuery("#txt-github-token").val(),
             "dms_url": jQuery("#txt-url").val(),
             "user_token": jQuery("#txt-api-key").val(),
-            "file_source": jQuery("#txt-file-source").val()
+            "file_source": jQuery("#txt-file-source").val(),
+            "locations_json": jQuery("#txt-locations-json").val()
         }
 
         jQuery.ajax({
@@ -102,4 +103,20 @@ jQuery(document).ready(() => {
 
         history.replaceState(undefined, '', "#schema")
     });
+
+    const runOperation = (action) => {
+        jQuery("#ops-result").text("Running...");
+        jQuery.ajax({
+            dataType: 'json',
+            url: global.ajaxurl,
+            data: { action }
+        }).then((response) => {
+            jQuery("#ops-result").text(JSON.stringify(response.stats || response));
+        }).catch((err) => {
+            jQuery("#ops-result").text(`Error: ${err.statusText || 'Unknown error'}`);
+        });
+    };
+
+    jQuery("#btn-refresh-active").click(() => runOperation('tigon_dms_refresh_active_inventory'));
+    jQuery("#btn-repull-dms").click(() => runOperation('tigon_dms_repull_dms_inventory'));
 });

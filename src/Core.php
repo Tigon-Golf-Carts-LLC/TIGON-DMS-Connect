@@ -29,6 +29,8 @@ class Core
 
     public static function init()
     {
+        \Tigon\DmsConnect\Admin\Attributes::load_custom_locations();
+
         // Enqueue scripts
         add_action('load-toplevel_page_tigon-dms-connect', 'Tigon\DmsConnect\Core::diagnostic_script_enqueue');
         add_action('load-tigon-dms-connect_page_import', 'Tigon\DmsConnect\Core::import_script_enqueue');
@@ -46,6 +48,8 @@ class Core
         add_action('wp_ajax_tigon_dms_save_settings', 'Tigon\DmsConnect\Admin\Ajax_Settings_Controller::save_settings');
         add_action('wp_ajax_tigon_dms_get_dms_props', 'Tigon\DmsConnect\Admin\Ajax_Settings_Controller::get_dms_props');
         add_action('wp_ajax_tigon_dms_post_import', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::process_post_import');
+        add_action('wp_ajax_tigon_dms_refresh_active_inventory', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::refresh_active_inventory');
+        add_action('wp_ajax_tigon_dms_repull_dms_inventory', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::repull_dms_inventory');
 
         // Add admin page
         add_action('admin_menu', 'Tigon\DmsConnect\Admin\Admin_Page::add_menu_page');
@@ -344,6 +348,15 @@ class Core
             $table_name,
             array(
                 'option_name' => 'file_source',
+                'option_value' => '',
+            )
+        );
+
+        $locations_json = $wpdb->get_var("SELECT option_name FROM $table_name WHERE option_name = 'locations_json'");
+        if($locations_json === null) $wpdb->insert(
+            $table_name,
+            array(
+                'option_name' => 'locations_json',
                 'option_value' => '',
             )
         );

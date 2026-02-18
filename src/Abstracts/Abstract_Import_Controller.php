@@ -11,6 +11,21 @@ use WP_Error;
 
 abstract class Abstract_Import_Controller
 {
+    protected static function apply_location_meta(int $pid, string $location_id): void
+    {
+        $location = \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id] ?? null;
+        if (!$location) {
+            return;
+        }
+
+        update_post_meta($pid, '_tigon_location_id', $location_id);
+        update_post_meta($pid, '_tigon_location_address', $location['address'] ?? '');
+        update_post_meta($pid, '_tigon_location_phone', $location['phone'] ?? '');
+        update_post_meta($pid, '_tigon_location_google_cid', $location['google_cid'] ?? '');
+        update_post_meta($pid, '_tigon_location_facebook_url', $location['facebook_url'] ?? '');
+        update_post_meta($pid, '_tigon_location_youtube_url', $location['youtube_url'] ?? '');
+    }
+
     private function __construct()
     {
     }
@@ -145,16 +160,15 @@ abstract class Abstract_Import_Controller
         }
 
         // Generate possible slugs
-        $location_id = $data['cartLocation']['locationId'];
-        $city = \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id]['city_short'] ??
-            \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id]['city'];
+        $location_id = \Tigon\DmsConnect\Admin\Attributes::resolve_location_id($data['cartLocation'] ?? []);
+        $location_data = \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id] ?? [];
+        $city = $location_data['city_short'] ?? ($location_data['city'] ?? 'National');
 
         $make = preg_replace('/\s+/', '-', trim(preg_replace('/\+/', ' plus ', $data['cartType']['make'])));
         $model = preg_replace('/\s+/', '-', trim(preg_replace('/\+/', ' plus ', $data['cartType']['model'])));
         $color = preg_replace('/\s+/', '-', $data['cartAttributes']['cartColor']);
         $seat = preg_replace('/\s+/', '-', $data['cartAttributes']['seatColor']);
-        $location = preg_replace('/\s+/', '-', $city . "-"
-            . \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id]['st']);
+        $location = preg_replace('/\s+/', '-', $city . "-" . ($location_data['st'] ?? 'US'));
         $year = preg_replace('/\s+/', '-', $data['cartType']['year']);
 
         $base_slug = strtolower("$make-$model-$color-seat-$seat-$location");
@@ -474,6 +488,10 @@ abstract class Abstract_Import_Controller
             $result = json_decode($result, true);
             $pid = $result['pid'];
         }
+        if ($pid && !empty($data['cartLocation']['locationId'])) {
+            self::apply_location_meta((int)$pid, $data['cartLocation']['locationId']);
+        }
+
         return ['pid' => $pid, 'oldPid' => $old_pid, 'updateUrl' => $update_url, 'dmsSelector' => $dms_selector];
     }
 

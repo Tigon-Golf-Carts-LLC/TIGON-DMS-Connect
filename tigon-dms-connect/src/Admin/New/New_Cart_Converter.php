@@ -2614,6 +2614,8 @@ class New_Cart_Converter
         ];
 
         $model_structure = [
+            'manufacturerMd' => null,
+            'modelMd' => null,
             'cartType' => [
                 'make' => null,
                 'model' => null,
@@ -2666,6 +2668,13 @@ class New_Cart_Converter
         $count = 0;
         foreach ($models as $model) {
             $populated_cart = array_replace_recursive($model_structure, $model);
+
+            if (!$populated_cart['manufacturerMd']) {
+                $populated_cart['manufacturerMd'] = $populated_cart['cartType']['make'];
+            }
+            if (!$populated_cart['modelMd']) {
+                $populated_cart['modelMd'] = $populated_cart['cartType']['model'];
+            }
             
             $populated_cart['advertising']['cartAddOns'] = ['Standard Add Ons'];
             $populated_cart['addedFeatures']['stockOptions'] = true;
