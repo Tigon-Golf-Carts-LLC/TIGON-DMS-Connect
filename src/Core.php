@@ -61,7 +61,7 @@ class Core
         add_action('rest_api_init', 'Tigon\DmsConnect\Core::register_rest_routes');
 
         // Plugin Lifecycle Hooks - use the main DMS Bridge plugin file
-        register_activation_hook(TIGON_DMS_PLUGIN_DIR . 'dms-bridge-plugin.php', 'Tigon\DmsConnect\Core::install');
+        register_activation_hook(TIGON_DMS_MAIN_FILE, 'Tigon\DmsConnect\Core::install');
 
         // Auto update through github
         if (is_admin()) {

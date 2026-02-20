@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name: TIGON DMS Connect
+ * Legacy Plugin Name: TIGON DMS Connect
  * Description: TIGON DMS Connect — fetches, imports, maps and displays golf carts from the DMS into WooCommerce.
  * Version: 2.0.0
  * Author: Jaslow Digital | Noah Jaslow

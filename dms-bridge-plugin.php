@@ -1,16 +1,10 @@
 <?php
-/*
-Plugin Name: TIGON DMS Connect
-Plugin URI: https://tigongolfcarts.com/
-Description: Tigon DMS Connect fetches, imports, maps, and displays golf carts from the DMS into WooCommerce.
-Version: 2.0.1
-Author: Tigon Golf Carts
-Author URI: https://tigongolfcarts.com/
-Text Domain: tigon-dms-connect
-Requires at least: 6.0
-Requires PHP: 8.0
-Requires Plugins: woocommerce
-*/
+
+/**
+ * TIGON DMS Connect bootstrap implementation.
+ *
+ * This file is loaded by tigon-dms-connect.php, which contains the plugin header.
+ */
 
 if (!defined('ABSPATH')) {
     exit;
@@ -20,8 +14,9 @@ if (!defined('ABSPATH')) {
  * Plugin constants
  */
 define('TIGON_DMS_VERSION', '2.0.1');
-define('TIGON_DMS_PLUGIN_DIR', plugin_dir_path(__FILE__));
-define('TIGON_DMS_PLUGIN_URL', plugin_dir_url(__FILE__));
+define('TIGON_DMS_MAIN_FILE', defined('TIGON_DMS_MAIN_FILE') ? TIGON_DMS_MAIN_FILE : __FILE__);
+define('TIGON_DMS_PLUGIN_DIR', plugin_dir_path(TIGON_DMS_MAIN_FILE));
+define('TIGON_DMS_PLUGIN_URL', plugin_dir_url(TIGON_DMS_MAIN_FILE));
 
 /**
  * Configuration: Set to false to show carts WITH default homepage content
@@ -1209,7 +1204,7 @@ function tigon_dms_activation() {
     // Create DMS Connect database tables (config + cart lists)
     \Tigon\DmsConnect\Core::install();
 }
-register_activation_hook(__FILE__, 'tigon_dms_activation');
+register_activation_hook(TIGON_DMS_MAIN_FILE, 'tigon_dms_activation');
 
 /**
  * Flush rewrite rules on deactivation
@@ -1217,7 +1212,7 @@ register_activation_hook(__FILE__, 'tigon_dms_activation');
 function tigon_dms_deactivation() {
     flush_rewrite_rules();
 }
-register_deactivation_hook(__FILE__, 'tigon_dms_deactivation');
+register_deactivation_hook(TIGON_DMS_MAIN_FILE, 'tigon_dms_deactivation');
 
 /**
  * ============================================================================
@@ -2362,7 +2357,7 @@ function tigon_dms_activation_sync()
 {
     tigon_dms_schedule_sync();
 }
-register_activation_hook(__FILE__, 'tigon_dms_activation_sync');
+register_activation_hook(TIGON_DMS_MAIN_FILE, 'tigon_dms_activation_sync');
 
 /**
  * Clear sync schedule on plugin deactivation
@@ -2371,7 +2366,7 @@ function tigon_dms_deactivation_sync()
 {
     wp_clear_scheduled_hook('tigon_dms_sync_inventory');
 }
-register_deactivation_hook(__FILE__, 'tigon_dms_deactivation_sync');
+register_deactivation_hook(TIGON_DMS_MAIN_FILE, 'tigon_dms_deactivation_sync');
 
 /**
  * ============================================================================
