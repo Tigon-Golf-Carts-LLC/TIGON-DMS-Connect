@@ -139,13 +139,17 @@ class Admin_Page
                 return '--DELETE--';
 
             $location_id = $cart['cartLocation']['locationId'];
-            $city = Attributes::$locations[$location_id]['city_short']??Attributes::$locations[$location_id]['city'];
+            if (!isset(Attributes::$locations[$location_id])) {
+                return '--DELETE--';
+            }
+            $loc = Attributes::$locations[$location_id];
+            $city = $loc['city_short'] ?? $loc['city'];
 
             $make = preg_replace('/\s+/', '-', trim(preg_replace('/\+/', ' plus ', $cart['cartType']['make'])));
             $model = preg_replace('/\s+/', '-', trim(preg_replace('/\+/', ' plus ', $cart['cartType']['model'])));
             $color = preg_replace('/\s+/', '-', $cart['cartAttributes']['cartColor']);
             $seat = preg_replace('/\s+/', '-', $cart['cartAttributes']['seatColor']);
-            $location = preg_replace('/\s+/', '-', $city . "-" . Attributes::$locations[$location_id]['st']);
+            $location = preg_replace('/\s+/', '-', $city . "-" . $loc['st']);
             $year = preg_replace('/\s+/', '-', $cart['cartType']['year']);
             return json_encode(['url' => strtolower("$make-$model-$color-seat-$seat-$location"), 'year' => $year]);
         }, $dms_new);
