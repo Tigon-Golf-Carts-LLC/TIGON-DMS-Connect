@@ -64,10 +64,8 @@ class Ajax_Settings_Controller
             if(!empty($file_source)) {
                 $wpdb->update($table_name, ['option_value' => $file_source], ['option_name' => 'file_source']);
             }
-            if($locations_json !== '') {
-                $wpdb->update($table_name, ['option_value' => $locations_json], ['option_name' => 'locations_json']);
-                \Tigon\DmsConnect\Admin\Attributes::load_custom_locations();
-            }
+            $wpdb->update($table_name, ['option_value' => $locations_json], ['option_name' => 'locations_json']);
+            \Tigon\DmsConnect\Admin\Attributes::load_custom_locations();
 
             echo true;
         } else {

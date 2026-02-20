@@ -1238,10 +1238,20 @@ abstract class Abstract_Cart
 
     protected function attach_taxonomies()
     {
+        $location_data = Attributes::$locations[$this->location_id] ?? [];
+
         // Location
-        array_push($this->taxonomy_terms, Attributes::$locations[$this->location_id]['city_id']);
-        array_push($this->taxonomy_terms, Attributes::$locations[$this->location_id]['state_id']);
-        $this->primary_location = Attributes::$locations[$this->location_id]['city_id'];
+        if (!empty($location_data['location_term_id'])) {
+            array_push($this->taxonomy_terms, $location_data['location_term_id']);
+            $this->primary_location = $location_data['location_term_id'];
+        } else {
+            if (!empty($location_data['city_id'])) array_push($this->taxonomy_terms, $location_data['city_id']);
+            if (!empty($location_data['state_id'])) array_push($this->taxonomy_terms, $location_data['state_id']);
+            $this->primary_location = $location_data['city_id'] ?? null;
+        }
+        if (!empty($location_data['t_location_term_id'])) {
+            array_push($this->taxonomy_terms, $location_data['t_location_term_id']);
+        }
 
         // Manufacturers
         $manufacturer_taxonomy_id = $this->find_first_existing_term_id(

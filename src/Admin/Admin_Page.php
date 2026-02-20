@@ -411,6 +411,8 @@ class Admin_Page
         
         $file_source = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'file_source'") ?? 'e.g. https://s3.amazonaws.com/your.bucket.s3';
         $locations_json = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'locations_json'") ?? '';
+        $saved_locations = json_decode($locations_json, true);
+        if (!is_array($saved_locations)) $saved_locations = [];
 
         self::page_header();
 
@@ -421,6 +423,25 @@ class Admin_Page
         $monroney_name = '{^make}® {^model} {cartColor} in {city}, {stateAbbr} monroney';
         $description = 'Lorem ipsum dolor sit amet';
         $short_description = 'Lorem ipsum';
+
+        $location_rows = '';
+        for ($i = 1; $i <= 100; $i++) {
+            $code = 'T' . $i;
+            $location = array_merge(Attributes::$locations[$code] ?? [], $saved_locations[$code] ?? []);
+
+            $location_rows .= '<tr class="location-row" data-location-code="' . esc_attr($code) . '">'
+                . '<td><strong>' . esc_html($code) . '</strong></td>'
+                . '<td><input class="loc-field" data-key="city" value="' . esc_attr($location['city'] ?? '') . '" /></td>'
+                . '<td><input class="loc-field" data-key="state" value="' . esc_attr($location['state'] ?? '') . '" /></td>'
+                . '<td><input class="loc-field" data-key="st" value="' . esc_attr($location['st'] ?? '') . '" /></td>'
+                . '<td><input class="loc-field" data-key="zip" value="' . esc_attr($location['zip'] ?? '') . '" /></td>'
+                . '<td><input class="loc-field" data-key="location_term_id" value="' . esc_attr($location['location_term_id'] ?? ($location['city_id'] ?? '')) . '" /></td>'
+                . '<td><input class="loc-field" data-key="t_location_term_id" value="' . esc_attr($location['t_location_term_id'] ?? '') . '" /></td>'
+                . '<td><input class="loc-field" data-key="address" value="' . esc_attr($location['address'] ?? '') . '" /></td>'
+                . '<td><input class="loc-field" data-key="phone" value="' . esc_attr($location['phone'] ?? '') . '" /></td>'
+                . '<td><input class="loc-field" data-key="url" value="' . esc_attr($location['url'] ?? '') . '" /></td>'
+                . '</tr>';
+        }
 
         echo '
         <div class="body">
@@ -449,9 +470,22 @@ class Admin_Page
                             <span>File source:</span>
                             <input type="text" style="float:right" id="txt-file-source" placeholder="' . $file_source . '"></textarea>
                         </div>
-                        <div>
-                            <span>Locations JSON (T1, T2...):</span>
-                            <textarea id="txt-locations-json" style="width:100%;min-height:220px;">' . esc_textarea($locations_json) . '</textarea>
+                        <div style="display:block; width:100%;">
+                            <span>Dealership Location Mapping (T1-T100)</span>
+                            <p>Map each T-location to product taxonomy terms (`location`, `t_location`) and dealership profile fields.</p>
+                            <div style="overflow:auto; max-height:420px; border:1px solid #d0d4db; background:white;">
+                                <table class="widefat striped" style="min-width:1400px;">
+                                    <thead>
+                                        <tr>
+                                            <th>T Code</th><th>City</th><th>State</th><th>ST</th><th>ZIP</th>
+                                            <th>Location Term ID</th><th>T Location Term ID</th>
+                                            <th>Address</th><th>Phone</th><th>Location Page URL</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="location-mapping-rows">' . $location_rows . '</tbody>
+                                </table>
+                            </div>
+                            <textarea id="txt-locations-json" style="display:none;">' . esc_textarea($locations_json) . '</textarea>
                         </div>
                     </div>
                     <div class="settings form" style="margin-top:1rem;">

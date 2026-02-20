@@ -232,6 +232,8 @@ class Attributes
                     'zip' => $location_data['zip'] ?? '',
                     'city_id' => intval($location_data['city_id'] ?? 0),
                     'state_id' => intval($location_data['state_id'] ?? 0),
+                    'location_term_id' => intval($location_data['location_term_id'] ?? ($location_data['city_id'] ?? 0)),
+                    't_location_term_id' => intval($location_data['t_location_term_id'] ?? 0),
                     'phone' => $location_data['phone'] ?? '',
                     'url' => $location_data['url'] ?? '',
                     'google_cid' => $location_data['google_cid'] ?? '',
