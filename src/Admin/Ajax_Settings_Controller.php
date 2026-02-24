@@ -30,20 +30,21 @@ class Ajax_Settings_Controller
             if(substr($file_source,-1) === '/') $file_source = substr_replace($file_source,'',-1);
 
             // Ensure rows exist
-            if(!$wpdb->query("SELECT * FROM $table_name WHERE option_name = 'github_token'"))
-                $wpdb->insert($table_name, ['option_name' => 'github_token']);
-
-            if(!$wpdb->query("SELECT * FROM $table_name WHERE option_name = 'dms_url'"))
-                $wpdb->insert($table_name, ['option_name' => 'dms_url']);
-
-            if(!$wpdb->query("SELECT * FROM $table_name WHERE option_name = 'user_token'"))
-                $wpdb->insert($table_name, ['option_name' => 'user_token']);
-
-            if(!$wpdb->query("SELECT * FROM $table_name WHERE option_name = 'auth_token'"))
-                $wpdb->insert($table_name, ['option_name' => 'auth_token']);
-                
-            if(!$wpdb->query("SELECT * FROM $table_name WHERE option_name = 'file_source'"))
-                $wpdb->insert($table_name, ['option_name' => 'file_source']);
+            // Ensure rows exist — use COUNT(1) instead of SELECT * for efficiency
+            $required_options = ['github_token', 'dms_url', 'user_token', 'auth_token', 'file_source'];
+            $placeholders = implode(',', array_fill(0, count($required_options), '%s'));
+            $existing_options = $wpdb->get_col(
+                $wpdb->prepare(
+                    "SELECT option_name FROM $table_name WHERE option_name IN ($placeholders)",
+                    $required_options
+                )
+            );
+            $existing_set = array_flip($existing_options);
+            foreach ($required_options as $opt) {
+                if (!isset($existing_set[$opt])) {
+                    $wpdb->insert($table_name, ['option_name' => $opt]);
+                }
+            }
 
             // Write setting to DB
             if(!empty($github_token)) {

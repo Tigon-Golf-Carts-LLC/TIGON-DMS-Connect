@@ -17,7 +17,6 @@ abstract class Ajax_Import_Controller extends \Tigon\DmsConnect\Abstracts\Abstra
      */
     public static function query_dms()
     {
-        ignore_user_abort(true);
         if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
             header("Content-Type: application/json; charset=utf-8", true);
 
@@ -40,7 +39,6 @@ abstract class Ajax_Import_Controller extends \Tigon\DmsConnect\Abstracts\Abstra
      */
     public static function ajax_import_convert()
     {
-        ignore_user_abort(true);
 
 
         if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
@@ -97,7 +95,6 @@ abstract class Ajax_Import_Controller extends \Tigon\DmsConnect\Abstracts\Abstra
      */
     public static function ajax_new_import_convert()
     {
-        ignore_user_abort(true);
         if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
             header("Content-Type: application/json; charset=utf-8", true);
 
@@ -133,15 +130,14 @@ abstract class Ajax_Import_Controller extends \Tigon\DmsConnect\Abstracts\Abstra
     // Ajax wrapper for above
     public static function ajax_import_create()
     {
-        ignore_user_abort(true);
-
         if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
             header("Content-Type: application/json; charset=utf-8", true);
 
             // Data from AJAX request
             // AJAX produces unwanted slashes
             $data = stripcslashes($_REQUEST['data']);
-            $data = unserialize($data);
+            // Restrict unserialize to only our Database_Object class (prevents arbitrary object instantiation)
+            $data = unserialize($data, ['allowed_classes' => [Database_Object::class]]);
             $result = Ajax_Import_Controller::import_create($data);
             echo $result;
 
@@ -181,15 +177,13 @@ abstract class Ajax_Import_Controller extends \Tigon\DmsConnect\Abstracts\Abstra
     // Ajax wrapper for above
     public static function ajax_import_update()
     {
-        ignore_user_abort(true);
-
         if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
             header("Content-Type: application/json; charset=utf-8", true);
 
             // Data from AJAX request
             // AJAX produces unwanted slashes
             $data = stripcslashes($_REQUEST['data']);
-            $data = unserialize($data);
+            $data = unserialize($data, ['allowed_classes' => [Database_Object::class]]);
             $result = Ajax_Import_Controller::import_update($data);
             echo $result;
 
@@ -218,15 +212,13 @@ abstract class Ajax_Import_Controller extends \Tigon\DmsConnect\Abstracts\Abstra
     // Ajax wrapper for above
     public static function ajax_import_delete()
     {
-        ignore_user_abort(true);
-
         if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
             header("Content-Type: application/json; charset=utf-8", true);
 
             // Data from AJAX request
             // AJAX produces unwanted slashes
             $data = stripcslashes($_REQUEST['data']);
-            $data = unserialize($data);
+            $data = unserialize($data, ['allowed_classes' => [Database_Object::class]]);
 
             echo Ajax_Import_Controller::import_delete($data);
         } else {
@@ -238,7 +230,6 @@ abstract class Ajax_Import_Controller extends \Tigon\DmsConnect\Abstracts\Abstra
 
     public static function ajax_import_new()
     {
-        ignore_user_abort(true);
 
         if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
             header("Content-Type: application/json; charset=utf-8", true);
