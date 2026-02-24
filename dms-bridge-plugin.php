@@ -29,6 +29,14 @@ if (!defined('TIGON_DMS_HIDE_DEFAULT_CONTENT')) {
 }
 
 /**
+ * Skip heavy loading on wp-login.php — this plugin has no business
+ * running during authentication and can interfere with login/redirects.
+ */
+if (isset($GLOBALS['pagenow']) && $GLOBALS['pagenow'] === 'wp-login.php') {
+    return; // Bail entirely — nothing below is needed for login
+}
+
+/**
  * Load required files — DMS Bridge (original)
  */
 require_once TIGON_DMS_PLUGIN_DIR . 'includes/class-dms-api.php';
@@ -2371,41 +2379,46 @@ function dms_sync_inventory()
  */
 function tigon_dms_admin_sync_trigger()
 {
-    // Check for query parameter first (works in both admin and frontend for testing)
+    // Check for query parameter first
     if (!isset($_GET['run_dms_inventory_sync']) || $_GET['run_dms_inventory_sync'] !== '1') {
         return;
     }
-    
-    // Only allow in admin area OR for testing (but still require auth)
-    if (!is_admin() && !defined('WP_DEBUG')) {
+
+    // Never run on wp-login.php or AJAX requests
+    if (wp_doing_ajax() || (isset($GLOBALS['pagenow']) && $GLOBALS['pagenow'] === 'wp-login.php')) {
         return;
     }
-    
+
+    // Only allow in admin area
+    if (!is_admin()) {
+        return;
+    }
+
     // Verify user is logged in and has admin capabilities
     if (!is_user_logged_in()) {
         error_log('[DMS Sync] ERROR: User not logged in');
         wp_die('You must be logged in to run the sync.');
     }
-    
+
     if (!current_user_can('manage_options')) {
         error_log('[DMS Sync] ERROR: Unauthorized access attempt by user: ' . get_current_user_id());
         wp_die('You do not have permission to run the sync.');
     }
-    
+
     // Prevent any redirects or other output
     if (!headers_sent()) {
         header('Content-Type: text/plain; charset=utf-8');
         status_header(200);
     }
-    
+
     // Execute sync
     error_log('[DMS Sync] Admin trigger activated by user: ' . get_current_user_id());
     $results = dms_sync_inventory();
-    
+
     // Display results (simple text output for testing)
     echo "DMS Inventory Sync Results\n";
     echo "==========================\n\n";
-    
+
     if ($results && isset($results['success']) && $results['success']) {
         $stats = $results['stats'];
         echo "SUCCESS\n\n";
@@ -2420,9 +2433,9 @@ function tigon_dms_admin_sync_trigger()
         echo "Error: " . (isset($results['message']) ? $results['message'] : 'Unknown error') . "\n";
         echo "\nCheck error_log for details.\n";
     }
-    
+
     exit;
 }
-// Hook early on both admin_init and init (fallback) for better compatibility
-add_action('admin_init', 'tigon_dms_admin_sync_trigger', 1);
-add_action('init', 'tigon_dms_admin_sync_trigger', 1);
+// Hook on admin_init only (NOT init — init fires on wp-login.php and can block login).
+// Priority 99 so WordPress auth/redirect logic completes first.
+add_action('admin_init', 'tigon_dms_admin_sync_trigger', 99);

@@ -59,27 +59,41 @@ class Core
         // Plugin Lifecycle Hooks - use the main DMS Bridge plugin file
         register_activation_hook(TIGON_DMS_PLUGIN_DIR . 'dms-bridge-plugin.php', 'Tigon\DmsConnect\Core::install');
 
-        // Auto update through github
-        if (is_admin()) {
-            global $wpdb;
-            require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-            $table_name = $wpdb->prefix . 'tigon_dms_config';
-            // Only load updater if config table exists
-            if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
-                $config = array(
-                    'slug' => 'dms-bridge-plugin/dms-bridge-plugin.php',
-                    'proper_folder_name' => basename(TIGON_DMS_PLUGIN_DIR),
-                    'api_url' => 'https://api.github.com/repos/TigonGolfCarts/wordpress_connection',
-                    'raw_url' => 'https://raw.github.com/TigonGolfCarts/wordpress_connection/main',
-                    'github_url' => 'https://github.com/TigonGolfCarts/wordpress_connection',
-                    'zip_url' => 'https://github.com/TigonGolfCarts/wordpress_connection/zipball/main',
-                    'sslverify' => true,
-                    'requires' => '3.0',
-                    'tested' => '3.3',
-                    'readme' => 'README.md',
-                    'access_token' => $wpdb->get_var('SELECT option_value FROM ' . $table_name . ' WHERE option_name = "github_token"'),
-                );
-                new \Tigon\DmsConnect\Includes\WP_GitHub_Updater($config);
+        // Auto update through github — only on admin pages (not login, not AJAX)
+        if (is_admin() && !wp_doing_ajax()) {
+            // Skip entirely on wp-login.php (is_admin() returns true during login redirect)
+            if (isset($GLOBALS['pagenow']) && $GLOBALS['pagenow'] === 'wp-login.php') {
+                // Do nothing — let login proceed without extra DB queries
+            } else {
+                // Cache the GitHub token in a transient so we don't hit the DB on every admin page
+                $github_token = get_transient('tigon_dms_github_token');
+                if ($github_token === false) {
+                    global $wpdb;
+                    $table_name = $wpdb->prefix . 'tigon_dms_config';
+                    if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
+                        $github_token = $wpdb->get_var('SELECT option_value FROM ' . $table_name . ' WHERE option_name = "github_token"') ?: '';
+                    } else {
+                        $github_token = '';
+                    }
+                    // Cache for 1 hour — settings page can delete this transient when token changes
+                    set_transient('tigon_dms_github_token', $github_token, HOUR_IN_SECONDS);
+                }
+                if (!empty($github_token)) {
+                    $config = array(
+                        'slug' => 'dms-bridge-plugin/dms-bridge-plugin.php',
+                        'proper_folder_name' => basename(TIGON_DMS_PLUGIN_DIR),
+                        'api_url' => 'https://api.github.com/repos/TigonGolfCarts/wordpress_connection',
+                        'raw_url' => 'https://raw.github.com/TigonGolfCarts/wordpress_connection/main',
+                        'github_url' => 'https://github.com/TigonGolfCarts/wordpress_connection',
+                        'zip_url' => 'https://github.com/TigonGolfCarts/wordpress_connection/zipball/main',
+                        'sslverify' => true,
+                        'requires' => '3.0',
+                        'tested' => '3.3',
+                        'readme' => 'README.md',
+                        'access_token' => $github_token,
+                    );
+                    new \Tigon\DmsConnect\Includes\WP_GitHub_Updater($config);
+                }
             }
         }
 

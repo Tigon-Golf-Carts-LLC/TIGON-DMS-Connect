@@ -49,6 +49,8 @@ class Ajax_Settings_Controller
             // Write setting to DB
             if(!empty($github_token)) {
                 $wpdb->update($table_name, ['option_value' => $github_token], ['option_name' => 'github_token']);
+                // Clear cached token so the GitHub updater picks up the new value
+                delete_transient('tigon_dms_github_token');
             }
             if(!empty($dms_url)){
                 $wpdb->update($table_name, ['option_value' => $dms_url], ['option_name' => 'dms_url']);
