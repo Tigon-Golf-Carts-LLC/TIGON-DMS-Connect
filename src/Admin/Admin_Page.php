@@ -68,21 +68,15 @@ class Admin_Page
     /**
      * Render the Grids admin page.
      * Shows cached product IDs for each grid (New, Used, Popular) per location.
+     * Locations are loaded dynamically from the database — no hardcoded list.
      * Provides individual Refresh buttons that call the DMS API on demand.
      */
     public static function grids_page()
     {
         $nonce = wp_create_nonce('dms_grids_nonce');
 
-        // All known locations
-        $locations = array(
-            'national'        => 'National (Homepage)',
-            'tigon_hatfield'  => 'Hatfield',
-            'tigon_ocean_view'=> 'Ocean View',
-            'tigon_pocono'    => 'Pocono',
-            'tigon_dover'     => 'Dover',
-            'tigon_scranton'  => 'Scranton',
-        );
+        // Build locations dynamically from wp_options (dms_grid_cache_*) and cart_lists table
+        $locations = self::get_grid_locations();
 
         $grid_types = array(
             'new'     => array('label' => 'New Carts',     'api_key' => 'featuredNewCarts'),
@@ -95,6 +89,10 @@ class Admin_Page
         echo '<div class="body" style="flex-direction:column;">';
         echo '<p style="margin:0 0 1.5rem;color:#666;">Product grids are cached locally. They only update when <strong>DMS pushes a change</strong> or you click <strong>Refresh</strong> below. No API calls happen on page load.</p>';
 
+        if (empty($locations)) {
+            echo '<div class="action-box primary"><p>No grid data cached yet. Use the form below to refresh a location, or wait for DMS to push data.</p></div>';
+        }
+
         foreach ($locations as $loc_key => $loc_label) {
             $option_key = 'dms_grid_cache_' . sanitize_key($loc_key);
             $cached = get_option($option_key, false);
@@ -104,17 +102,15 @@ class Admin_Page
             echo '<h2>' . esc_html($loc_label) . '</h2>';
 
             foreach ($grid_types as $type_key => $type_info) {
-                $product_ids = array();
+                $count = 0;
                 if ($cached && !empty($cached['data'])) {
                     foreach ($cached['data'] as $section) {
                         if ($section['key'] === $type_info['api_key']) {
-                            // Extract cart IDs or product references
                             $carts = $section['carts'] ?? array();
                             $count = count($carts);
                         }
                     }
                 }
-                $count = $count ?? 0;
 
                 echo '<div style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 0;border-bottom:1px solid #eee;">';
                 echo '<div>';
@@ -123,9 +119,6 @@ class Admin_Page
                 echo '</div>';
                 echo '<button class="button dms-grid-refresh" data-location="' . esc_attr($loc_key) . '" data-grid="' . esc_attr($type_key) . '" data-nonce="' . $nonce . '">Refresh ' . esc_html($type_info['label']) . '</button>';
                 echo '</div>';
-
-                // Reset for next iteration
-                $count = 0;
             }
 
             // Refresh All button for this location
@@ -137,6 +130,18 @@ class Admin_Page
             echo '</div>'; // .action-box-group
         }
 
+        // Manual refresh for any location key
+        echo '<div class="action-box-group" style="margin-bottom:2rem;">';
+        echo '<div class="action-box primary" style="flex-direction:column;">';
+        echo '<h2>Refresh by Location Key</h2>';
+        echo '<p style="color:#666;margin:0 0 1rem;">Enter a DMS location key (e.g. <code>national</code>, <code>tigon_dover</code>, <code>tigon_raleigh</code>) to fetch and cache its grids.</p>';
+        echo '<div style="display:flex;gap:0.5rem;align-items:center;">';
+        echo '<input type="text" id="dms-grid-manual-location" placeholder="tigon_location_name" style="flex:1;padding:0.4rem 0.6rem;" />';
+        echo '<button class="button button-primary" id="dms-grid-manual-refresh" data-nonce="' . $nonce . '">Refresh</button>';
+        echo '</div>';
+        echo '</div>';
+        echo '</div>';
+
         echo '<div id="dms-grids-result" style="margin-top:1rem;"></div>';
         echo '</div>'; // .body
 
@@ -147,7 +152,7 @@ class Admin_Page
             $(document).on('click', '.dms-grid-refresh', function(e) {
                 e.preventDefault();
                 var $btn = $(this);
-                var location = $btn.data('location');
+                var loc = $btn.data('location');
                 var grid = $btn.data('grid');
                 var nonce = $btn.data('nonce');
                 var originalText = $btn.text();
@@ -157,15 +162,14 @@ class Admin_Page
 
                 $.post(globals.ajaxurl, {
                     action: 'dms_refresh_grid',
-                    location: location,
+                    location: loc,
                     grid_type: grid,
                     nonce: nonce
                 }, function(response) {
                     $btn.prop('disabled', false).text(originalText);
                     if (response.success) {
                         $('#dms-grids-result').html('<div class="notice notice-success" style="padding:0.75rem;"><p>' + response.data.message + '</p></div>');
-                        // Reload page after 1s to show updated counts
-                        setTimeout(function() { location.reload ? window.location.reload() : null; }, 1000);
+                        setTimeout(function() { window.location.reload(); }, 1000);
                     } else {
                         $('#dms-grids-result').html('<div class="notice notice-error" style="padding:0.75rem;"><p>' + (response.data || 'Refresh failed') + '</p></div>');
                     }
@@ -174,9 +178,90 @@ class Admin_Page
                     $('#dms-grids-result').html('<div class="notice notice-error" style="padding:0.75rem;"><p>Network error. Please try again.</p></div>');
                 });
             });
+
+            // Manual location refresh
+            $('#dms-grid-manual-refresh').on('click', function(e) {
+                e.preventDefault();
+                var loc = $('#dms-grid-manual-location').val().trim();
+                if (!loc) { alert('Enter a location key'); return; }
+                var $btn = $(this);
+                var nonce = $btn.data('nonce');
+                $btn.prop('disabled', true).text('Refreshing...');
+                $('#dms-grids-result').html('');
+
+                $.post(globals.ajaxurl, {
+                    action: 'dms_refresh_grid',
+                    location: loc,
+                    grid_type: 'all',
+                    nonce: nonce
+                }, function(response) {
+                    $btn.prop('disabled', false).text('Refresh');
+                    if (response.success) {
+                        $('#dms-grids-result').html('<div class="notice notice-success" style="padding:0.75rem;"><p>' + response.data.message + '</p></div>');
+                        setTimeout(function() { window.location.reload(); }, 1000);
+                    } else {
+                        $('#dms-grids-result').html('<div class="notice notice-error" style="padding:0.75rem;"><p>' + (response.data || 'Refresh failed') + '</p></div>');
+                    }
+                }).fail(function() {
+                    $btn.prop('disabled', false).text('Refresh');
+                    $('#dms-grids-result').html('<div class="notice notice-error" style="padding:0.75rem;"><p>Network error. Please try again.</p></div>');
+                });
+            });
         })(jQuery);
         </script>
         <?php
+    }
+
+    /**
+     * Get all known grid locations dynamically from the database.
+     * Merges locations from wp_options (dms_grid_cache_*) and the cart_lists table.
+     *
+     * @return array Associative array of location_key => display_label
+     */
+    private static function get_grid_locations()
+    {
+        global $wpdb;
+        $locations = array();
+
+        // 1. Get locations from wp_options (dms_grid_cache_*)
+        $option_keys = $wpdb->get_col(
+            "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE 'dms_grid_cache_%' ORDER BY option_name"
+        );
+        foreach ($option_keys as $opt) {
+            $loc_key = str_replace('dms_grid_cache_', '', $opt);
+            $locations[$loc_key] = true;
+        }
+
+        // 2. Get locations from tigon_dms_cart_lists table
+        $table = $wpdb->prefix . 'tigon_dms_cart_lists';
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table'") === $table) {
+            $list_locs = $wpdb->get_col("SELECT DISTINCT location_name FROM $table ORDER BY location_name");
+            foreach ($list_locs as $loc) {
+                $locations[$loc] = true;
+            }
+        }
+
+        // Build display labels from keys
+        $result = array();
+
+        // Always put national first if it exists
+        if (isset($locations['national'])) {
+            $result['national'] = 'National (Homepage)';
+            unset($locations['national']);
+        }
+
+        // Convert remaining keys to readable labels
+        ksort($locations);
+        foreach ($locations as $key => $v) {
+            $label = $key;
+            // Strip tigon_ prefix
+            $label = preg_replace('/^tigon_/', '', $label);
+            // Convert underscores/hyphens to spaces and title-case
+            $label = ucwords(str_replace(array('_', '-'), ' ', $label));
+            $result[$key] = $label;
+        }
+
+        return $result;
     }
 
     /**

@@ -195,9 +195,8 @@ class Core
         $location = sanitize_text_field($_POST['location'] ?? 'national');
         $grid_type = sanitize_text_field($_POST['grid_type'] ?? 'all');
 
-        $valid_locations = array('national', 'tigon_hatfield', 'tigon_ocean_view', 'tigon_pocono', 'tigon_dover', 'tigon_scranton');
-        if (!in_array($location, $valid_locations)) {
-            wp_send_json_error('Invalid location');
+        if (empty($location) || !preg_match('/^[a-z0-9_]+$/', $location)) {
+            wp_send_json_error('Invalid location key');
         }
 
         $valid_types = array('all', 'new', 'used', 'popular');
