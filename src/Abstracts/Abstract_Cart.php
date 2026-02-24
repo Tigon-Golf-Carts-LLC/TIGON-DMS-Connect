@@ -623,38 +623,348 @@ abstract class Abstract_Cart
         return $this->name . ' Sticker From Tigon Golf Carts ' . $this->sku;
     }
 
+    /* =========================================================================
+     * TAXONOMY LOOKUP HELPERS
+     * =========================================================================
+     * All finders try with ® first, then without ®.
+     * Returns term_id (int) or null if not found.
+     * ========================================================================= */
+
     /**
-     * Look up a category by key, trying with ® first, then without.
-     * @return int|null term_id or null if not found
+     * Generic taxonomy map lookup — tries key with ®, then strips ® and retries.
+     * @param array $map Associative array of UPPERCASE_NAME => term_id
+     * @param string $key The lookup key (will be uppercased)
+     * @return int|null term_id or null
      */
-    protected function find_category(string $key): ?int
+    private function find_in_taxonomy_map(array $map, string $key): ?int
     {
         $upper = strtoupper($key);
-        if (isset($this->generated_attributes->categories[$upper])) {
-            return $this->generated_attributes->categories[$upper];
+        if (isset($map[$upper])) {
+            return $map[$upper];
         }
         $without_symbol = strtoupper(str_replace('®', '', $key));
-        if ($without_symbol !== $upper && isset($this->generated_attributes->categories[$without_symbol])) {
-            return $this->generated_attributes->categories[$without_symbol];
+        if ($without_symbol !== $upper && isset($map[$without_symbol])) {
+            return $map[$without_symbol];
         }
         return null;
     }
 
-    /**
-     * Look up a tag by key, trying with ® first, then without.
-     * @return int|null term_id or null if not found
-     */
+    /** Look up a product category (product_cat) by name. */
+    protected function find_category(string $key): ?int
+    {
+        return $this->find_in_taxonomy_map($this->generated_attributes->categories, $key);
+    }
+
+    /** Look up a product tag (product_tag) by name. */
     protected function find_tag(string $key): ?int
     {
-        $upper = strtoupper($key);
-        if (isset($this->generated_attributes->tags[$upper])) {
-            return $this->generated_attributes->tags[$upper];
+        return $this->find_in_taxonomy_map($this->generated_attributes->tags, $key);
+    }
+
+    /** Look up a manufacturer taxonomy term by name. */
+    protected function find_manufacturer(string $key): ?int
+    {
+        return $this->find_in_taxonomy_map($this->generated_attributes->manufacturers_taxonomy, $key);
+    }
+
+    /** Look up a model taxonomy term by name. */
+    protected function find_model(string $key): ?int
+    {
+        return $this->find_in_taxonomy_map($this->generated_attributes->models_taxonomy, $key);
+    }
+
+    /** Look up a sound system taxonomy term by name. */
+    protected function find_sound_system(string $key): ?int
+    {
+        return $this->find_in_taxonomy_map($this->generated_attributes->sound_systems_taxonomy, $key);
+    }
+
+    /** Look up a vehicle class taxonomy term by name. */
+    protected function find_vehicle_class(string $key): ?int
+    {
+        return $this->find_in_taxonomy_map($this->generated_attributes->vehicle_classes_taxonomy, $key);
+    }
+
+    /** Look up an added feature taxonomy term by name. */
+    protected function find_added_feature(string $key): ?int
+    {
+        return $this->find_in_taxonomy_map($this->generated_attributes->added_features_taxonomy, $key);
+    }
+
+    /** Look up a drivetrain taxonomy term by name. */
+    protected function find_drivetrain(string $key): ?int
+    {
+        return $this->find_in_taxonomy_map($this->generated_attributes->drivetrains_taxonomy, $key);
+    }
+
+    /** Look up an inventory status taxonomy term by name. */
+    protected function find_inventory_status(string $key): ?int
+    {
+        return $this->find_in_taxonomy_map($this->generated_attributes->inventory_status_taxonomy, $key);
+    }
+
+    /**
+     * Look up a product attribute option by attribute slug and option name.
+     * @param string $attribute Attribute slug (e.g. 'battery-type', 'lift-kit')
+     * @param string $option Option name (e.g. 'Lithium', 'YES')
+     * @return int|null term_id or null
+     */
+    protected function find_attribute_option(string $attribute, string $option): ?int
+    {
+        if (!isset($this->generated_attributes->attributes[$attribute]['options'])) {
+            return null;
         }
-        $without_symbol = strtoupper(str_replace('®', '', $key));
-        if ($without_symbol !== $upper && isset($this->generated_attributes->tags[$without_symbol])) {
-            return $this->generated_attributes->tags[$without_symbol];
+        return $this->find_in_taxonomy_map(
+            $this->generated_attributes->attributes[$attribute]['options'],
+            $option
+        );
+    }
+
+    /**
+     * Look up a custom product option (WCPA form) by name.
+     * @return int|null Post ID or null
+     */
+    protected function find_custom_option(string $name): ?int
+    {
+        return $this->generated_attributes->custom_options[$name] ?? null;
+    }
+
+    /**
+     * Look up a reusable product tab by name.
+     * @return array|null Tab data [tab_id, tab_title, tab_content] or null
+     */
+    protected function find_tab(string $name): ?array
+    {
+        return $this->generated_attributes->tabs[$name] ?? null;
+    }
+
+    /* =========================================================================
+     * FIELD GROUP GETTERS
+     * =========================================================================
+     * Return structured arrays of field values organized by database category.
+     * These match the Model MD file format (e.g. Epic-Models.md).
+     * Call after convert() to get the full populated field set.
+     * ========================================================================= */
+
+    /**
+     * Returns all wp_posts table fields.
+     * @return array Column => value
+     */
+    protected function get_wp_posts_fields(): array
+    {
+        return [
+            'post_title'      => $this->name,
+            'post_excerpt'    => $this->short_description,
+            'post_content'    => $this->description,
+            'post_status'     => $this->published,
+            'comment_status'  => $this->comment_status,
+            'ping_status'     => $this->ping_status,
+            'menu_order'      => $this->menu_order,
+            'post_type'       => $this->post_type,
+            'comment_count'   => $this->comment_count,
+            'post_author'     => $this->post_author,
+            'post_name'       => $this->slug,
+        ];
+    }
+
+    /**
+     * Returns WooCommerce postmeta fields.
+     * @return array meta_key => meta_value
+     */
+    protected function get_woocommerce_postmeta(): array
+    {
+        $images = $this->images ?? [];
+        $featured = $images[0] ?? null;
+        $gallery = implode(',', array_slice($images, 1));
+
+        return [
+            '_sku'                   => $this->sku,
+            '_tax_status'            => $this->tax_status,
+            '_tax_class'             => $this->tax_class,
+            '_manage_stock'          => $this->manage_stock,
+            '_backorders'            => $this->backorders_allowed,
+            '_sold_individually'     => $this->sold_individually,
+            '_virtual'               => $this->is_virtual,
+            '_downloadable'          => $this->downloadable,
+            '_download_limit'        => $this->download_limit,
+            '_download_expiry'       => $this->download_expiry,
+            '_stock'                 => $this->stock,
+            '_stock_status'          => $this->in_stock,
+            '_global_unique_id'      => $this->gui,
+            '_product_attributes'    => $this->attributes,
+            '_thumbnail_id'          => $featured,
+            '_product_image_gallery' => $gallery,
+            '_regular_price'         => $this->price,
+            '_price'                 => $this->sale_price,
+        ];
+    }
+
+    /**
+     * Returns Yoast SEO postmeta fields.
+     * @return array meta_key => meta_value
+     */
+    protected function get_yoast_postmeta(): array
+    {
+        $images = $this->images ?? [];
+        $featured = $images[0] ?? null;
+        $featured_url = $featured ? wp_get_attachment_image_url($featured) : null;
+
+        return [
+            '_yoast_wpseo_title'                  => $this->yoast_seo_title,
+            '_yoast_wpseo_metadesc'               => $this->meta_description,
+            '_yoast_wpseo_primary_product_cat'    => $this->primary_category,
+            '_yoast_wpseo_primary_location'       => $this->primary_location,
+            '_yoast_wpseo_primary_models'         => $this->primary_model,
+            '_yoast_wpseo_primary_added-features' => $this->primary_added_feature,
+            '_yoast_wpseo_is_cornerstone'         => $this->bit_is_cornerstone,
+            '_yoast_wpseo_focus_kw'               => $this->name,
+            '_yoast_wpseo_focus_keywords'         => $this->name,
+            '_yoast_wpseo_bctitle'                => $this->name,
+            '_yoast_wpseo_opengraph-title'        => $this->name,
+            '_yoast_wpseo_opengraph-description'  => $this->meta_description,
+            '_yoast_wpseo_opengraph-image-id'     => $featured,
+            '_yoast_wpseo_opengraph-image'        => $featured_url,
+            '_yoast_wpseo_twitter-image-id'       => $featured,
+            '_yoast_wpseo_twitter-image'          => $featured_url,
+        ];
+    }
+
+    /**
+     * Returns Product Tabs postmeta fields.
+     * @return array meta_key => meta_value (serialized)
+     */
+    protected function get_tabs_postmeta(): array
+    {
+        return [
+            '_yikes_woo_products_tabs' => $this->custom_tabs,
+        ];
+    }
+
+    /**
+     * Returns Custom Product Add-Ons (WCPA) postmeta fields.
+     * @return array meta_key => meta_value
+     */
+    protected function get_addons_postmeta(): array
+    {
+        return [
+            'wcpa_exclude_global_forms' => $this->attr_exclude_global_forms,
+            '_wcpa_product_meta'        => $this->custom_product_options,
+        ];
+    }
+
+    /**
+     * Returns Google for WooCommerce postmeta fields.
+     * @return array meta_key => meta_value
+     */
+    protected function get_google_postmeta(): array
+    {
+        return [
+            '_wc_gla_mpn'        => $this->gui,
+            '_wc_gla_condition'  => $this->condition,
+            '_wc_gla_brand'      => $this->google_brand,
+            '_wc_gla_color'      => $this->google_color,
+            '_wc_gla_pattern'    => $this->google_pattern,
+            '_wc_gla_gender'     => $this->gender,
+            '_wc_gla_sizeSystem' => $this->google_size_system,
+            '_wc_gla_adult'      => $this->adult_content,
+        ];
+    }
+
+    /**
+     * Returns Pinterest for WooCommerce postmeta fields.
+     * @return array meta_key => meta_value
+     */
+    protected function get_pinterest_postmeta(): array
+    {
+        return [
+            '_wc_pinterest_condition'               => $this->condition,
+            '_wc_pinterest_google_product_category'  => $this->google_category,
+        ];
+    }
+
+    /**
+     * Returns Facebook for WooCommerce postmeta fields.
+     * @return array meta_key => meta_value
+     */
+    protected function get_facebook_postmeta(): array
+    {
+        return [
+            '_wc_facebook_enhanced_catalog_attributes_brand'     => $this->google_brand,
+            '_wc_facebook_enhanced_catalog_attributes_color'     => $this->google_color,
+            '_wc_facebook_enhanced_catalog_attributes_pattern'   => $this->google_pattern,
+            '_wc_facebook_enhanced_catalog_attributes_gender'    => $this->gender,
+            '_wc_facebook_enhanced_catalog_attributes_age_group' => $this->age_group,
+            '_wc_facebook_product_image_source'                  => $this->product_image_source,
+            '_wc_facebook_sync_enabled'                          => $this->facebook_sync,
+            '_wc_fb_visibility'                                  => $this->facebook_visibility,
+        ];
+    }
+
+    /**
+     * Returns Tigon-specific postmeta fields.
+     * @return array meta_key => meta_value
+     */
+    protected function get_tigon_postmeta(): array
+    {
+        return [
+            'monroney_sticker'  => $this->monroney_sticker,
+            '_monroney_sticker' => $this->monroney_container_id,
+            'tigonwm'           => $this->tigonwm_text,
+        ];
+    }
+
+    /**
+     * Returns ALL postmeta fields combined across all categories.
+     * @return array meta_key => meta_value
+     */
+    protected function get_all_postmeta(): array
+    {
+        return array_merge(
+            $this->get_woocommerce_postmeta(),
+            $this->get_yoast_postmeta(),
+            $this->get_tabs_postmeta(),
+            $this->get_addons_postmeta(),
+            $this->get_google_postmeta(),
+            $this->get_pinterest_postmeta(),
+            $this->get_facebook_postmeta(),
+            $this->get_tigon_postmeta()
+        );
+    }
+
+    /**
+     * Returns the product attribute overrides (pa_* WooCommerce attributes).
+     * Call after attach_attributes() for populated values.
+     * @return array|string Raw array before serialization, or serialized string after
+     */
+    protected function get_attribute_overrides()
+    {
+        return $this->attributes;
+    }
+
+    /**
+     * Returns the full taxonomy_terms array (all categories, tags, attributes, custom taxonomies).
+     * @return array Array of term_ids
+     */
+    protected function get_all_taxonomy_terms(): array
+    {
+        return $this->taxonomy_terms ?? [];
+    }
+
+    /**
+     * Returns the Shared Defaults from the Converter for a specific model.
+     * Looks up model defaults from New_Cart_Converter.
+     *
+     * @param string $model Model name (e.g. 'Nomad', 'E40L', 'i40')
+     * @return array|null Model defaults array or null if not found
+     */
+    public static function get_converter_defaults(string $model): ?array
+    {
+        $converter = new \Tigon\DmsConnect\Admin\New\New_Cart_Converter();
+        $cart = $converter->get_specific($model);
+        if (is_wp_error($cart)) {
+            return null;
         }
-        return null;
+        return $cart;
     }
 
     /**
