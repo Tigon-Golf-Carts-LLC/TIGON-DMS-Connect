@@ -251,6 +251,12 @@ class REST_Routes
                 archive_not_in: $archive_not_in,
                 location_name: $processed_request['key']
             );
+
+            // Cache the full DMS cart data so frontend reads from wp_options (no API calls on page load)
+            if (class_exists('DMS_API')) {
+                \DMS_API::refresh_featured_carts($processed_request['key']);
+            }
+
             return new \WP_REST_Response($result, 200);
         } else
             return new \WP_Error(400, 'Bad Request: Body must contain a list of pids and the target product grid (new or used)', $processed_request);

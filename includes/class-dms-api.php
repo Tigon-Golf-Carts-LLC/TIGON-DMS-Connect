@@ -37,23 +37,32 @@ class DMS_API
     private static $cached_stores_data = null;
 
     /**
-     * Fetch featured carts from DMS API
+     * Get featured carts from local cache (wp_options).
+     * No API call — data is populated by DMS push or manual admin refresh.
      *
      * @param string $key Location key (e.g., 'national', 'tigon_hatfield')
      * @return array
      */
     public static function get_featured_carts($key = 'national')
     {
-        // Create unique transient key for this location
-        $transient_key = 'dms_carts_' . sanitize_key($key);
+        $option_key = 'dms_grid_cache_' . sanitize_key($key);
+        $cached = get_option($option_key, false);
+        if ($cached !== false && is_array($cached)) {
+            return $cached;
+        }
+        return array();
+    }
 
-        // Try to get cached data
-        // $cached_data = get_transient($transient_key);
-        // if ($cached_data !== false) {
-        //     return $cached_data;
-        // }
-
-        // No cache, fetch from API
+    /**
+     * Fetch featured carts from DMS API and store in wp_options cache.
+     * Called only from: admin Grids page refresh, or DMS push via /showcase endpoint.
+     *
+     * @param string $key Location key (e.g., 'national', 'tigon_hatfield')
+     * @param string|null $grid_type Optional: only update 'new', 'used', or 'popular'. Null = update all.
+     * @return array The full cached data
+     */
+    public static function refresh_featured_carts($key = 'national', $grid_type = null)
+    {
         $response = wp_remote_post(
             self::$api_url,
             array(
@@ -80,10 +89,49 @@ class DMS_API
             return array();
         }
 
-        // Cache for 5 minutes (300 seconds) - COMMENTED OUT
-        // set_transient($transient_key, $data, 300);
+        $option_key = 'dms_grid_cache_' . sanitize_key($key);
 
+        // If a specific grid type was requested, merge with existing cache
+        if ($grid_type !== null) {
+            $existing = get_option($option_key, array());
+            if (is_array($existing) && !empty($existing['data'])) {
+                $type_map = array(
+                    'new'     => 'featuredNewCarts',
+                    'used'    => 'featuredUsedCarts',
+                    'popular' => 'popularCarts',
+                );
+                $target_key = $type_map[$grid_type] ?? null;
+                if ($target_key && !empty($data['data'])) {
+                    // Replace only the requested grid in the existing cache
+                    foreach ($data['data'] as $section) {
+                        if ($section['key'] === $target_key) {
+                            foreach ($existing['data'] as &$existing_section) {
+                                if ($existing_section['key'] === $target_key) {
+                                    $existing_section['carts'] = $section['carts'];
+                                }
+                            }
+                        }
+                    }
+                    $data = $existing;
+                }
+            }
+        }
+
+        update_option($option_key, $data, false);
         return $data;
+    }
+
+    /**
+     * Save DMS push data directly into wp_options cache.
+     * Called when DMS pushes via the /showcase REST endpoint.
+     *
+     * @param string $key Location key
+     * @param array $api_data The full API response data
+     */
+    public static function save_grid_cache($key, $api_data)
+    {
+        $option_key = 'dms_grid_cache_' . sanitize_key($key);
+        update_option($option_key, $api_data, false);
     }
 
     /**

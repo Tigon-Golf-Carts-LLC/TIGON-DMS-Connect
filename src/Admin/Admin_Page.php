@@ -30,6 +30,7 @@ class Admin_Page
         $position = 55;
         add_menu_page($page_title, $menu_title, $capability, $menu_slug, $callback, $icon_url, $position);
         self::add_import_page();
+        self::add_grids_page();
         self::add_sync_page();
         self::add_settings_page();
     }
@@ -47,6 +48,135 @@ class Admin_Page
         $menu_slug = "import";
         $callback = 'Tigon\DmsConnect\Admin\Admin_Page::import_page';
         add_submenu_page($parent_slug, $page_title, $menu_title, $capability, $menu_slug, $callback);
+    }
+
+    /**
+     * Add Grids submenu
+     * @return void
+     */
+    public static function add_grids_page()
+    {
+        $parent_slug = "tigon-dms-connect";
+        $page_title = "DMS Grids";
+        $menu_title = "Grids";
+        $capability = "manage_options";
+        $menu_slug = "dms-grids";
+        $callback = 'Tigon\DmsConnect\Admin\Admin_Page::grids_page';
+        add_submenu_page($parent_slug, $page_title, $menu_title, $capability, $menu_slug, $callback);
+    }
+
+    /**
+     * Render the Grids admin page.
+     * Shows cached product IDs for each grid (New, Used, Popular) per location.
+     * Provides individual Refresh buttons that call the DMS API on demand.
+     */
+    public static function grids_page()
+    {
+        $nonce = wp_create_nonce('dms_grids_nonce');
+
+        // All known locations
+        $locations = array(
+            'national'        => 'National (Homepage)',
+            'tigon_hatfield'  => 'Hatfield',
+            'tigon_ocean_view'=> 'Ocean View',
+            'tigon_pocono'    => 'Pocono',
+            'tigon_dover'     => 'Dover',
+            'tigon_scranton'  => 'Scranton',
+        );
+
+        $grid_types = array(
+            'new'     => array('label' => 'New Carts',     'api_key' => 'featuredNewCarts'),
+            'used'    => array('label' => 'Used Carts',    'api_key' => 'featuredUsedCarts'),
+            'popular' => array('label' => 'Popular Carts', 'api_key' => 'popularCarts'),
+        );
+
+        self::page_header();
+
+        echo '<div class="body" style="flex-direction:column;">';
+        echo '<p style="margin:0 0 1.5rem;color:#666;">Product grids are cached locally. They only update when <strong>DMS pushes a change</strong> or you click <strong>Refresh</strong> below. No API calls happen on page load.</p>';
+
+        foreach ($locations as $loc_key => $loc_label) {
+            $option_key = 'dms_grid_cache_' . sanitize_key($loc_key);
+            $cached = get_option($option_key, false);
+
+            echo '<div class="action-box-group" style="margin-bottom:2rem;">';
+            echo '<div class="action-box primary" style="flex-direction:column;">';
+            echo '<h2>' . esc_html($loc_label) . '</h2>';
+
+            foreach ($grid_types as $type_key => $type_info) {
+                $product_ids = array();
+                if ($cached && !empty($cached['data'])) {
+                    foreach ($cached['data'] as $section) {
+                        if ($section['key'] === $type_info['api_key']) {
+                            // Extract cart IDs or product references
+                            $carts = $section['carts'] ?? array();
+                            $count = count($carts);
+                        }
+                    }
+                }
+                $count = $count ?? 0;
+
+                echo '<div style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 0;border-bottom:1px solid #eee;">';
+                echo '<div>';
+                echo '<strong>' . esc_html($type_info['label']) . '</strong>';
+                echo ' <span style="color:#888;">(' . $count . ' carts cached)</span>';
+                echo '</div>';
+                echo '<button class="button dms-grid-refresh" data-location="' . esc_attr($loc_key) . '" data-grid="' . esc_attr($type_key) . '" data-nonce="' . $nonce . '">Refresh ' . esc_html($type_info['label']) . '</button>';
+                echo '</div>';
+
+                // Reset for next iteration
+                $count = 0;
+            }
+
+            // Refresh All button for this location
+            echo '<div style="margin-top:1rem;">';
+            echo '<button class="button button-primary dms-grid-refresh" data-location="' . esc_attr($loc_key) . '" data-grid="all" data-nonce="' . $nonce . '">Refresh All Grids for ' . esc_html($loc_label) . '</button>';
+            echo '</div>';
+
+            echo '</div>'; // .action-box
+            echo '</div>'; // .action-box-group
+        }
+
+        echo '<div id="dms-grids-result" style="margin-top:1rem;"></div>';
+        echo '</div>'; // .body
+
+        // Inline JS for AJAX refresh
+        ?>
+        <script>
+        (function($) {
+            $(document).on('click', '.dms-grid-refresh', function(e) {
+                e.preventDefault();
+                var $btn = $(this);
+                var location = $btn.data('location');
+                var grid = $btn.data('grid');
+                var nonce = $btn.data('nonce');
+                var originalText = $btn.text();
+
+                $btn.prop('disabled', true).text('Refreshing...');
+                $('#dms-grids-result').html('');
+
+                $.post(globals.ajaxurl, {
+                    action: 'dms_refresh_grid',
+                    location: location,
+                    grid_type: grid,
+                    nonce: nonce
+                }, function(response) {
+                    $btn.prop('disabled', false).text(originalText);
+                    if (response.success) {
+                        $('#dms-grids-result').html('<div class="notice notice-success" style="padding:0.75rem;"><p>' + response.data.message + '</p></div>');
+                        // Reload page after 1s to show updated counts
+                        setTimeout(function() { location.reload ? window.location.reload() : null; }, 1000);
+                    } else {
+                        $('#dms-grids-result').html('<div class="notice notice-error" style="padding:0.75rem;"><p>' + (response.data || 'Refresh failed') + '</p></div>');
+                    }
+                }).fail(function() {
+                    $btn.prop('disabled', false).text(originalText);
+                    $('#dms-grids-result').html('<div class="notice notice-error" style="padding:0.75rem;"><p>Network error. Please try again.</p></div>');
+                });
+            });
+        })(jQuery);
+        </script>
+        <?php
     }
 
     /**

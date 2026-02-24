@@ -32,6 +32,7 @@ class Core
         // Enqueue scripts
         add_action('load-toplevel_page_tigon-dms-connect', 'Tigon\DmsConnect\Core::diagnostic_script_enqueue');
         add_action('load-tigon-dms-connect_page_import', 'Tigon\DmsConnect\Core::import_script_enqueue');
+        add_action('load-tigon-dms-connect_page_dms-grids', 'Tigon\DmsConnect\Core::grids_script_enqueue');
         add_action('load-tigon-dms-connect_page_settings', 'Tigon\DmsConnect\Core::settings_script_enqueue');
 
         // Register Ajax functions
@@ -46,6 +47,7 @@ class Core
         add_action('wp_ajax_tigon_dms_save_settings', 'Tigon\DmsConnect\Admin\Ajax_Settings_Controller::save_settings');
         add_action('wp_ajax_tigon_dms_get_dms_props', 'Tigon\DmsConnect\Admin\Ajax_Settings_Controller::get_dms_props');
         add_action('wp_ajax_tigon_dms_post_import', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::process_post_import');
+        add_action('wp_ajax_dms_refresh_grid', 'Tigon\DmsConnect\Core::ajax_refresh_grid');
 
         // Add admin page
         add_action('admin_menu', 'Tigon\DmsConnect\Admin\Admin_Page::add_menu_page');
@@ -160,6 +162,60 @@ class Core
         wp_enqueue_script_module('@tigon-dms/php_serialize');
         wp_enqueue_script('jquery');
         wp_enqueue_script_module('@tigon-dms/import');
+    }
+
+    /**
+     * Enqueue scripts for the Grids admin page
+     */
+    public static function grids_script_enqueue()
+    {
+        $js_url = self::asset_url();
+        wp_register_script('@tigon-dms/globals', $js_url . 'globals.js');
+
+        wp_localize_script('@tigon-dms/globals', 'globals', [
+            'ajaxurl' => admin_url('admin-ajax.php'),
+            'siteurl' => get_site_url()
+        ]);
+
+        wp_enqueue_script('@tigon-dms/globals');
+        wp_enqueue_script('jquery');
+    }
+
+    /**
+     * AJAX handler: refresh a grid from DMS API and update wp_options cache.
+     */
+    public static function ajax_refresh_grid()
+    {
+        check_ajax_referer('dms_grids_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized');
+        }
+
+        $location = sanitize_text_field($_POST['location'] ?? 'national');
+        $grid_type = sanitize_text_field($_POST['grid_type'] ?? 'all');
+
+        $valid_locations = array('national', 'tigon_hatfield', 'tigon_ocean_view', 'tigon_pocono', 'tigon_dover', 'tigon_scranton');
+        if (!in_array($location, $valid_locations)) {
+            wp_send_json_error('Invalid location');
+        }
+
+        $valid_types = array('all', 'new', 'used', 'popular');
+        if (!in_array($grid_type, $valid_types)) {
+            wp_send_json_error('Invalid grid type');
+        }
+
+        $type_param = $grid_type === 'all' ? null : $grid_type;
+        $data = \DMS_API::refresh_featured_carts($location, $type_param);
+
+        if (empty($data)) {
+            wp_send_json_error('DMS API returned no data');
+        }
+
+        $label = $grid_type === 'all' ? 'All grids' : ucfirst($grid_type) . ' carts grid';
+        wp_send_json_success(array(
+            'message' => $label . ' refreshed for ' . $location . '.',
+        ));
     }
 
     public static function settings_script_enqueue()
