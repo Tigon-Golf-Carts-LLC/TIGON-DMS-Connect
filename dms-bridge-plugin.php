@@ -1240,17 +1240,7 @@ register_deactivation_hook(__FILE__, 'tigon_dms_deactivation');
  * SAFE TO REMOVE after running once successfully.
  * ============================================================================
  */
-function tigon_dms_add_recovery_menu() {
-    add_submenu_page(
-        null, // Hidden from menu
-        'DMS Recover Products',
-        'DMS Recover Products',
-        'manage_woocommerce',
-        'dms-recover-products',
-        'tigon_dms_recover_products_page'
-    );
-}
-add_action('admin_menu', 'tigon_dms_add_recovery_menu');
+// Recovery tool is now on the Settings > Tools tab in Admin_Page.
 
 /**
  * One-time recovery: Remove exclude-from-search term from DMS products
@@ -1371,17 +1361,7 @@ function tigon_dms_recover_products_page() {
  * SAFE TO REMOVE after running once successfully.
  * ============================================================================
  */
-function tigon_dms_add_normalize_menu() {
-    add_submenu_page(
-        null, // Hidden from menu
-        'DMS Normalize Titles',
-        'DMS Normalize Titles',
-        'manage_woocommerce',
-        'dms-normalize-titles',
-        'tigon_dms_normalize_titles_page'
-    );
-}
-add_action('admin_menu', 'tigon_dms_add_normalize_menu');
+// Normalize tool is now on the Settings > Tools tab in Admin_Page.
 
 /**
  * One-time migration: Normalize DMS product titles
@@ -1485,17 +1465,7 @@ function tigon_dms_normalize_titles_page() {
 /**
  * Add admin menu for updating product titles with ® symbol
  */
-function tigon_dms_add_update_titles_menu() {
-    add_submenu_page(
-        null, // Hidden from menu
-        'DMS Update Titles with ®',
-        'DMS Update Titles with ®',
-        'manage_options',
-        'dms-update-titles-reg',
-        'tigon_dms_update_titles_reg_page'
-    );
-}
-add_action('admin_menu', 'tigon_dms_add_update_titles_menu');
+// Update Titles tool is now on the Settings > Tools tab in Admin_Page.
 
 /**
  * One-time migration: Update DMS product titles to include ® symbol
@@ -2159,21 +2129,7 @@ function tigon_dms_reschedule_sync()
     tigon_dms_schedule_sync();
 }
 
-/**
- * Add admin menu for inventory sync
- */
-function tigon_dms_add_sync_menu()
-{
-    add_submenu_page(
-        'woocommerce',
-        'DMS Inventory Sync',
-        'DMS Sync',
-        'manage_woocommerce',
-        'dms-inventory-sync',
-        'tigon_dms_sync_page'
-    );
-}
-add_action('admin_menu', 'tigon_dms_add_sync_menu');
+// Sync menu is now registered in Admin_Page::add_sync_page() under DMS Connect.
 
 /**
  * Render sync admin page

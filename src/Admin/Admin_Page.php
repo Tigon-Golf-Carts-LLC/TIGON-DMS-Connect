@@ -30,6 +30,7 @@ class Admin_Page
         $position = 55;
         add_menu_page($page_title, $menu_title, $capability, $menu_slug, $callback, $icon_url, $position);
         self::add_import_page();
+        self::add_sync_page();
         self::add_settings_page();
     }
 
@@ -45,6 +46,21 @@ class Admin_Page
         $capability = "manage_options";
         $menu_slug = "import";
         $callback = 'Tigon\DmsConnect\Admin\Admin_Page::import_page';
+        add_submenu_page($parent_slug, $page_title, $menu_title, $capability, $menu_slug, $callback);
+    }
+
+    /**
+     * Add Sync submenu
+     * @return void
+     */
+    public static function add_sync_page()
+    {
+        $parent_slug = "tigon-dms-connect";
+        $page_title = "DMS Inventory Sync";
+        $menu_title = "Sync";
+        $capability = "manage_options";
+        $menu_slug = "dms-inventory-sync";
+        $callback = 'tigon_dms_sync_page';
         add_submenu_page($parent_slug, $page_title, $menu_title, $capability, $menu_slug, $callback);
     }
 
@@ -406,8 +422,14 @@ class Admin_Page
         $api_key = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'user_token'") ?? 'e.g. 00000000-0000-0000-000000000000';
         $shown_key = substr($api_key, -6);
         $api_key = substr_replace(preg_replace('/[^-]/', '•', $api_key), $shown_key, -6, 6);
-        
+
         $file_source = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'file_source'") ?? 'e.g. https://s3.amazonaws.com/your.bucket.s3';
+
+        // Handle Tools tab POST submissions
+        $tool_results = '';
+        if (isset($_POST['dms_tool_action']) && check_admin_referer('dms_tools_nonce', 'dms_tools_nonce_field')) {
+            $tool_results = self::run_tool($_POST['dms_tool_action']);
+        }
 
         self::page_header();
 
@@ -425,6 +447,7 @@ class Admin_Page
                 <div class="tigon-dms-nav" style="flex-direction:row;">
                     <button class="tigon-dms-tab" id="general-tab">General</button>
                     <button class="tigon-dms-tab" id="schema-tab">Schema</button>
+                    <button class="tigon-dms-tab" id="tools-tab">Tools</button>
                 </div>
 
                 <div class="action-box" id="general">
@@ -617,10 +640,234 @@ class Admin_Page
                     </div>
                     <a id="save" class="tigon_dms_action tigon_dms_schema_save" data-nonce="' . $nonce . '"><button>Save Settings</button></a>
                 </div>
+
+                <div class="action-box" id="tools" style="flex-direction:column;">
+                    <h3>Maintenance Tools</h3>
+                    <p style="margin-bottom:1.5rem;color:#666;">One-time recovery and migration utilities for DMS products.</p>
+                    ' . $tool_results . '
+                    <div style="display:flex;flex-direction:column;gap:1.5rem;">
+                        <div class="settings form" style="padding:1rem;border:1px solid #ddd;border-radius:4px;">
+                            <h4 style="margin:0 0 0.5rem;">Recover Products</h4>
+                            <p style="margin:0 0 0.75rem;color:#666;font-size:0.9em;">Removes the <code>exclude-from-search</code> term from DMS products so they appear in WP Admin product lists.</p>
+                            <form method="post" action="">
+                                ' . wp_nonce_field('dms_tools_nonce', 'dms_tools_nonce_field', true, false) . '
+                                <input type="hidden" name="dms_tool_action" value="recover_products" />
+                                <button type="submit" class="button">Run Recovery</button>
+                            </form>
+                        </div>
+                        <div class="settings form" style="padding:1rem;border:1px solid #ddd;border-radius:4px;">
+                            <h4 style="margin:0 0 0.5rem;">Normalize Titles</h4>
+                            <p style="margin:0 0 0.75rem;color:#666;font-size:0.9em;">Normalizes DMS product titles to use " In " format instead of dashes or en-dashes, and updates slugs.</p>
+                            <form method="post" action="">
+                                ' . wp_nonce_field('dms_tools_nonce', 'dms_tools_nonce_field', true, false) . '
+                                <input type="hidden" name="dms_tool_action" value="normalize_titles" />
+                                <button type="submit" class="button">Run Normalization</button>
+                            </form>
+                        </div>
+                        <div class="settings form" style="padding:1rem;border:1px solid #ddd;border-radius:4px;">
+                            <h4 style="margin:0 0 0.5rem;">Update Titles with &reg;</h4>
+                            <p style="margin:0 0 0.75rem;color:#666;font-size:0.9em;">Rebuilds DMS product titles from the DMS payload to include the &reg; symbol between make and model.</p>
+                            <form method="post" action="">
+                                ' . wp_nonce_field('dms_tools_nonce', 'dms_tools_nonce_field', true, false) . '
+                                <input type="hidden" name="dms_tool_action" value="update_titles_reg" />
+                                <button type="submit" class="button">Run Title Update</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
             </div>
                 </div>
         </div>
         ';
+    }
+
+    /**
+     * Run a maintenance tool and return HTML results.
+     */
+    private static function run_tool(string $action): string
+    {
+        if (!current_user_can('manage_options')) {
+            return '<div class="notice notice-error"><p>Unauthorized.</p></div>';
+        }
+
+        switch ($action) {
+            case 'recover_products':
+                return self::tool_recover_products();
+            case 'normalize_titles':
+                return self::tool_normalize_titles();
+            case 'update_titles_reg':
+                return self::tool_update_titles_reg();
+            default:
+                return '';
+        }
+    }
+
+    private static function tool_recover_products(): string
+    {
+        $fixed = [];
+        $exclude_term = get_term_by('slug', 'exclude-from-search', 'product_visibility');
+        if (!$exclude_term) {
+            return '<div class="notice notice-info" style="margin:1rem 0;"><p>Term "exclude-from-search" not found. Nothing to fix.</p></div>';
+        }
+
+        $product_ids = get_posts([
+            'post_type'      => 'product',
+            'post_status'    => 'any',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+            'tax_query'      => [['taxonomy' => 'product_visibility', 'field' => 'slug', 'terms' => 'exclude-from-search']],
+        ]);
+
+        foreach ($product_ids as $pid) {
+            $terms = wp_get_object_terms($pid, 'product_visibility', ['fields' => 'slugs']);
+            $new_terms = array_values(array_filter($terms, fn($t) => $t !== 'exclude-from-search'));
+            if (count($new_terms) !== count($terms)) {
+                wp_set_object_terms($pid, $new_terms, 'product_visibility');
+                $fixed[] = ['id' => $pid, 'title' => get_the_title($pid), 'kept' => implode(', ', $new_terms) ?: '(none)'];
+            }
+        }
+
+        if (empty($fixed)) {
+            return '<div class="notice notice-info" style="margin:1rem 0;"><p>No products needed fixing.</p></div>';
+        }
+
+        $html = '<div class="notice notice-success" style="margin:1rem 0;"><p>Fixed ' . count($fixed) . ' product(s). Removed <code>exclude-from-search</code> term.</p></div>';
+        $html .= '<table class="widefat striped" style="max-width:800px;margin:1rem 0;"><thead><tr><th>ID</th><th>Product</th><th>Remaining Terms</th></tr></thead><tbody>';
+        foreach ($fixed as $item) {
+            $html .= '<tr><td><a href="' . get_edit_post_link($item['id']) . '">' . $item['id'] . '</a></td>';
+            $html .= '<td>' . esc_html($item['title']) . '</td>';
+            $html .= '<td><code>' . esc_html($item['kept']) . '</code></td></tr>';
+        }
+        $html .= '</tbody></table>';
+        return $html;
+    }
+
+    private static function tool_normalize_titles(): string
+    {
+        $fixed = [];
+        $products = get_posts([
+            'post_type'      => 'product',
+            'post_status'    => 'any',
+            'posts_per_page' => -1,
+            'meta_query'     => [['key' => '_dms_cart_id', 'compare' => 'EXISTS']],
+        ]);
+
+        foreach ($products as $product) {
+            $original_title = $product->post_title;
+            $original_slug  = $product->post_name;
+            $normalized_title = tigon_dms_normalize_title($original_title);
+            $normalized_slug  = sanitize_title($normalized_title);
+
+            if ($original_title === $normalized_title && $original_slug === $normalized_slug) {
+                continue;
+            }
+
+            wp_update_post(['ID' => $product->ID, 'post_title' => $normalized_title, 'post_name' => $normalized_slug]);
+            $fixed[] = ['id' => $product->ID, 'old' => $original_title, 'new' => $normalized_title, 'slug' => $normalized_slug];
+        }
+
+        if (empty($fixed)) {
+            return '<div class="notice notice-info" style="margin:1rem 0;"><p>No products needed normalizing.</p></div>';
+        }
+
+        $html = '<div class="notice notice-success" style="margin:1rem 0;"><p>Normalized ' . count($fixed) . ' product(s) to use " In " format.</p></div>';
+        $html .= '<table class="widefat striped" style="max-width:1000px;margin:1rem 0;"><thead><tr><th>ID</th><th>Old Title</th><th>New Title</th><th>Slug</th></tr></thead><tbody>';
+        foreach ($fixed as $item) {
+            $html .= '<tr><td><a href="' . get_edit_post_link($item['id']) . '">' . $item['id'] . '</a></td>';
+            $html .= '<td>' . esc_html($item['old']) . '</td>';
+            $html .= '<td><strong>' . esc_html($item['new']) . '</strong></td>';
+            $html .= '<td><code>' . esc_html($item['slug']) . '</code></td></tr>';
+        }
+        $html .= '</tbody></table>';
+        return $html;
+    }
+
+    private static function tool_update_titles_reg(): string
+    {
+        $fixed = [];
+        $errors = [];
+        $products = get_posts([
+            'post_type'      => 'product',
+            'post_status'    => 'any',
+            'posts_per_page' => -1,
+            'meta_query'     => [['key' => '_dms_cart_id', 'compare' => 'EXISTS']],
+        ]);
+
+        foreach ($products as $product) {
+            $payload_json = get_post_meta($product->ID, '_dms_payload', true);
+            if (empty($payload_json)) {
+                $errors[] = 'Product #' . $product->ID . ' has no DMS payload';
+                continue;
+            }
+            $cart_data = json_decode($payload_json, true);
+            if (empty($cart_data) || !is_array($cart_data)) {
+                $errors[] = 'Product #' . $product->ID . ' has invalid DMS payload';
+                continue;
+            }
+
+            $make = $cart_data['cartType']['make'] ?? '';
+            $model = $cart_data['cartType']['model'] ?? '';
+            $color = $cart_data['cartAttributes']['cartColor'] ?? '';
+            $store_id = $cart_data['cartLocation']['locationId'] ?? '';
+
+            $location_string = '';
+            if (!empty($store_id) && class_exists('DMS_API')) {
+                $loc = \DMS_API::get_city_and_state_by_store_id($store_id);
+                $location_string = trim(($loc['city'] ?? '') . ', ' . ($loc['state'] ?? ''), ', ');
+            }
+
+            $parts = [];
+            if (!empty($make) && !empty($model)) {
+                $parts[] = $make . "\u{00AE} " . $model;
+            } elseif (!empty($make)) {
+                $parts[] = $make;
+            } elseif (!empty($model)) {
+                $parts[] = $model;
+            }
+            if (!empty($color)) {
+                $parts[] = $color;
+            }
+            $new_title = trim(implode(' ', $parts));
+            if (!empty($location_string)) {
+                $new_title .= ' In ' . $location_string;
+            }
+            $new_title = tigon_dms_normalize_title($new_title);
+            $new_slug  = sanitize_title($new_title);
+
+            if ($product->post_title === $new_title) {
+                continue;
+            }
+
+            $result = wp_update_post(['ID' => $product->ID, 'post_title' => $new_title, 'post_name' => $new_slug]);
+            if (is_wp_error($result)) {
+                $errors[] = 'Product #' . $product->ID . ': ' . $result->get_error_message();
+                continue;
+            }
+            $fixed[] = ['id' => $product->ID, 'old' => $product->post_title, 'new' => $new_title, 'slug' => $new_slug];
+        }
+
+        $html = '';
+        if (!empty($errors)) {
+            $html .= '<div class="notice notice-error" style="margin:1rem 0;"><p><strong>Errors:</strong><ul>';
+            foreach ($errors as $e) {
+                $html .= '<li>' . esc_html($e) . '</li>';
+            }
+            $html .= '</ul></p></div>';
+        }
+        if (empty($fixed)) {
+            $html .= '<div class="notice notice-info" style="margin:1rem 0;"><p>No products needed title updates.</p></div>';
+            return $html;
+        }
+        $html .= '<div class="notice notice-success" style="margin:1rem 0;"><p>Updated ' . count($fixed) . ' product(s) with &reg; symbol.</p></div>';
+        $html .= '<table class="widefat striped" style="max-width:1000px;margin:1rem 0;"><thead><tr><th>ID</th><th>Old Title</th><th>New Title</th><th>Slug</th></tr></thead><tbody>';
+        foreach ($fixed as $item) {
+            $html .= '<tr><td><a href="' . get_edit_post_link($item['id']) . '">' . $item['id'] . '</a></td>';
+            $html .= '<td>' . esc_html($item['old']) . '</td>';
+            $html .= '<td><strong>' . esc_html($item['new']) . '</strong></td>';
+            $html .= '<td><code>' . esc_html($item['slug']) . '</code></td></tr>';
+        }
+        $html .= '</tbody></table>';
+        return $html;
     }
 
     private static function checkboxes(): string

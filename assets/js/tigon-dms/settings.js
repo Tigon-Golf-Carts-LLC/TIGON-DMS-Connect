@@ -78,6 +78,10 @@ jQuery(document).ready(() => {
             jQuery("#schema-tab").addClass("active");
             jQuery("#schema").attr('style', 'display:flex;');
         }
+        if(hash == "tools") {
+            jQuery("#tools-tab").addClass("active");
+            jQuery("#tools").attr('style', 'display:flex;');
+        }
     } else {
         jQuery("#general-tab").addClass("active");
         jQuery("#general").attr('style', 'display:flex;');
@@ -101,5 +105,14 @@ jQuery(document).ready(() => {
         jQuery("#schema").attr('style', 'display:flex;');
 
         history.replaceState(undefined, '', "#schema")
+    });
+
+    jQuery("#tools-tab").click(e => {
+        jQuery(".tigon-dms-tab").removeClass("active");
+        jQuery("#tools-tab").addClass("active");
+        jQuery(".tabbed-panel .action-box").attr('style', 'display:none;');
+        jQuery("#tools").attr('style', 'display:flex;');
+
+        history.replaceState(undefined, '', "#tools")
     });
 });
