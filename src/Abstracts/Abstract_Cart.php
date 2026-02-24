@@ -624,6 +624,40 @@ abstract class Abstract_Cart
     }
 
     /**
+     * Look up a category by key, trying with ® first, then without.
+     * @return int|null term_id or null if not found
+     */
+    protected function find_category(string $key): ?int
+    {
+        $upper = strtoupper($key);
+        if (isset($this->generated_attributes->categories[$upper])) {
+            return $this->generated_attributes->categories[$upper];
+        }
+        $without_symbol = strtoupper(str_replace('®', '', $key));
+        if ($without_symbol !== $upper && isset($this->generated_attributes->categories[$without_symbol])) {
+            return $this->generated_attributes->categories[$without_symbol];
+        }
+        return null;
+    }
+
+    /**
+     * Look up a tag by key, trying with ® first, then without.
+     * @return int|null term_id or null if not found
+     */
+    protected function find_tag(string $key): ?int
+    {
+        $upper = strtoupper($key);
+        if (isset($this->generated_attributes->tags[$upper])) {
+            return $this->generated_attributes->tags[$upper];
+        }
+        $without_symbol = strtoupper(str_replace('®', '', $key));
+        if ($without_symbol !== $upper && isset($this->generated_attributes->tags[$without_symbol])) {
+            return $this->generated_attributes->tags[$without_symbol];
+        }
+        return null;
+    }
+
+    /**
      * Initialize categories, tags
      * define number_seats
      *
@@ -649,43 +683,61 @@ abstract class Abstract_Cart
             $tag_seats = $this->number_seats . ' SEATS';
         }
 
-        // make
+        // make (manufacturer category + tag)
         if (strtoupper($this->make_with_symbol) == 'SWIFT EV®') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->categories['SWIFT®'],
-                $this->generated_attributes->tags['SWIFT®']
-            );
+            $make_cat = $this->find_category('SWIFT®');
+            $make_tag = $this->find_tag('SWIFT®');
         } else if (strtoupper($this->make_with_symbol) == 'EZGO®') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->categories['EZ-GO®'],
-                $this->generated_attributes->tags['EZGO®']
-            );
+            $make_cat = $this->find_category('EZ-GO®');
+            $make_tag = $this->find_tag('EZGO®');
         } else {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->categories[strtoupper($this->make_with_symbol)],
-                $this->generated_attributes->tags[strtoupper($this->make_with_symbol)]
-            );
+            $make_cat = $this->find_category($this->make_with_symbol);
+            $make_tag = $this->find_tag($this->make_with_symbol);
+        }
+        if ($make_cat !== null) {
+            $this->taxonomy_terms[] = $make_cat;
+        } else {
+            error_log(sprintf(
+                'Tigon DMS: Manufacturer category not found for "%s".',
+                $this->make_with_symbol
+            ));
+        }
+        if ($make_tag !== null) {
+            $this->taxonomy_terms[] = $make_tag;
         }
 
-        // make and model
-        if (isset($this->generated_attributes->categories[strtoupper($cat_make_model)])) {
-            if ($this->make_with_symbol === 'EZGO®') {
-                array_push($this->taxonomy_terms, $this->generated_attributes->categories[strtoupper('EZ-GO® ' . $this->cart['cartType']['model'])]);
-            } else {
-                array_push($this->taxonomy_terms, $this->generated_attributes->categories[strtoupper($cat_make_model)]);
-            }
+        // make and model — try with ®, then without; fallback to manufacturer category
+        if (strtoupper($this->make_with_symbol) === 'EZGO®') {
+            $model_cat = $this->find_category('EZ-GO® ' . $this->cart['cartType']['model']);
+        } else {
+            $model_cat = $this->find_category($cat_make_model);
+        }
+        if ($model_cat !== null) {
+            $this->taxonomy_terms[] = $model_cat;
+        } else {
+            // Model category not found — manufacturer category already applied as fallback
+            error_log(sprintf(
+                'Tigon DMS: Model category not found for "%s" (make: %s, model: %s). Falling back to manufacturer category.',
+                $cat_make_model,
+                $this->cart['cartType']['make'],
+                $this->cart['cartType']['model']
+            ));
         }
 
 
-        array_push(
-            $this->taxonomy_terms,
-            $this->generated_attributes->tags[strtoupper($cat_make_model)],
-            $this->generated_attributes->tags[strtoupper($this->make_model_color)],
-            $this->generated_attributes->tags[strtoupper($this->name)]
-        );
+        // make+model tag, make+model+color tag, full name tag (® flexible)
+        $make_model_tag = $this->find_tag($cat_make_model);
+        if ($make_model_tag !== null) {
+            $this->taxonomy_terms[] = $make_model_tag;
+        }
+        $make_model_color_tag = $this->find_tag($this->make_model_color);
+        if ($make_model_color_tag !== null) {
+            $this->taxonomy_terms[] = $make_model_color_tag;
+        }
+        $name_tag = $this->find_tag($this->name);
+        if ($name_tag !== null) {
+            $this->taxonomy_terms[] = $name_tag;
+        }
 
         //color
         array_push(
