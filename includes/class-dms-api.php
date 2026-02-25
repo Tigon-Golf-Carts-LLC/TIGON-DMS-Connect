@@ -28,6 +28,12 @@ class DMS_API
      */
     private static $s3_carts_url = 'https://s3.amazonaws.com/prod.docs.s3/carts/';
     private static $s3_window_stickers_url = 'https://s3.amazonaws.com/prod.docs.s3/cart-window-stickers/';
+
+    /**
+     * Placeholder image for carts without public images
+     * (most carts only have internalCartImageUrls which are not publicly accessible)
+     */
+    private static $coming_soon_image = 'https://tigongolfcarts.com/wp-content/uploads/2024/11/TIGON-GOLF-CARTS-IMAGES-COMING-SOON.jpg';
     
     /**
      * Cached stores data for current page load (static variable to avoid multiple API calls)
@@ -271,11 +277,18 @@ class DMS_API
 
         $body = wp_remote_retrieve_body($response);
         $decoded = json_decode($body, true);
-        
-        // Guard: ensure we have an array (raw JSON array from API)
-        $carts = is_array($decoded) ? $decoded : array();
-        
-        return $carts;
+
+        if (!is_array($decoded)) {
+            return array();
+        }
+
+        // API returns { carts: [...], totalCarts: N } — extract the carts array
+        if (isset($decoded['carts']) && is_array($decoded['carts'])) {
+            return $decoded['carts'];
+        }
+
+        // Fallback: if response is already a flat array of carts, return as-is
+        return $decoded;
     }
 
     /**
@@ -296,6 +309,45 @@ class DMS_API
     public static function get_s3_window_stickers_url()
     {
         return self::$s3_window_stickers_url;
+    }
+
+    /**
+     * Get the "Coming Soon" placeholder image URL
+     *
+     * @return string
+     */
+    public static function get_coming_soon_image()
+    {
+        return self::$coming_soon_image;
+    }
+
+    /**
+     * Resolve public image URLs for a cart.
+     *
+     * Only `imageUrls` are publicly accessible via S3.
+     * `internalCartImageUrls` are private and will 403.
+     * When no public images exist, returns a single coming-soon placeholder.
+     *
+     * @param array $cart_data Full cart payload
+     * @return array Array of full image URLs
+     */
+    public static function resolve_cart_image_urls(array $cart_data): array
+    {
+        $image_filenames = $cart_data['imageUrls'] ?? array();
+
+        if (empty($image_filenames) || !is_array($image_filenames)) {
+            // No public images — use placeholder
+            return array(self::$coming_soon_image);
+        }
+
+        $urls = array();
+        foreach ($image_filenames as $filename) {
+            if (!empty($filename)) {
+                $urls[] = self::$s3_carts_url . ltrim($filename, '/');
+            }
+        }
+
+        return !empty($urls) ? $urls : array(self::$coming_soon_image);
     }
 
 }

@@ -373,6 +373,10 @@ abstract class Abstract_Cart
 
         $this->field_overrides();
 
+        // Apply user-configured field mappings from the admin UI.
+        // These can override any property set above.
+        $this->apply_custom_field_mappings();
+
         return new Database_Object(
             method: $this->method,
             id: $this->product_id,
@@ -2026,6 +2030,84 @@ abstract class Abstract_Cart
 
         $this->monroney_container_id = 'field_66e3332abf481';
 
+    }
+
+    /**
+     * Apply user-configured field mappings from the Field Mapping admin page.
+     *
+     * Reads enabled mappings from the database and applies the resolved DMS
+     * values to the corresponding Abstract_Cart properties, which are then
+     * passed into the Database_Object constructor.
+     */
+    protected function apply_custom_field_mappings(): void
+    {
+        if (!class_exists('\Tigon\DmsConnect\Admin\Field_Mapping')) {
+            return;
+        }
+
+        $resolved = \Tigon\DmsConnect\Admin\Field_Mapping::apply($this->cart);
+
+        // Map postmeta targets to Abstract_Cart properties.
+        // This bridges the "meta key" → "property name" gap.
+        $meta_to_property = [
+            '_sku'            => 'sku',
+            '_regular_price'  => 'price',
+            '_price'          => 'price',
+            '_sale_price'     => 'sale_price',
+            '_stock_status'   => 'in_stock',
+            '_manage_stock'   => 'manage_stock',
+            '_tax_status'     => 'tax_status',
+            '_tax_class'      => 'tax_class',
+            '_virtual'        => 'is_virtual',
+            '_downloadable'   => 'downloadable',
+            '_sold_individually' => 'sold_individually',
+            '_backorders'     => 'backorders_allowed',
+            '_yoast_wpseo_title'    => 'yoast_seo_title',
+            '_yoast_wpseo_metadesc' => 'meta_description',
+            '_wc_gla_brand'         => 'google_brand',
+            '_wc_gla_color'         => 'google_color',
+            '_wc_gla_pattern'       => 'google_pattern',
+            '_wc_gla_condition'     => 'condition',
+        ];
+
+        foreach ($resolved['postmeta'] as $key => $value) {
+            if (isset($meta_to_property[$key])) {
+                $prop = $meta_to_property[$key];
+                $this->$prop = $value;
+            }
+        }
+
+        // Map post field targets.
+        $post_to_property = [
+            'post_title'   => 'name',
+            'post_name'    => 'slug',
+            'post_content' => 'description',
+            'post_excerpt' => 'short_description',
+            'post_status'  => 'published',
+            'menu_order'   => 'menu_order',
+        ];
+
+        foreach ($resolved['post'] as $key => $value) {
+            if (isset($post_to_property[$key])) {
+                $prop = $post_to_property[$key];
+                $this->$prop = $value;
+            }
+        }
+
+        // Map taxonomy targets to term IDs and add to taxonomy_terms.
+        foreach ($resolved['taxonomy'] as $taxonomy => $term_names) {
+            foreach ($term_names as $term_name) {
+                $term = get_term_by('name', $term_name, $taxonomy);
+                if (!$term) {
+                    $term = get_term_by('slug', sanitize_title($term_name), $taxonomy);
+                }
+                if ($term && !is_wp_error($term)) {
+                    if (!in_array($term->term_taxonomy_id, $this->taxonomy_terms)) {
+                        $this->taxonomy_terms[] = $term->term_taxonomy_id;
+                    }
+                }
+            }
+        }
     }
 
     protected function field_overrides()

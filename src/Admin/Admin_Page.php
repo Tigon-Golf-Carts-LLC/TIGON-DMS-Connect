@@ -32,6 +32,8 @@ class Admin_Page
         self::add_import_page();
         self::add_settings_page();
         self::add_database_objects_page();
+        self::add_field_mapping_page();
+        self::add_sync_page();
     }
 
     /**
@@ -79,6 +81,575 @@ class Admin_Page
         $callback    = 'Tigon\DmsConnect\Admin\Admin_Page::database_objects_page';
 
         add_submenu_page($parent_slug, $page_title, $menu_title, $capability, $menu_slug, $callback);
+    }
+
+    /**
+     * Add Field Mapping submenu
+     */
+    public static function add_field_mapping_page()
+    {
+        add_submenu_page(
+            'tigon-dms-connect',
+            'DMS Field Mapping',
+            'Field Mapping',
+            'manage_options',
+            'field-mapping',
+            'Tigon\DmsConnect\Admin\Admin_Page::field_mapping_page'
+        );
+    }
+
+    /**
+     * Add Sync submenu
+     * @return void
+     */
+    public static function add_sync_page()
+    {
+        add_submenu_page(
+            'tigon-dms-connect',
+            'DMS Inventory Sync',
+            'Sync',
+            'manage_options',
+            'dms-inventory-sync',
+            'Tigon\DmsConnect\Admin\Admin_Page::sync_page'
+        );
+    }
+
+    /**
+     * Field Mapping admin page.
+     *
+     * Displays the DMS → WooCommerce field mapping editor.
+     * Users can browse all DMS payload paths, select WooCommerce targets,
+     * choose transforms, and save persistent mapping rules.
+     */
+    public static function field_mapping_page()
+    {
+        // Ensure table exists (handles upgrades from older versions)
+        \Tigon\DmsConnect\Admin\Field_Mapping::install();
+
+        $nonce = wp_create_nonce('tigon_dms_field_mapping_nonce');
+        $mappings    = \Tigon\DmsConnect\Admin\Field_Mapping::get_all();
+        $dms_fields  = \Tigon\DmsConnect\Admin\Field_Mapping::get_known_dms_fields();
+        $woo_targets = \Tigon\DmsConnect\Admin\Field_Mapping::get_known_woo_targets();
+
+        $transforms = [
+            'direct'        => 'Direct (pass-through)',
+            'uppercase'     => 'UPPERCASE',
+            'lowercase'     => 'lowercase',
+            'ucwords'       => 'Ucwords (Title Case)',
+            'boolean_yesno' => 'Boolean &rarr; Yes/No',
+            'boolean_label' => 'Boolean &rarr; Custom Labels',
+            'prefix'        => 'Prefix (prepend text)',
+            'suffix'        => 'Suffix (append text)',
+            'template'      => 'Template ({value} placeholder)',
+            'static'        => 'Static Value',
+        ];
+
+        self::page_header();
+
+        echo '
+        <div class="body" style="display:flex; flex-direction:column;">
+            <div class="action-box-group">
+                <div class="action-box primary" style="flex-direction:column; gap:1rem; flex:1;">
+                    <h2>DMS &rarr; WooCommerce Field Mapping</h2>
+                    <p>Map DMS API payload fields to WordPress/WooCommerce fields. These mappings are applied during import and sync operations.</p>
+
+                    <div id="tigon-mapping-editor">
+                        <table class="widefat striped" id="tigon-mapping-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:30px;">#</th>
+                                    <th>DMS Field Path</th>
+                                    <th>&rarr;</th>
+                                    <th>Target Type</th>
+                                    <th>WooCommerce Target</th>
+                                    <th>Transform</th>
+                                    <th>Config</th>
+                                    <th style="width:60px;">Enabled</th>
+                                    <th style="width:100px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tigon-mapping-rows">';
+
+        if (empty($mappings)) {
+            echo '
+                                <tr id="tigon-no-mappings-row">
+                                    <td colspan="9" style="text-align:center; padding:2rem;">
+                                        No custom field mappings configured yet. Add one below or use the defaults.<br>
+                                        <small>The built-in mapping logic (categories, attributes, pricing, images) continues to work without custom mappings.</small>
+                                    </td>
+                                </tr>';
+        } else {
+            foreach ($mappings as $m) {
+                $mid = intval($m['mapping_id']);
+                $enabled_checked = $m['is_enabled'] ? 'checked' : '';
+                echo '
+                                <tr data-mapping-id="' . $mid . '">
+                                    <td>' . $mid . '</td>
+                                    <td><code>' . esc_html($m['dms_path']) . '</code></td>
+                                    <td>&rarr;</td>
+                                    <td>' . esc_html($m['target_type']) . '</td>
+                                    <td><code>' . esc_html($m['woo_target']) . '</code></td>
+                                    <td>' . esc_html($m['transform']) . '</td>
+                                    <td><code>' . esc_html($m['transform_cfg']) . '</code></td>
+                                    <td><input type="checkbox" ' . $enabled_checked . ' disabled /></td>
+                                    <td>
+                                        <button class="button button-small tigon-edit-mapping" data-id="' . $mid . '">Edit</button>
+                                        <button class="button button-small tigon-delete-mapping" data-id="' . $mid . '" style="color:#a00;">Del</button>
+                                    </td>
+                                </tr>';
+            }
+        }
+
+        echo '
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <hr style="margin:1rem 0;">
+                    <h3 id="tigon-form-title">Add New Mapping</h3>
+                    <div class="tigon-mapping-form" style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem 1.5rem; max-width:800px;">
+                        <input type="hidden" id="tigon-mapping-id" value="0" />
+
+                        <div>
+                            <label><strong>DMS Field Path</strong></label><br>
+                            <select id="tigon-dms-path" style="width:100%;">
+                                <option value="">— Select DMS field —</option>';
+        foreach ($dms_fields as $f) {
+            echo '<option value="' . esc_attr($f) . '">' . esc_html($f) . '</option>';
+        }
+        echo '
+                                <option value="__custom__">Custom path…</option>
+                            </select>
+                            <input type="text" id="tigon-dms-path-custom" placeholder="e.g. myCustom.nested.field" style="width:100%; display:none; margin-top:4px;" />
+                        </div>
+
+                        <div>
+                            <label><strong>Target Type</strong></label><br>
+                            <select id="tigon-target-type" style="width:100%;">
+                                <option value="postmeta">Post Meta</option>
+                                <option value="post">Post Field</option>
+                                <option value="taxonomy">Taxonomy</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label><strong>WooCommerce Target</strong></label><br>
+                            <select id="tigon-woo-target" style="width:100%;">';
+        // Default to postmeta options
+        echo '<option value="">— Select target —</option>';
+        foreach ($woo_targets['postmeta'] as $t) {
+            echo '<option value="' . esc_attr($t) . '">' . esc_html($t) . '</option>';
+        }
+        echo '
+                                <option value="__custom__">Custom key…</option>
+                            </select>
+                            <input type="text" id="tigon-woo-target-custom" placeholder="e.g. _my_custom_meta" style="width:100%; display:none; margin-top:4px;" />
+                        </div>
+
+                        <div>
+                            <label><strong>Transform</strong></label><br>
+                            <select id="tigon-transform" style="width:100%;">';
+        foreach ($transforms as $key => $label) {
+            echo '<option value="' . esc_attr($key) . '">' . $label . '</option>';
+        }
+        echo '
+                            </select>
+                        </div>
+
+                        <div style="grid-column:span 2;">
+                            <label><strong>Transform Config</strong> <small>(optional — used by prefix/suffix/template/boolean_label/static)</small></label><br>
+                            <input type="text" id="tigon-transform-cfg" style="width:100%;" placeholder="e.g. {value} Amp Hours, or [&quot;ELECTRIC&quot;,&quot;GAS&quot;]" />
+                        </div>
+
+                        <div>
+                            <label>
+                                <input type="checkbox" id="tigon-is-enabled" checked />
+                                <strong>Enabled</strong>
+                            </label>
+                        </div>
+
+                        <div style="text-align:right;">
+                            <button class="button button-secondary" id="tigon-cancel-edit" style="display:none;">Cancel</button>
+                            <button class="button button-primary" id="tigon-save-mapping">Save Mapping</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="action-box-group" style="margin-top:1.5rem;">
+                <div class="action-box primary" style="flex:1; flex-direction:column; gap:0.75rem;">
+                    <h2>DMS Payload Field Reference</h2>
+                    <p>These are the known fields in the DMS API response. Use these paths in the mapping above.</p>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:0.5rem;">';
+
+        $groups = [
+            'Cart Type'    => array_filter($dms_fields, fn($f) => str_starts_with($f, 'cartType.')),
+            'Attributes'   => array_filter($dms_fields, fn($f) => str_starts_with($f, 'cartAttributes.')),
+            'Battery'      => array_filter($dms_fields, fn($f) => str_starts_with($f, 'battery.')),
+            'Engine'       => array_filter($dms_fields, fn($f) => str_starts_with($f, 'engine.')),
+            'Location'     => array_filter($dms_fields, fn($f) => str_starts_with($f, 'cartLocation.')),
+            'Title/Legal'  => array_filter($dms_fields, fn($f) => str_starts_with($f, 'title.')),
+            'Advertising'  => array_filter($dms_fields, fn($f) => str_starts_with($f, 'advertising.')),
+            'Top-Level'    => array_filter($dms_fields, fn($f) => !str_contains($f, '.')),
+        ];
+
+        foreach ($groups as $group_name => $fields) {
+            echo '<div style="background:#f8f9fa; padding:0.75rem; border-radius:4px;">
+                    <strong>' . esc_html($group_name) . '</strong><br>';
+            foreach ($fields as $f) {
+                echo '<code style="font-size:0.85em;">' . esc_html($f) . '</code><br>';
+            }
+            echo '</div>';
+        }
+
+        echo '
+                    </div>
+                </div>
+
+                <div class="action-box primary" style="flex:1; flex-direction:column; gap:0.75rem;">
+                    <h2>WooCommerce Target Reference</h2>
+                    <p>Available WooCommerce fields grouped by type.</p>';
+
+        foreach ($woo_targets as $type => $targets) {
+            echo '<div style="background:#f8f9fa; padding:0.75rem; border-radius:4px; margin-bottom:0.5rem;">
+                    <strong>' . esc_html(ucfirst($type)) . '</strong><br>';
+            foreach ($targets as $t) {
+                echo '<code style="font-size:0.85em;">' . esc_html($t) . '</code><br>';
+            }
+            echo '</div>';
+        }
+
+        echo '
+                </div>
+            </div>
+        </div>
+
+        <script>
+        (function($) {
+            var nonce = ' . wp_json_encode($nonce) . ';
+            var wooTargets = ' . wp_json_encode($woo_targets) . ';
+
+            // Toggle custom DMS path input
+            $("#tigon-dms-path").on("change", function() {
+                $("#tigon-dms-path-custom").toggle($(this).val() === "__custom__");
+            });
+
+            // Toggle custom WooCommerce target input
+            $("#tigon-woo-target").on("change", function() {
+                $("#tigon-woo-target-custom").toggle($(this).val() === "__custom__");
+            });
+
+            // Update WooCommerce target dropdown based on target type
+            $("#tigon-target-type").on("change", function() {
+                var type = $(this).val();
+                var targets = wooTargets[type] || [];
+                var $select = $("#tigon-woo-target");
+                $select.empty().append(\'<option value="">— Select target —</option>\');
+                targets.forEach(function(t) {
+                    $select.append(\'<option value="\' + t + \'">\' + t + \'</option>\');
+                });
+                $select.append(\'<option value="__custom__">Custom key…</option>\');
+                $("#tigon-woo-target-custom").hide().val("");
+            });
+
+            // Save mapping
+            $("#tigon-save-mapping").on("click", function() {
+                var dmsPath = $("#tigon-dms-path").val();
+                if (dmsPath === "__custom__") dmsPath = $("#tigon-dms-path-custom").val();
+                var wooTarget = $("#tigon-woo-target").val();
+                if (wooTarget === "__custom__") wooTarget = $("#tigon-woo-target-custom").val();
+
+                if (!dmsPath || !wooTarget) {
+                    alert("Please select both a DMS field and a WooCommerce target.");
+                    return;
+                }
+
+                var data = {
+                    action: "tigon_dms_save_field_mapping",
+                    nonce: nonce,
+                    mapping_id: $("#tigon-mapping-id").val(),
+                    dms_path: dmsPath,
+                    woo_target: wooTarget,
+                    target_type: $("#tigon-target-type").val(),
+                    transform: $("#tigon-transform").val(),
+                    transform_cfg: $("#tigon-transform-cfg").val(),
+                    is_enabled: $("#tigon-is-enabled").is(":checked") ? 1 : 0,
+                    sort_order: 0
+                };
+
+                $.post(globals.ajaxurl, data, function(resp) {
+                    if (resp.success) {
+                        location.reload();
+                    } else {
+                        alert("Error: " + (resp.data || "Unknown error"));
+                    }
+                });
+            });
+
+            // Delete mapping
+            $(document).on("click", ".tigon-delete-mapping", function() {
+                if (!confirm("Delete this mapping?")) return;
+                var id = $(this).data("id");
+                $.post(globals.ajaxurl, {
+                    action: "tigon_dms_delete_field_mapping",
+                    nonce: nonce,
+                    mapping_id: id
+                }, function(resp) {
+                    if (resp.success) location.reload();
+                    else alert("Error deleting mapping");
+                });
+            });
+
+            // Edit mapping — populate form
+            $(document).on("click", ".tigon-edit-mapping", function() {
+                var $row = $(this).closest("tr");
+                var id = $(this).data("id");
+
+                $("#tigon-mapping-id").val(id);
+                $("#tigon-form-title").text("Edit Mapping #" + id);
+                $("#tigon-cancel-edit").show();
+
+                // Parse values from the table row cells
+                var cells = $row.find("td");
+                var dmsPath    = cells.eq(1).text().trim();
+                var targetType = cells.eq(3).text().trim();
+                var wooTarget  = cells.eq(4).text().trim();
+                var transform  = cells.eq(5).text().trim();
+                var cfg        = cells.eq(6).text().trim();
+                var enabled    = cells.eq(7).find("input").is(":checked");
+
+                // Set target type first to trigger option rebuild
+                $("#tigon-target-type").val(targetType).trigger("change");
+
+                // Set DMS path
+                if ($("#tigon-dms-path option[value=\'" + dmsPath + "\']").length) {
+                    $("#tigon-dms-path").val(dmsPath);
+                    $("#tigon-dms-path-custom").hide();
+                } else {
+                    $("#tigon-dms-path").val("__custom__");
+                    $("#tigon-dms-path-custom").show().val(dmsPath);
+                }
+
+                // Set WooCommerce target (after type change rebuilt options)
+                setTimeout(function() {
+                    if ($("#tigon-woo-target option[value=\'" + wooTarget + "\']").length) {
+                        $("#tigon-woo-target").val(wooTarget);
+                        $("#tigon-woo-target-custom").hide();
+                    } else {
+                        $("#tigon-woo-target").val("__custom__");
+                        $("#tigon-woo-target-custom").show().val(wooTarget);
+                    }
+                }, 50);
+
+                $("#tigon-transform").val(transform);
+                $("#tigon-transform-cfg").val(cfg);
+                $("#tigon-is-enabled").prop("checked", enabled);
+
+                // Scroll to form
+                $("html, body").animate({ scrollTop: $("#tigon-form-title").offset().top - 50 }, 300);
+            });
+
+            // Cancel edit — reset form
+            $("#tigon-cancel-edit").on("click", function() {
+                $("#tigon-mapping-id").val(0);
+                $("#tigon-form-title").text("Add New Mapping");
+                $(this).hide();
+                $("#tigon-dms-path").val("");
+                $("#tigon-dms-path-custom").hide().val("");
+                $("#tigon-woo-target").val("");
+                $("#tigon-woo-target-custom").hide().val("");
+                $("#tigon-target-type").val("postmeta").trigger("change");
+                $("#tigon-transform").val("direct");
+                $("#tigon-transform-cfg").val("");
+                $("#tigon-is-enabled").prop("checked", true);
+            });
+        })(jQuery);
+        </script>
+        ';
+    }
+
+    /**
+     * Sync admin page.
+     *
+     * Manual + scheduled inventory sync and DMS Connect mapped sync.
+     */
+    public static function sync_page()
+    {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized access');
+        }
+
+        $sync_running = false;
+        $sync_results = null;
+        $interval_updated = false;
+        $sync_interval = class_exists('\DMS_Sync') ? \DMS_Sync::get_sync_interval() : 6;
+
+        // Handle manual sync request
+        if (isset($_POST['dms_manual_sync']) && check_admin_referer('dms_manual_sync', 'dms_sync_nonce')) {
+            $sync_running = true;
+            if (class_exists('\DMS_Sync')) {
+                $sync_results = \DMS_Sync::sync_inventory();
+            } else {
+                $sync_results = ['success' => false, 'message' => 'DMS_Sync class not found'];
+            }
+        }
+
+        // Handle interval update
+        if (isset($_POST['dms_update_interval']) && check_admin_referer('dms_update_interval', 'dms_interval_nonce')) {
+            $new_interval = isset($_POST['sync_interval']) ? (int) $_POST['sync_interval'] : 6;
+            $new_interval = max(1, min(168, $new_interval));
+            \DMS_Sync::set_sync_interval($new_interval);
+            \tigon_dms_reschedule_sync();
+            $sync_interval = $new_interval;
+            $interval_updated = true;
+        }
+
+        $next_sync = wp_next_scheduled('tigon_dms_sync_inventory');
+        $mapped_nonce = wp_create_nonce('tigon_dms_sync_mapped_nonce');
+
+        self::page_header();
+
+        echo '
+        <div class="body" style="display:flex; flex-direction:column;">
+            <div class="action-box-group" style="grid-template-rows:auto;">
+                <div class="action-box primary" style="flex-direction:column; gap:1rem;">';
+
+        // Show sync results inline (admin.css hides .notice)
+        if ($sync_running && $sync_results) {
+            if (!empty($sync_results['success'])) {
+                $stats = $sync_results['stats'];
+                echo '
+                    <div style="background:#d4edda; border:1px solid #c3e6cb; padding:1rem; border-radius:4px; width:100%;">
+                        <h3 style="margin-top:0;">Sync Completed</h3>
+                        <ul style="list-style:disc; padding-left:1.5rem;">
+                            <li><strong>Total carts processed:</strong> ' . esc_html($stats['total']) . '</li>
+                            <li><strong>Products created:</strong> ' . esc_html($stats['created']) . '</li>
+                            <li><strong>Products updated:</strong> ' . esc_html($stats['updated']) . '</li>
+                            <li><strong>Skipped:</strong> ' . esc_html($stats['skipped']) . '</li>
+                            <li><strong>Errors:</strong> ' . esc_html($stats['errors']) . '</li>
+                        </ul>
+                    </div>';
+            } else {
+                echo '
+                    <div style="background:#f8d7da; border:1px solid #f5c6cb; padding:1rem; border-radius:4px; width:100%;">
+                        <p><strong>Sync Failed:</strong> ' . esc_html($sync_results['message'] ?? 'Unknown error') . '</p>
+                    </div>';
+            }
+        }
+
+        echo '
+                    <h2>Manual Sync</h2>
+                    <p>Manually trigger a full inventory sync from the DMS API. This may take several minutes depending on the number of carts.</p>
+                    <form method="post" action="">
+                        ' . wp_nonce_field('dms_manual_sync', 'dms_sync_nonce', true, false) . '
+                        <button type="submit" name="dms_manual_sync" class="button button-primary" style="height:auto; min-width:auto; background-color:var(--accent-color); color:var(--font-light); padding:0.5rem 1.5rem;">
+                            Sync Inventory Now
+                        </button>
+                    </form>
+                </div>
+
+                <div class="action-box primary" style="flex-direction:column; gap:1rem;">';
+
+        if ($interval_updated) {
+            echo '
+                    <div style="background:#d4edda; border:1px solid #c3e6cb; padding:0.75rem; border-radius:4px; width:100%;">
+                        <p style="margin:0;">Sync interval updated successfully.</p>
+                    </div>';
+        }
+
+        echo '
+                    <h2>Scheduled Sync</h2>
+                    <form method="post" action="" style="display:flex; flex-direction:column; gap:0.75rem; align-items:flex-start;">
+                        ' . wp_nonce_field('dms_update_interval', 'dms_interval_nonce', true, false) . '
+                        <div style="display:flex; align-items:center; gap:0.5rem;">
+                            <label for="sync_interval"><strong>Sync Interval (hours):</strong></label>
+                            <input type="number" id="sync_interval" name="sync_interval" value="' . esc_attr($sync_interval) . '" min="1" max="168" step="1" style="width:80px;" />
+                        </div>
+                        <p style="margin:0;"><small>How often to automatically sync inventory (1&ndash;168 hours).</small></p>';
+
+        if ($next_sync) {
+            echo '
+                        <p style="margin:0;"><strong>Next Scheduled Sync:</strong> ' . esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $next_sync)) . '</p>';
+        }
+
+        echo '
+                        <button type="submit" name="dms_update_interval" class="button button-primary" style="height:auto; min-width:auto; background-color:var(--accent-color); color:var(--font-light); padding:0.5rem 1.5rem;">
+                            Update Interval
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="action-box-group" style="grid-template-columns:1fr; grid-template-rows:auto;">
+                <div class="action-box primary" style="flex-direction:column; gap:1rem;">
+                    <h2>Sync Mapped Inventory (DMS Connect)</h2>
+                    <p>Re-sync all DMS carts using the DMS Connect mapping engine. This updates existing WooCommerce products with the latest DMS data using mapped database objects (attributes, taxonomies, images, SEO, etc).</p>
+                    <div style="display:flex; align-items:center; gap:0.5rem;">
+                        <button type="button" id="dms-mapped-sync-btn" class="button button-primary" style="height:auto; min-width:auto; background-color:var(--accent-color); color:var(--font-light); padding:0.5rem 1.5rem;">
+                            Sync Mapped Inventory Now
+                        </button>
+                        <span id="dms-mapped-sync-spinner" class="spinner" style="float:none; margin-top:0;"></span>
+                    </div>
+                    <div id="dms-mapped-sync-results" style="display:none; width:100%;"></div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        jQuery(document).ready(function($) {
+            $("#dms-mapped-sync-btn").on("click", function() {
+                var $btn = $(this);
+                var $spinner = $("#dms-mapped-sync-spinner");
+                var $results = $("#dms-mapped-sync-results");
+
+                $btn.prop("disabled", true).text("Syncing...");
+                $spinner.addClass("is-active");
+                $results.hide();
+
+                $.ajax({
+                    url: ajaxurl,
+                    type: "POST",
+                    data: {
+                        action: "tigon_dms_sync_mapped",
+                        nonce: ' . wp_json_encode($mapped_nonce) . '
+                    },
+                    timeout: 600000,
+                    success: function(response) {
+                        $spinner.removeClass("is-active");
+                        $btn.prop("disabled", false).text("Sync Mapped Inventory Now");
+
+                        if (response.success && response.data) {
+                            var s = response.data;
+                            var html = \'<div style="background:#d4edda;border:1px solid #c3e6cb;padding:1rem;border-radius:4px;"><h3 style="margin-top:0;">Mapped Sync Completed</h3><ul style="list-style:disc;padding-left:1.5rem;">\';
+                            html += "<li><strong>Total:</strong> " + s.total + "</li>";
+                            html += "<li><strong>Updated:</strong> " + s.updated + "</li>";
+                            html += "<li><strong>Created:</strong> " + s.created + "</li>";
+                            html += "<li><strong>Skipped:</strong> " + s.skipped + "</li>";
+                            html += "<li><strong>Errors:</strong> " + s.errors + "</li>";
+                            html += "</ul>";
+                            if (s.error_details && s.error_details.length > 0) {
+                                html += "<details><summary>Error details</summary><ul style=\'list-style:disc;padding-left:1.5rem;\'>";
+                                s.error_details.forEach(function(e) {
+                                    html += "<li>" + $("<span>").text(e).html() + "</li>";
+                                });
+                                html += "</ul></details>";
+                            }
+                            html += "</div>";
+                            $results.html(html).show();
+                        } else {
+                            $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Sync failed:</strong> \' + (response.data || "Unknown error") + "</p></div>").show();
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        $spinner.removeClass("is-active");
+                        $btn.prop("disabled", false).text("Sync Mapped Inventory Now");
+                        $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Request failed:</strong> \' + error + "</p></div>").show();
+                    }
+                });
+            });
+        });
+        </script>
+        ';
     }
 
     public static function page_header()
@@ -211,9 +782,10 @@ class Admin_Page
             $pos = array_search($url, $extra_new_pids);
             array_splice($extra_new_pids, $pos, 1);
         }
-        $extra_new_pids = array_map(function($slug) {
-            return get_page_by_path($slug, OBJECT, 'product')->ID;
-        }, $extra_new_pids);
+        $extra_new_pids = array_filter(array_map(function($slug) {
+            $page = get_page_by_path($slug, OBJECT, 'product');
+            return $page ? $page->ID : null;
+        }, $extra_new_pids));
         // Carts on DMS which are not on site
         $missing_new_skus = array_values(array_diff($dms_new_unique, $new_carts));
 
@@ -277,7 +849,7 @@ class Admin_Page
         self::page_header();
 
         echo '
-        <div class="body" style="flex-direction: column;">
+        <div class="body" style="display:flex; flex-direction: column;">
             <div class="action-box-group">
                 <div class="action-box primary" id="new-status">
                     <h2>New Carts</h2>
@@ -340,7 +912,7 @@ class Admin_Page
         self::page_header();
 
         echo '
-        <div class="body">
+        <div class="body" style="display:flex;">
             <!--<div class="action-box" style="flex-direction:row;">
                 <a id="new" class="tigon_dms_action tigon_dms_import" data-nonce="' . $nonce . '" href="' . $link . '"><button>Import New Carts</button></a>
             </div>-->
@@ -435,7 +1007,7 @@ class Admin_Page
         $selected_id = isset($_GET['product_id']) ? intval($_GET['product_id']) : 0;
 
         echo '
-        <div class="body" style="flex-direction:column;">
+        <div class="body" style="display:flex; flex-direction:column;">
             <div class="action-box-group">
                 <div class="action-box primary" style="flex-direction:column; gap:1rem;">
                     <h2>DMS Products on this Site</h2>
@@ -573,7 +1145,7 @@ class Admin_Page
         $schema_short_description = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'schema_short_description'") ?? $default_short_description;
 
         echo '
-        <div class="body">
+        <div class="body" style="display:flex; flex-direction:column;">
             <div class="tabbed-panel">
                 <div class="tigon-dms-nav" style="flex-direction:row;">
                     <button class="tigon-dms-tab" id="general-tab">General</button>

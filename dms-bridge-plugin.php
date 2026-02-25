@@ -175,6 +175,79 @@ function tigon_dms_get_schema_templates() {
 }
 
 /**
+ * Convert a US state name to its two-letter abbreviation.
+ *
+ * @param string $state_name Full state name (e.g. "Pennsylvania")
+ * @return string Two-letter abbreviation (e.g. "PA"), or the original string if not found
+ */
+function tigon_dms_state_abbreviation($state_name) {
+    static $map = [
+        'Alabama'=>'AL','Alaska'=>'AK','Arizona'=>'AZ','Arkansas'=>'AR','California'=>'CA',
+        'Colorado'=>'CO','Connecticut'=>'CT','Delaware'=>'DE','Florida'=>'FL','Georgia'=>'GA',
+        'Hawaii'=>'HI','Idaho'=>'ID','Illinois'=>'IL','Indiana'=>'IN','Iowa'=>'IA',
+        'Kansas'=>'KS','Kentucky'=>'KY','Louisiana'=>'LA','Maine'=>'ME','Maryland'=>'MD',
+        'Massachusetts'=>'MA','Michigan'=>'MI','Minnesota'=>'MN','Mississippi'=>'MS','Missouri'=>'MO',
+        'Montana'=>'MT','Nebraska'=>'NE','Nevada'=>'NV','New Hampshire'=>'NH','New Jersey'=>'NJ',
+        'New Mexico'=>'NM','New York'=>'NY','North Carolina'=>'NC','North Dakota'=>'ND','Ohio'=>'OH',
+        'Oklahoma'=>'OK','Oregon'=>'OR','Pennsylvania'=>'PA','Rhode Island'=>'RI','South Carolina'=>'SC',
+        'South Dakota'=>'SD','Tennessee'=>'TN','Texas'=>'TX','Utah'=>'UT','Vermont'=>'VT',
+        'Virginia'=>'VA','Washington'=>'WA','West Virginia'=>'WV','Wisconsin'=>'WI','Wyoming'=>'WY',
+        'District of Columbia'=>'DC',
+    ];
+    $name = trim($state_name);
+    if (strlen($name) === 2) {
+        return strtoupper($name);
+    }
+    return $map[ucwords(strtolower($name))] ?? $name;
+}
+
+/**
+ * Apply user-configured field mappings from the admin Field Mapping page
+ * to a product after all built-in mappings have been set.
+ *
+ * @param int   $product_id  WooCommerce product ID.
+ * @param array $cart_data   Full DMS cart payload.
+ */
+function tigon_dms_apply_custom_mappings($product_id, array $cart_data) {
+    if (!class_exists('\Tigon\DmsConnect\Admin\Field_Mapping')) {
+        return;
+    }
+
+    $resolved = \Tigon\DmsConnect\Admin\Field_Mapping::apply($cart_data);
+
+    // Apply postmeta overrides
+    foreach ($resolved['postmeta'] as $key => $value) {
+        update_post_meta($product_id, $key, $value);
+    }
+
+    // Apply post field overrides
+    if (!empty($resolved['post'])) {
+        $update = ['ID' => $product_id];
+        foreach ($resolved['post'] as $field => $value) {
+            $update[$field] = $value;
+        }
+        wp_update_post($update);
+    }
+
+    // Apply taxonomy term assignments
+    foreach ($resolved['taxonomy'] as $taxonomy => $term_names) {
+        $term_ids = [];
+        foreach ($term_names as $term_name) {
+            $term = get_term_by('name', $term_name, $taxonomy);
+            if (!$term) {
+                $term = get_term_by('slug', sanitize_title($term_name), $taxonomy);
+            }
+            if ($term && !is_wp_error($term)) {
+                $term_ids[] = $term->term_id;
+            }
+        }
+        if (!empty($term_ids)) {
+            wp_set_object_terms($product_id, $term_ids, $taxonomy, true);
+        }
+    }
+}
+
+/**
  * Build a flat variable map for template substitution from DMS cart data.
  *
  * @param array $cart_data
@@ -196,8 +269,7 @@ function tigon_dms_build_template_variables_from_cart(array $cart_data) {
         $location_data = DMS_API::get_city_and_state_by_store_id($store_id);
         $city  = $location_data['city'] ?? '';
         $state = $location_data['state'] ?? '';
-        // No abbreviation from API at present; use full state name
-        $stateAbbr = $state;
+        $stateAbbr = tigon_dms_state_abbreviation($state);
     }
 
     $vars = [
@@ -606,8 +678,11 @@ function tigon_dms_get_product_by_cart_id($cart_id) {
 function tigon_dms_create_woo_product($cart_id, $title, $price, $cart_data, $specs = array(), $images = array(), $warranty = array()) {
     // Normalize title for consistency (e.g., "In" → "-")
     $normalized_title = tigon_dms_normalize_title($title);
-    
-    // Create product post
+
+    // Build template variables from cart data for slug generation
+    $templates = tigon_dms_get_schema_templates();
+    $vars      = tigon_dms_build_template_variables_from_cart($cart_data);
+
     // Use slug schema template when available, otherwise derive from title
     $slug_tpl = isset($templates['schema_slug']) && $templates['schema_slug'] !== ''
         ? $templates['schema_slug']
@@ -926,6 +1001,9 @@ function tigon_dms_create_woo_product($cart_id, $title, $price, $cart_data, $spe
     update_post_meta($product_id, '_wc_pinterest_condition', $condition);
     update_post_meta($product_id, '_wc_pinterest_google_product_category', 'Vehicles & Parts > Vehicles > Motor Vehicles > Golf Carts');
 
+    // Apply user-configured field mappings (overrides from admin Field Mapping page)
+    tigon_dms_apply_custom_mappings($product_id, $cart_data);
+
     return $product_id;
 }
 
@@ -1222,6 +1300,9 @@ function tigon_dms_update_woo_product($product_id, $title, $price, $cart_data, $
     update_post_meta($product_id, 'fb_visibility', 'yes');
     update_post_meta($product_id, '_wc_pinterest_condition', $condition);
     update_post_meta($product_id, '_wc_pinterest_google_product_category', 'Vehicles & Parts > Vehicles > Motor Vehicles > Golf Carts');
+
+    // Apply user-configured field mappings (overrides from admin Field Mapping page)
+    tigon_dms_apply_custom_mappings($product_id, $cart_data);
 
     return $product_id;
 }
@@ -2552,208 +2633,7 @@ function tigon_dms_reschedule_sync()
     tigon_dms_schedule_sync();
 }
 
-/**
- * Add admin menu for inventory sync
- */
-function tigon_dms_add_sync_menu()
-{
-    add_submenu_page(
-        'tigon-dms-connect',
-        'DMS Inventory Sync',
-        'Sync',
-        'manage_options',
-        'dms-inventory-sync',
-        'tigon_dms_sync_page'
-    );
-}
-add_action('admin_menu', 'tigon_dms_add_sync_menu');
-
-/**
- * Render sync admin page
- */
-function tigon_dms_sync_page()
-{
-    if (!current_user_can('manage_woocommerce')) {
-        wp_die('Unauthorized access');
-    }
-    
-    $sync_running = false;
-    $sync_results = null;
-    $sync_interval = DMS_Sync::get_sync_interval();
-    
-    // Handle manual sync request
-    if (isset($_POST['dms_manual_sync']) && check_admin_referer('dms_manual_sync', 'dms_sync_nonce')) {
-        $sync_running = true;
-        
-        // Run sync
-        if (class_exists('DMS_Sync')) {
-            $sync_results = DMS_Sync::sync_inventory();
-        } else {
-            $sync_results = array(
-                'success' => false,
-                'message' => 'DMS_Sync class not found',
-            );
-        }
-    }
-    
-    // Handle interval update
-    if (isset($_POST['dms_update_interval']) && check_admin_referer('dms_update_interval', 'dms_interval_nonce')) {
-        $new_interval = isset($_POST['sync_interval']) ? (int) $_POST['sync_interval'] : 6;
-        $new_interval = max(1, min(168, $new_interval)); // Clamp between 1-168 hours (1 week)
-        
-        DMS_Sync::set_sync_interval($new_interval);
-        tigon_dms_reschedule_sync();
-        
-        $sync_interval = $new_interval;
-        
-        echo '<div class="notice notice-success is-dismissible"><p>';
-        echo esc_html__('Sync interval updated successfully.', 'tigon-dms-connect');
-        echo '</p></div>';
-    }
-    
-    // Get next scheduled sync time
-    $next_sync = wp_next_scheduled('tigon_dms_sync_inventory');
-    
-    ?>
-    <div class="wrap">
-        <h1><?php echo esc_html__('DMS Inventory Sync', 'tigon-dms-connect'); ?></h1>
-        
-        <div class="card" style="max-width: 800px;">
-            <h2><?php echo esc_html__('Manual Sync', 'tigon-dms-connect'); ?></h2>
-            <p><?php echo esc_html__('Manually trigger a full inventory sync from the DMS API. This may take several minutes depending on the number of carts.', 'tigon-dms-connect'); ?></p>
-            
-            <form method="post" action="">
-                <?php wp_nonce_field('dms_manual_sync', 'dms_sync_nonce'); ?>
-                <p>
-                    <button type="submit" name="dms_manual_sync" class="button button-primary button-large">
-                        <?php echo esc_html__('Sync Inventory Now', 'tigon-dms-connect'); ?>
-                    </button>
-                </p>
-            </form>
-            
-            <?php if ($sync_running && $sync_results): ?>
-                <?php if ($sync_results['success']): ?>
-                    <?php $stats = $sync_results['stats']; ?>
-                    <div class="notice notice-success" style="margin-top: 15px;">
-                        <h3><?php echo esc_html__('Sync Completed', 'tigon-dms-connect'); ?></h3>
-                        <ul>
-                            <li><strong><?php echo esc_html__('Total carts processed:', 'tigon-dms-connect'); ?></strong> <?php echo esc_html($stats['total']); ?></li>
-                            <li><strong><?php echo esc_html__('Products created:', 'tigon-dms-connect'); ?></strong> <?php echo esc_html($stats['created']); ?></li>
-                            <li><strong><?php echo esc_html__('Products updated:', 'tigon-dms-connect'); ?></strong> <?php echo esc_html($stats['updated']); ?></li>
-                            <li><strong><?php echo esc_html__('Skipped:', 'tigon-dms-connect'); ?></strong> <?php echo esc_html($stats['skipped']); ?></li>
-                            <li><strong><?php echo esc_html__('Errors:', 'tigon-dms-connect'); ?></strong> <?php echo esc_html($stats['errors']); ?></li>
-                        </ul>
-                    </div>
-                <?php else: ?>
-                    <div class="notice notice-error" style="margin-top: 15px;">
-                        <p><strong><?php echo esc_html__('Sync Failed:', 'tigon-dms-connect'); ?></strong> <?php echo esc_html($sync_results['message'] ?? 'Unknown error'); ?></p>
-                    </div>
-                <?php endif; ?>
-            <?php endif; ?>
-        </div>
-        
-        <div class="card" style="max-width: 800px; margin-top: 20px;">
-            <h2><?php echo esc_html__('Scheduled Sync', 'tigon-dms-connect'); ?></h2>
-            
-            <form method="post" action="">
-                <?php wp_nonce_field('dms_update_interval', 'dms_interval_nonce'); ?>
-                <table class="form-table">
-                    <tr>
-                        <th scope="row">
-                            <label for="sync_interval"><?php echo esc_html__('Sync Interval (hours)', 'tigon-dms-connect'); ?></label>
-                        </th>
-                        <td>
-                            <input type="number" id="sync_interval" name="sync_interval" value="<?php echo esc_attr($sync_interval); ?>" min="1" max="168" step="1" class="small-text">
-                            <p class="description"><?php echo esc_html__('How often to automatically sync inventory (1-168 hours).', 'tigon-dms-connect'); ?></p>
-                        </td>
-                    </tr>
-                    <?php if ($next_sync): ?>
-                    <tr>
-                        <th scope="row"><?php echo esc_html__('Next Scheduled Sync', 'tigon-dms-connect'); ?></th>
-                        <td>
-                            <p><?php echo esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $next_sync)); ?></p>
-                        </td>
-                    </tr>
-                    <?php endif; ?>
-                </table>
-                <p>
-                    <button type="submit" name="dms_update_interval" class="button button-primary">
-                        <?php echo esc_html__('Update Interval', 'tigon-dms-connect'); ?>
-                    </button>
-                </p>
-            </form>
-        </div>
-        <div class="card" style="max-width: 800px; margin-top: 20px;">
-            <h2><?php echo esc_html__('Sync Mapped Inventory (DMS Connect)', 'tigon-dms-connect'); ?></h2>
-            <p><?php echo esc_html__('Re-sync all DMS carts using the DMS Connect mapping engine. This updates existing WooCommerce products with the latest DMS data using mapped database objects (attributes, taxonomies, images, SEO, etc).', 'tigon-dms-connect'); ?></p>
-
-            <p>
-                <button type="button" id="dms-mapped-sync-btn" class="button button-primary button-large">
-                    <?php echo esc_html__('Sync Mapped Inventory Now', 'tigon-dms-connect'); ?>
-                </button>
-                <span id="dms-mapped-sync-spinner" class="spinner" style="float:none; margin-top:0;"></span>
-            </p>
-
-            <div id="dms-mapped-sync-results" style="display:none; margin-top: 15px;"></div>
-        </div>
-
-        <script>
-        jQuery(document).ready(function($) {
-            $('#dms-mapped-sync-btn').on('click', function() {
-                var $btn = $(this);
-                var $spinner = $('#dms-mapped-sync-spinner');
-                var $results = $('#dms-mapped-sync-results');
-
-                $btn.prop('disabled', true).text('<?php echo esc_js(__('Syncing...', 'tigon-dms-connect')); ?>');
-                $spinner.addClass('is-active');
-                $results.hide();
-
-                $.ajax({
-                    url: ajaxurl,
-                    type: 'POST',
-                    data: {
-                        action: 'tigon_dms_sync_mapped',
-                        nonce: '<?php echo wp_create_nonce('tigon_dms_sync_mapped_nonce'); ?>'
-                    },
-                    timeout: 600000,
-                    success: function(response) {
-                        $spinner.removeClass('is-active');
-                        $btn.prop('disabled', false).text('<?php echo esc_js(__('Sync Mapped Inventory Now', 'tigon-dms-connect')); ?>');
-
-                        if (response.success && response.data) {
-                            var s = response.data;
-                            var html = '<div class="notice notice-success"><h3><?php echo esc_js(__('Mapped Sync Completed', 'tigon-dms-connect')); ?></h3><ul>';
-                            html += '<li><strong>Total carts processed:</strong> ' + s.total + '</li>';
-                            html += '<li><strong>Updated:</strong> ' + s.updated + '</li>';
-                            html += '<li><strong>Created:</strong> ' + s.created + '</li>';
-                            html += '<li><strong>Skipped:</strong> ' + s.skipped + '</li>';
-                            html += '<li><strong>Errors:</strong> ' + s.errors + '</li>';
-                            html += '</ul>';
-                            if (s.error_details && s.error_details.length > 0) {
-                                html += '<details><summary>Error details</summary><ul>';
-                                s.error_details.forEach(function(e) {
-                                    html += '<li>' + $('<span>').text(e).html() + '</li>';
-                                });
-                                html += '</ul></details>';
-                            }
-                            html += '</div>';
-                            $results.html(html).show();
-                        } else {
-                            $results.html('<div class="notice notice-error"><p><strong>Sync failed:</strong> ' + (response.data || 'Unknown error') + '</p></div>').show();
-                        }
-                    },
-                    error: function(xhr, status, error) {
-                        $spinner.removeClass('is-active');
-                        $btn.prop('disabled', false).text('<?php echo esc_js(__('Sync Mapped Inventory Now', 'tigon-dms-connect')); ?>');
-                        $results.html('<div class="notice notice-error"><p><strong>Request failed:</strong> ' + error + '</p></div>').show();
-                    }
-                });
-            });
-        });
-        </script>
-    </div>
-    <?php
-}
+// Sync page is now in Admin_Page::sync_page()
 
 /**
  * Schedule sync on plugin activation

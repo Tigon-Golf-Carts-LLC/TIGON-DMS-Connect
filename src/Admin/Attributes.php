@@ -406,6 +406,92 @@ class Attributes
         return $options_list;
     }
 
+    /**
+     * Get location data by store ID with API fallback.
+     *
+     * If the store ID exists in the hardcoded $locations array, return that.
+     * Otherwise, call the /tigon-stores API to look up the store dynamically.
+     * This ensures new stores added to DMS still work even before the
+     * hardcoded list is updated.
+     *
+     * @param string $store_id Store ID (e.g., 'T1', 'T14')
+     * @return array|null Location data array or null if not found
+     */
+    public static function get_location(string $store_id): ?array
+    {
+        // Use hardcoded data if available (has WordPress term IDs)
+        if (isset(self::$locations[$store_id])) {
+            return self::$locations[$store_id];
+        }
+
+        // Fallback: look up from API via DMS_API class
+        if (!class_exists('DMS_API')) {
+            return null;
+        }
+
+        $stores = \DMS_API::get_stores();
+        if (empty($stores) || !is_array($stores)) {
+            return null;
+        }
+
+        foreach ($stores as $store) {
+            if (!isset($store['storeId']) || $store['storeId'] !== $store_id) {
+                continue;
+            }
+
+            $address = $store['address'] ?? [];
+            $state_full = $address['state'] ?? '';
+
+            // Build a location array compatible with the hardcoded format
+            $location = [
+                'address' => $address['address'] ?? '',
+                'city'    => $address['city'] ?? $store_id,
+                'state'   => $state_full,
+                'st'      => self::abbreviate_state($state_full),
+                'zip'     => $address['zip'] ?? '',
+                'phone'   => $store['storePhoneNumber'] ?? '1-844-844-6638',
+                'url'     => '',
+                // These won't exist for API-sourced stores; callers should handle null
+                'city_id'  => null,
+                'state_id' => null,
+            ];
+
+            // Cache it in the static array so subsequent calls don't re-fetch
+            self::$locations[$store_id] = $location;
+
+            return $location;
+        }
+
+        return null;
+    }
+
+    /**
+     * Convert a full state name to its two-letter abbreviation.
+     *
+     * @param string $state Full state name (e.g., 'Pennsylvania')
+     * @return string Two-letter abbreviation (e.g., 'PA') or first 2 chars as fallback
+     */
+    private static function abbreviate_state(string $state): string
+    {
+        static $map = [
+            'Alabama' => 'AL', 'Alaska' => 'AK', 'Arizona' => 'AZ', 'Arkansas' => 'AR',
+            'California' => 'CA', 'Colorado' => 'CO', 'Connecticut' => 'CT', 'Delaware' => 'DE',
+            'Florida' => 'FL', 'Georgia' => 'GA', 'Hawaii' => 'HI', 'Idaho' => 'ID',
+            'Illinois' => 'IL', 'Indiana' => 'IN', 'Iowa' => 'IA', 'Kansas' => 'KS',
+            'Kentucky' => 'KY', 'Louisiana' => 'LA', 'Maine' => 'ME', 'Maryland' => 'MD',
+            'Massachusetts' => 'MA', 'Michigan' => 'MI', 'Minnesota' => 'MN', 'Mississippi' => 'MS',
+            'Missouri' => 'MO', 'Montana' => 'MT', 'Nebraska' => 'NE', 'Nevada' => 'NV',
+            'New Hampshire' => 'NH', 'New Jersey' => 'NJ', 'New Mexico' => 'NM', 'New York' => 'NY',
+            'North Carolina' => 'NC', 'North Dakota' => 'ND', 'Ohio' => 'OH', 'Oklahoma' => 'OK',
+            'Oregon' => 'OR', 'Pennsylvania' => 'PA', 'Rhode Island' => 'RI', 'South Carolina' => 'SC',
+            'South Dakota' => 'SD', 'Tennessee' => 'TN', 'Texas' => 'TX', 'Utah' => 'UT',
+            'Vermont' => 'VT', 'Virginia' => 'VA', 'Washington' => 'WA', 'West Virginia' => 'WV',
+            'Wisconsin' => 'WI', 'Wyoming' => 'WY',
+        ];
+
+        return $map[$state] ?? strtoupper(substr($state, 0, 2));
+    }
+
     private static function categories_sanitize(string $response) {
         $bom = pack('H*','EFBBBF');
         
