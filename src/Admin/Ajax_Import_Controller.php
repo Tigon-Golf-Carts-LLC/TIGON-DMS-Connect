@@ -73,9 +73,6 @@ abstract class Ajax_Import_Controller extends \Tigon\DmsConnect\Abstracts\Abstra
                         wp_delete_post($i, true);
                     }
 
-                    $monroney_url = explode('"', get_post_meta($a_array['pid'])['monroney_sticker'][0])[1];
-                    $monroney = attachment_url_to_postid($monroney_url);
-                    wp_delete_post($monroney, true);
                 } else $a_array['pid'] = null;
             }
 
@@ -309,6 +306,106 @@ abstract class Ajax_Import_Controller extends \Tigon\DmsConnect\Abstracts\Abstra
             header("Location: " . $_SERVER["HTTP_REFERER"]);
         }
 
+        exit;
+    }
+
+    private static function product_is_static(int $pid): bool
+    {
+        if (!$pid) return false;
+
+        $post = get_post($pid);
+        if ($post && $post->post_type === 'static') return true;
+
+        $terms = get_the_terms($pid, 'added-features') ?: [];
+        foreach ($terms as $term) {
+            if (in_array(strtoupper($term->name), ['STATIC STOCK', 'STATIC INVENTORY'])) return true;
+        }
+
+        return false;
+    }
+
+    private static function import_used_cart(array $cart)
+    {
+        $used_cart = new \Tigon\DmsConnect\Admin\Used\Cart($cart);
+        $converted = $used_cart->convert();
+        if (is_wp_error($converted)) return $converted;
+
+        if ($converted->get_value('method') == 'create') {
+            $result = Database_Write_Controller::create_from_database_object($converted);
+        } else if ($converted->get_value('method') == 'update') {
+            $result = Database_Write_Controller::update_from_database_object($converted);
+        } else {
+            $result = Database_Write_Controller::delete_by_id($converted);
+        }
+        if (is_wp_error($result)) return $result;
+
+        if (!empty($result['pid']) && !empty($cart['cartLocation']['locationId'])) {
+            self::apply_location_meta((int)$result['pid'], $cart['cartLocation']['locationId']);
+        }
+
+        return $result;
+    }
+
+    private static function run_inventory_refresh(bool $create_missing = true): array
+    {
+        $stats = ['new' => 0, 'used' => 0, 'created' => 0, 'updated' => 0, 'skipped_static' => 0, 'skipped_missing' => 0, 'errors' => 0];
+        $new_carts = json_decode(\Tigon\DmsConnect\Includes\DMS_Connector::request('{"isUsed":false,"needOnWebsite":true,"isInStock":true,"isInBoneyard":false}', '/chimera/lookup', 'POST'), true) ?? [];
+        $used_carts = json_decode(\Tigon\DmsConnect\Includes\DMS_Connector::request('{"isUsed":true,"needOnWebsite":true,"isInStock":true,"isInBoneyard":false}', '/chimera/lookup', 'POST'), true) ?? [];
+
+        foreach ($new_carts as $cart) {
+            $stats['new']++;
+            $pid = intval($cart['pid'] ?? 0);
+            if ($pid && self::product_is_static($pid)) {
+                $stats['skipped_static']++;
+                continue;
+            }
+            if (!$create_missing && !$pid) {
+                $stats['skipped_missing']++;
+                continue;
+            }
+            $result = self::import_new($cart);
+            if (is_wp_error($result)) {
+                $stats['errors']++;
+                continue;
+            }
+            if ($pid) $stats['updated']++; else $stats['created']++;
+        }
+
+        foreach ($used_carts as $cart) {
+            $stats['used']++;
+            $sku = $cart['vinNo'] ?: $cart['serialNo'];
+            $pid = intval(wc_get_product_id_by_sku($sku));
+            if ($pid && self::product_is_static($pid)) {
+                $stats['skipped_static']++;
+                continue;
+            }
+            if (!$create_missing && !$pid) {
+                $stats['skipped_missing']++;
+                continue;
+            }
+            $cart['pid'] = $pid;
+            $result = self::import_used_cart($cart);
+            if (is_wp_error($result)) {
+                $stats['errors']++;
+                continue;
+            }
+            if ($pid) $stats['updated']++; else $stats['created']++;
+        }
+
+        return $stats;
+    }
+
+    public static function refresh_active_inventory()
+    {
+        header("Content-Type: application/json; charset=utf-8", true);
+        echo json_encode(['success' => true, 'stats' => self::run_inventory_refresh(false)]);
+        exit;
+    }
+
+    public static function repull_dms_inventory()
+    {
+        header("Content-Type: application/json; charset=utf-8", true);
+        echo json_encode(['success' => true, 'stats' => self::run_inventory_refresh(true)]);
         exit;
     }
 }

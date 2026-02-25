@@ -11,6 +11,21 @@ use WP_Error;
 
 abstract class Abstract_Import_Controller
 {
+    protected static function apply_location_meta(int $pid, string $location_id): void
+    {
+        $location = \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id] ?? null;
+        if (!$location) {
+            return;
+        }
+
+        update_post_meta($pid, '_tigon_location_id', $location_id);
+        update_post_meta($pid, '_tigon_location_address', $location['address'] ?? '');
+        update_post_meta($pid, '_tigon_location_phone', $location['phone'] ?? '');
+        update_post_meta($pid, '_tigon_location_google_cid', $location['google_cid'] ?? '');
+        update_post_meta($pid, '_tigon_location_facebook_url', $location['facebook_url'] ?? '');
+        update_post_meta($pid, '_tigon_location_youtube_url', $location['youtube_url'] ?? '');
+    }
+
     private function __construct()
     {
     }
@@ -83,16 +98,11 @@ abstract class Abstract_Import_Controller
 
         $converted_cart = $new_cart->convert(SKU ^ PRICE ^ SALE_PRICE ^ IN_STOCK ^ MONRONEY_STICKER);
 
-        // Get old monroney ID
-        $monroney_url = explode('"', get_post_meta($data['pid'])['monroney_sticker'][0])[1];
-        $monroney = attachment_url_to_postid($monroney_url);
-        
         $result = Database_Write_Controller::update_from_database_object($converted_cart);
 
         if (is_wp_error($result)) {
             return $result;
         } else {
-            wp_delete_post($monroney, false);
             return new \WP_REST_Response($result, 200);
         }
     }
@@ -145,16 +155,15 @@ abstract class Abstract_Import_Controller
         }
 
         // Generate possible slugs
-        $location_id = $data['cartLocation']['locationId'];
-        $city = \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id]['city_short'] ??
-            \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id]['city'];
+        $location_id = \Tigon\DmsConnect\Admin\Attributes::resolve_location_id($data['cartLocation'] ?? []);
+        $location_data = \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id] ?? [];
+        $city = $location_data['city_short'] ?? ($location_data['city'] ?? 'National');
 
         $make = preg_replace('/\s+/', '-', trim(preg_replace('/\+/', ' plus ', $data['cartType']['make'])));
         $model = preg_replace('/\s+/', '-', trim(preg_replace('/\+/', ' plus ', $data['cartType']['model'])));
         $color = preg_replace('/\s+/', '-', $data['cartAttributes']['cartColor']);
         $seat = preg_replace('/\s+/', '-', $data['cartAttributes']['seatColor']);
-        $location = preg_replace('/\s+/', '-', $city . "-"
-            . \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id]['st']);
+        $location = preg_replace('/\s+/', '-', $city . "-" . ($location_data['st'] ?? 'US'));
         $year = preg_replace('/\s+/', '-', $data['cartType']['year']);
 
         $base_slug = strtolower("$make-$model-$color-seat-$seat-$location");
@@ -446,7 +455,7 @@ abstract class Abstract_Import_Controller
             $new_carts = new \Tigon\DmsConnect\Admin\New\New_Cart_Converter();
 
             // Fill empty data with defaults if available
-            $cart_defaults = $new_carts->get_specific(preg_replace('/\+$/', ' Plus', $data['cartType']['model']));
+            $cart_defaults = $new_carts->get_specific_from_payload($data);
             if (is_wp_error($cart_defaults)) $cart_defaults = [];
 
             $cart = array_replace_recursive($cart_defaults, $data);
@@ -474,6 +483,10 @@ abstract class Abstract_Import_Controller
             $result = json_decode($result, true);
             $pid = $result['pid'];
         }
+        if ($pid && !empty($data['cartLocation']['locationId'])) {
+            self::apply_location_meta((int)$pid, $data['cartLocation']['locationId']);
+        }
+
         return ['pid' => $pid, 'oldPid' => $old_pid, 'updateUrl' => $update_url, 'dmsSelector' => $dms_selector];
     }
 

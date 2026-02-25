@@ -19,12 +19,14 @@ class Cart extends \Tigon\DmsConnect\Abstracts\Abstract_Cart
      */
     protected function verify_data()
     {
+        $resolved_location_id = Attributes::resolve_location_id($this->cart['cartLocation'] ?? []);
+
         $this->sku = strtoupper(
             preg_replace('/\s/', '', substr($this->cart['cartType']['make'], 0, 3)) .
             preg_replace('/\s/', '', substr($this->cart['cartType']['model'], 0, 3)) .
             preg_replace('/\s/', '', substr($this->cart['cartAttributes']['cartColor'], 0, 3)) .
             preg_replace('/\s/', '', substr($this->cart['cartAttributes']['seatColor'], 0, 3)) .
-            preg_replace('/\s/', '', substr(Attributes::$locations[$this->cart['cartLocation']['locationId']]['city'], 0, 3))
+            preg_replace('/\s/', '', substr(Attributes::$locations[$resolved_location_id]['city'], 0, 3))
         );
         if ($this->cart['isInStock'] && !$this->cart['isInBoneyard']) {
             if ($this->cart['serialNo']) {

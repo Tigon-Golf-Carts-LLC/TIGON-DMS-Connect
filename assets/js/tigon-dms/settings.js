@@ -52,11 +52,34 @@ jQuery(document).ready(() => {
 
     jQuery(".tigon_dms_save").click(e => {
         jQuery(".tigon_dms_action button").prop('disabled', true);
+
+        const locations = {};
+        jQuery('#location-mapping-rows .location-row').each((_, row) => {
+            const code = jQuery(row).data('location-code');
+            const item = {};
+            let hasValue = false;
+
+            jQuery(row).find('.loc-field').each((__, input) => {
+                const key = jQuery(input).data('key');
+                const value = (jQuery(input).val() || '').toString().trim();
+                if (value !== '') {
+                    item[key] = value;
+                    hasValue = true;
+                }
+            });
+
+            if (hasValue) {
+                locations[code] = item;
+            }
+        });
+        jQuery('#txt-locations-json').val(JSON.stringify(locations));
+
         var settings = {
             "github_token": jQuery("#txt-github-token").val(),
             "dms_url": jQuery("#txt-url").val(),
             "user_token": jQuery("#txt-api-key").val(),
-            "file_source": jQuery("#txt-file-source").val()
+            "file_source": jQuery("#txt-file-source").val(),
+            "locations_json": jQuery("#txt-locations-json").val()
         }
 
         jQuery.ajax({
@@ -102,4 +125,20 @@ jQuery(document).ready(() => {
 
         history.replaceState(undefined, '', "#schema")
     });
+
+    const runOperation = (action) => {
+        jQuery("#ops-result").text("Running...");
+        jQuery.ajax({
+            dataType: 'json',
+            url: global.ajaxurl,
+            data: { action }
+        }).then((response) => {
+            jQuery("#ops-result").text(JSON.stringify(response.stats || response));
+        }).catch((err) => {
+            jQuery("#ops-result").text(`Error: ${err.statusText || 'Unknown error'}`);
+        });
+    };
+
+    jQuery("#btn-refresh-active").click(() => runOperation('tigon_dms_refresh_active_inventory'));
+    jQuery("#btn-repull-dms").click(() => runOperation('tigon_dms_repull_dms_inventory'));
 });

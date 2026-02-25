@@ -1,12 +1,9 @@
 <?php
+
 /**
- * Plugin Name: DMS Bridge Plugin
- * Description: Tigon DMS Connect — fetches, imports, maps and displays golf carts from the DMS into WooCommerce.
- * Version: 2.0.0
- * Author: Tigon Golf Carts
- * Author URI: https://tigongolfcarts.com/
- * Text Domain: tigon-dms-connect
- * Requires Plugins: woocommerce
+ * TIGON DMS Connect bootstrap implementation.
+ *
+ * This file is loaded by tigon-dms-connect.php, which contains the plugin header.
  */
 
 if (!defined('ABSPATH')) {
@@ -16,9 +13,10 @@ if (!defined('ABSPATH')) {
 /**
  * Plugin constants
  */
-define('TIGON_DMS_VERSION', '2.0.0');
-define('TIGON_DMS_PLUGIN_DIR', plugin_dir_path(__FILE__));
-define('TIGON_DMS_PLUGIN_URL', plugin_dir_url(__FILE__));
+define('TIGON_DMS_VERSION', '2.0.1');
+define('TIGON_DMS_MAIN_FILE', defined('TIGON_DMS_MAIN_FILE') ? TIGON_DMS_MAIN_FILE : __FILE__);
+define('TIGON_DMS_PLUGIN_DIR', plugin_dir_path(TIGON_DMS_MAIN_FILE));
+define('TIGON_DMS_PLUGIN_URL', plugin_dir_url(TIGON_DMS_MAIN_FILE));
 
 /**
  * Configuration: Set to false to show carts WITH default homepage content
@@ -1206,7 +1204,7 @@ function tigon_dms_activation() {
     // Create DMS Connect database tables (config + cart lists)
     \Tigon\DmsConnect\Core::install();
 }
-register_activation_hook(__FILE__, 'tigon_dms_activation');
+register_activation_hook(TIGON_DMS_MAIN_FILE, 'tigon_dms_activation');
 
 /**
  * Flush rewrite rules on deactivation
@@ -1214,7 +1212,7 @@ register_activation_hook(__FILE__, 'tigon_dms_activation');
 function tigon_dms_deactivation() {
     flush_rewrite_rules();
 }
-register_deactivation_hook(__FILE__, 'tigon_dms_deactivation');
+register_deactivation_hook(TIGON_DMS_MAIN_FILE, 'tigon_dms_deactivation');
 
 /**
  * ============================================================================
@@ -2157,7 +2155,7 @@ function tigon_dms_reschedule_sync()
 function tigon_dms_add_sync_menu()
 {
     add_submenu_page(
-        'woocommerce',
+        'tigon-dms-connect',
         'DMS Inventory Sync',
         'DMS Sync',
         'manage_woocommerce',
@@ -2166,6 +2164,11 @@ function tigon_dms_add_sync_menu()
     );
 }
 add_action('admin_menu', 'tigon_dms_add_sync_menu');
+
+/**
+ * AJAX alias for mapped inventory sync using DMS Connect mapping engine
+ */
+add_action('wp_ajax_tigon_dms_sync_mapped_inventory', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::repull_dms_inventory');
 
 /**
  * Render sync admin page
@@ -2212,6 +2215,7 @@ function tigon_dms_sync_page()
     
     // Get next scheduled sync time
     $next_sync = wp_next_scheduled('tigon_dms_sync_inventory');
+    $mapped_sync_nonce = wp_create_nonce('tigon_dms_mapped_sync_nonce');
     
     ?>
     <div class="wrap">
@@ -2282,7 +2286,67 @@ function tigon_dms_sync_page()
                 </p>
             </form>
         </div>
+
+        <div class="card" style="max-width: 800px; margin-top: 20px;">
+            <h2><?php echo esc_html__('Sync Mapped Inventory (DMS Connect)', 'tigon-dms-connect'); ?></h2>
+            <p><?php echo esc_html__('Re-sync all DMS carts using the DMS Connect mapping engine. This updates existing WooCommerce products with the latest DMS data using mapped database objects (attributes, taxonomies, images, SEO, etc).', 'tigon-dms-connect'); ?></p>
+
+            <p>
+                <button type="button" id="tigon-dms-sync-mapped-btn" class="button button-primary button-large">
+                    <?php echo esc_html__('Sync Mapped Inventory Now', 'tigon-dms-connect'); ?>
+                </button>
+            </p>
+
+            <div id="tigon-dms-sync-mapped-result" style="display:none;"></div>
+        </div>
     </div>
+    <script>
+        (function () {
+            const button = document.getElementById('tigon-dms-sync-mapped-btn');
+            const result = document.getElementById('tigon-dms-sync-mapped-result');
+            if (!button || !result) return;
+
+            button.addEventListener('click', async function () {
+                button.disabled = true;
+                const originalText = button.textContent;
+                button.textContent = 'Syncing...';
+                result.style.display = 'none';
+
+                try {
+                    const response = await fetch(ajaxurl + '?action=tigon_dms_sync_mapped_inventory&nonce=<?php echo esc_js($mapped_sync_nonce); ?>', {
+                        method: 'POST',
+                        credentials: 'same-origin'
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status);
+                    }
+
+                    const payload = await response.json();
+                    const stats = payload.stats || {};
+                    const lines = [
+                        'New carts checked: ' + (stats.new ?? 0),
+                        'Used carts checked: ' + (stats.used ?? 0),
+                        'Created: ' + (stats.created ?? 0),
+                        'Updated: ' + (stats.updated ?? 0),
+                        'Skipped static: ' + (stats.skipped_static ?? 0),
+                        'Skipped missing: ' + (stats.skipped_missing ?? 0),
+                        'Errors: ' + (stats.errors ?? 0)
+                    ];
+
+                    result.className = 'notice notice-success';
+                    result.innerHTML = '<p><strong>Mapped sync completed.</strong><br>' + lines.join('<br>') + '</p>';
+                } catch (error) {
+                    result.className = 'notice notice-error';
+                    result.innerHTML = '<p><strong>Request failed:</strong> ' + (error.message || 'Unknown error') + '</p>';
+                } finally {
+                    result.style.display = 'block';
+                    button.disabled = false;
+                    button.textContent = originalText;
+                }
+            });
+        })();
+    </script>
     <?php
 }
 
@@ -2293,7 +2357,7 @@ function tigon_dms_activation_sync()
 {
     tigon_dms_schedule_sync();
 }
-register_activation_hook(__FILE__, 'tigon_dms_activation_sync');
+register_activation_hook(TIGON_DMS_MAIN_FILE, 'tigon_dms_activation_sync');
 
 /**
  * Clear sync schedule on plugin deactivation
@@ -2302,7 +2366,7 @@ function tigon_dms_deactivation_sync()
 {
     wp_clear_scheduled_hook('tigon_dms_sync_inventory');
 }
-register_deactivation_hook(__FILE__, 'tigon_dms_deactivation_sync');
+register_deactivation_hook(TIGON_DMS_MAIN_FILE, 'tigon_dms_deactivation_sync');
 
 /**
  * ============================================================================
