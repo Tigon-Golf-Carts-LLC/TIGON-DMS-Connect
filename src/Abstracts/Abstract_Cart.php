@@ -1582,30 +1582,30 @@ abstract class Abstract_Cart
                         array_push($tab_names, "EVolution Classic 4 Plus Images");
                         array_push($tab_names, "EVolution Classic 4 Plus Specs");
                         break;
-                    case 'EVOLUTION D5-MAVERICK 2+2':
+                    case 'D5 MAVERICK 2+2':
                         array_push($tab_names, 'EVolution D5-Maverick 2+2');
                         array_push($tab_names, 'EVolution D5-Maverick 2+2 Images');
                         break;
-                    case 'EVOLUTION D5-MAVERICK 2+2 PLUS':
+                    case 'D5 MAVERICK 2+2 PLUS':
                         array_push($tab_names, 'EVolution D5-Maverick 2+2 Plus Images');
                         break;
-                    case 'EVOLUTION D5 RANGER 2+2':
+                    case 'D5 RANGER 2+2':
                         array_push($tab_names, 'EVOLUTION D5 RANGER 2+2 IMAGES');
                         array_push($tab_names, 'EVOLUTION D5 RANGER 2+2 SPECS');
                         break;
-                    case 'EVOLUTION D5 RANER 2+2':
-                        array_push($tab_names, 'EVOLUTION D5 RANER 2+2 PLUS');
+                    case 'D5 RANGER 2+2 PLUS':
+                        array_push($tab_names, 'EVOLUTION D5 RANGER 2+2 PLUS IMAGES');
                         array_push($tab_names, 'EVOLUTION D5 RANGER 2+2 PLUS SPECS');
                         break;
-                    case 'EVOLUTION D5 RANGER 4':
+                    case 'D5 RANGER 4':
                         array_push($tab_names, 'EVOLUTION D5 RANGER 4 IMAGES');
                         array_push($tab_names, 'EVOLUTION D5 RANGER 4 SPEC');
                         break;
-                    case 'EVOLUTION D5 RANGER 4 PLUS':
+                    case 'D5 RANGER 4 PLUS':
                         array_push($tab_names, 'EVOLUTION D5 RANGER 4 PLUS IMAGES');
                         array_push($tab_names, 'EVOLUTION D5 RANGER 4 PLUS SPECS');
                         break;
-                    case 'EVOLUTION D5 RANGER 6':
+                    case 'D5 RANGER 6':
                         array_push($tab_names, 'EVOLUTION D5 RANGER 6 IMAGES');
                         array_push($tab_names, 'EVOLUTION D5 RANGER 6 SPECS');
                         break;
