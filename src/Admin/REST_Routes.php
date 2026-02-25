@@ -147,7 +147,7 @@ class REST_Routes
             }
 
             if (is_wp_error($result)) {
-                return new \WP_Error(500, ['pid' => 0, 'error' => 'Deletion failure', $converted->get_value()]);
+                return new \WP_Error(500, ['pid' => 0, 'error' => 'Deletion failure']);
             }
 
             $result = json_decode($result, true);

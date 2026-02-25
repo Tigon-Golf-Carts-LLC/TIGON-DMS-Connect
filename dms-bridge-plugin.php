@@ -175,6 +175,79 @@ function tigon_dms_get_schema_templates() {
 }
 
 /**
+ * Convert a US state name to its two-letter abbreviation.
+ *
+ * @param string $state_name Full state name (e.g. "Pennsylvania")
+ * @return string Two-letter abbreviation (e.g. "PA"), or the original string if not found
+ */
+function tigon_dms_state_abbreviation($state_name) {
+    static $map = [
+        'Alabama'=>'AL','Alaska'=>'AK','Arizona'=>'AZ','Arkansas'=>'AR','California'=>'CA',
+        'Colorado'=>'CO','Connecticut'=>'CT','Delaware'=>'DE','Florida'=>'FL','Georgia'=>'GA',
+        'Hawaii'=>'HI','Idaho'=>'ID','Illinois'=>'IL','Indiana'=>'IN','Iowa'=>'IA',
+        'Kansas'=>'KS','Kentucky'=>'KY','Louisiana'=>'LA','Maine'=>'ME','Maryland'=>'MD',
+        'Massachusetts'=>'MA','Michigan'=>'MI','Minnesota'=>'MN','Mississippi'=>'MS','Missouri'=>'MO',
+        'Montana'=>'MT','Nebraska'=>'NE','Nevada'=>'NV','New Hampshire'=>'NH','New Jersey'=>'NJ',
+        'New Mexico'=>'NM','New York'=>'NY','North Carolina'=>'NC','North Dakota'=>'ND','Ohio'=>'OH',
+        'Oklahoma'=>'OK','Oregon'=>'OR','Pennsylvania'=>'PA','Rhode Island'=>'RI','South Carolina'=>'SC',
+        'South Dakota'=>'SD','Tennessee'=>'TN','Texas'=>'TX','Utah'=>'UT','Vermont'=>'VT',
+        'Virginia'=>'VA','Washington'=>'WA','West Virginia'=>'WV','Wisconsin'=>'WI','Wyoming'=>'WY',
+        'District of Columbia'=>'DC',
+    ];
+    $name = trim($state_name);
+    if (strlen($name) === 2) {
+        return strtoupper($name);
+    }
+    return $map[ucwords(strtolower($name))] ?? $name;
+}
+
+/**
+ * Apply user-configured field mappings from the admin Field Mapping page
+ * to a product after all built-in mappings have been set.
+ *
+ * @param int   $product_id  WooCommerce product ID.
+ * @param array $cart_data   Full DMS cart payload.
+ */
+function tigon_dms_apply_custom_mappings($product_id, array $cart_data) {
+    if (!class_exists('\Tigon\DmsConnect\Admin\Field_Mapping')) {
+        return;
+    }
+
+    $resolved = \Tigon\DmsConnect\Admin\Field_Mapping::apply($cart_data);
+
+    // Apply postmeta overrides
+    foreach ($resolved['postmeta'] as $key => $value) {
+        update_post_meta($product_id, $key, $value);
+    }
+
+    // Apply post field overrides
+    if (!empty($resolved['post'])) {
+        $update = ['ID' => $product_id];
+        foreach ($resolved['post'] as $field => $value) {
+            $update[$field] = $value;
+        }
+        wp_update_post($update);
+    }
+
+    // Apply taxonomy term assignments
+    foreach ($resolved['taxonomy'] as $taxonomy => $term_names) {
+        $term_ids = [];
+        foreach ($term_names as $term_name) {
+            $term = get_term_by('name', $term_name, $taxonomy);
+            if (!$term) {
+                $term = get_term_by('slug', sanitize_title($term_name), $taxonomy);
+            }
+            if ($term && !is_wp_error($term)) {
+                $term_ids[] = $term->term_id;
+            }
+        }
+        if (!empty($term_ids)) {
+            wp_set_object_terms($product_id, $term_ids, $taxonomy, true);
+        }
+    }
+}
+
+/**
  * Build a flat variable map for template substitution from DMS cart data.
  *
  * @param array $cart_data
@@ -196,8 +269,7 @@ function tigon_dms_build_template_variables_from_cart(array $cart_data) {
         $location_data = DMS_API::get_city_and_state_by_store_id($store_id);
         $city  = $location_data['city'] ?? '';
         $state = $location_data['state'] ?? '';
-        // No abbreviation from API at present; use full state name
-        $stateAbbr = $state;
+        $stateAbbr = tigon_dms_state_abbreviation($state);
     }
 
     $vars = [
@@ -606,8 +678,11 @@ function tigon_dms_get_product_by_cart_id($cart_id) {
 function tigon_dms_create_woo_product($cart_id, $title, $price, $cart_data, $specs = array(), $images = array(), $warranty = array()) {
     // Normalize title for consistency (e.g., "In" → "-")
     $normalized_title = tigon_dms_normalize_title($title);
-    
-    // Create product post
+
+    // Build template variables from cart data for slug generation
+    $templates = tigon_dms_get_schema_templates();
+    $vars      = tigon_dms_build_template_variables_from_cart($cart_data);
+
     // Use slug schema template when available, otherwise derive from title
     $slug_tpl = isset($templates['schema_slug']) && $templates['schema_slug'] !== ''
         ? $templates['schema_slug']
@@ -926,6 +1001,9 @@ function tigon_dms_create_woo_product($cart_id, $title, $price, $cart_data, $spe
     update_post_meta($product_id, '_wc_pinterest_condition', $condition);
     update_post_meta($product_id, '_wc_pinterest_google_product_category', 'Vehicles & Parts > Vehicles > Motor Vehicles > Golf Carts');
 
+    // Apply user-configured field mappings (overrides from admin Field Mapping page)
+    tigon_dms_apply_custom_mappings($product_id, $cart_data);
+
     return $product_id;
 }
 
@@ -1222,6 +1300,9 @@ function tigon_dms_update_woo_product($product_id, $title, $price, $cart_data, $
     update_post_meta($product_id, 'fb_visibility', 'yes');
     update_post_meta($product_id, '_wc_pinterest_condition', $condition);
     update_post_meta($product_id, '_wc_pinterest_google_product_category', 'Vehicles & Parts > Vehicles > Motor Vehicles > Golf Carts');
+
+    // Apply user-configured field mappings (overrides from admin Field Mapping page)
+    tigon_dms_apply_custom_mappings($product_id, $cart_data);
 
     return $product_id;
 }
