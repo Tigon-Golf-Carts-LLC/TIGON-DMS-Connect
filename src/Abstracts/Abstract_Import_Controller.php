@@ -385,24 +385,21 @@ abstract class Abstract_Import_Controller
             }
 
             // Check if the page currently contains a valid cart
-            $srl_exists = count(json_decode(\Tigon\DmsConnect\Includes\DMS_Connector::request(
-                '{
-                    "serialNo":"' . $post_sku . '",
-                    "isInBoneyard":false,
-                    "isInStock":true
-                }',
+            $srl_raw = \Tigon\DmsConnect\Includes\DMS_Connector::request(
+                '{"serialNo":"' . $post_sku . '","isInBoneyard":false,"isInStock":true}',
                 '/chimera/lookup',
                 'POST'
-            ))) > 0;
-            $vin_exists = count(json_decode(\Tigon\DmsConnect\Includes\DMS_Connector::request(
-                '{
-                    "vinNo":"' . $post_sku . '",
-                    "isInBoneyard":false,
-                    "isInStock":true
-                }',
+            );
+            $srl_decoded = $srl_raw ? json_decode($srl_raw, true) : [];
+            $srl_exists = is_array($srl_decoded) && count($srl_decoded) > 0;
+
+            $vin_raw = \Tigon\DmsConnect\Includes\DMS_Connector::request(
+                '{"vinNo":"' . $post_sku . '","isInBoneyard":false,"isInStock":true}',
                 '/chimera/lookup',
                 'POST'
-            ))) > 0;
+            );
+            $vin_decoded = $vin_raw ? json_decode($vin_raw, true) : [];
+            $vin_exists = is_array($vin_decoded) && count($vin_decoded) > 0;
 
             // If it is invalid, replace it
             if (($srl_exists || $vin_exists) === false || substr($post_sku, 0, 5) === 'TIGON') {
