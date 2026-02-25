@@ -192,7 +192,7 @@ class Core
             "rims"
         ];
 
-        $product_id = is_callable(array($object, 'get_id')) ? $object->get_id() : (!empty($$object->ID) ? $object->ID : null);
+        $product_id = is_callable(array($object, 'get_id')) ? $object->get_id() : (!empty($object->ID) ? $object->ID : null);
         $params = $request->get_params();
         foreach ($numeric_taxonomies as $taxonomy) {
             $terms = isset($params[$taxonomy]) ? $params[$taxonomy] : array();
