@@ -295,6 +295,7 @@ class Core
     ) $charset_collate;";
 
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        ob_start();
         dbDelta($sql);
 
         // Create cart lists table
@@ -307,6 +308,7 @@ class Core
     ) $charset_collate;";
 
         dbDelta($sql);
+        ob_end_clean();
 
         $github_token = $wpdb->get_var("SELECT option_name FROM $table_name WHERE option_name = 'github_token'");
         if($github_token === null) $wpdb->insert(
