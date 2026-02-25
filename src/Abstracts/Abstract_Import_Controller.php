@@ -98,16 +98,11 @@ abstract class Abstract_Import_Controller
 
         $converted_cart = $new_cart->convert(SKU ^ PRICE ^ SALE_PRICE ^ IN_STOCK ^ MONRONEY_STICKER);
 
-        // Get old monroney ID
-        $monroney_url = explode('"', get_post_meta($data['pid'])['monroney_sticker'][0])[1];
-        $monroney = attachment_url_to_postid($monroney_url);
-        
         $result = Database_Write_Controller::update_from_database_object($converted_cart);
 
         if (is_wp_error($result)) {
             return $result;
         } else {
-            wp_delete_post($monroney, false);
             return new \WP_REST_Response($result, 200);
         }
     }

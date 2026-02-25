@@ -73,9 +73,6 @@ abstract class Ajax_Import_Controller extends \Tigon\DmsConnect\Abstracts\Abstra
                         wp_delete_post($i, true);
                     }
 
-                    $monroney_url = explode('"', get_post_meta($a_array['pid'])['monroney_sticker'][0])[1];
-                    $monroney = attachment_url_to_postid($monroney_url);
-                    wp_delete_post($monroney, true);
                 } else $a_array['pid'] = null;
             }
 

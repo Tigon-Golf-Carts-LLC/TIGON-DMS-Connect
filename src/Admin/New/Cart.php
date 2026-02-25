@@ -98,7 +98,7 @@ class Cart extends \Tigon\DmsConnect\Abstracts\Abstract_Cart
         $this->published = 'draft';
         if (!$this->not_default) {
             $this->in_stock = 'outofstock';
-            $this->monroney_sticker = '[pdf-embedder url=""]';
+            $this->monroney_sticker = '';
         }
     }
 }

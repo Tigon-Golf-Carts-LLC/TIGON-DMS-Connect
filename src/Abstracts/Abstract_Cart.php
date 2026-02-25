@@ -559,60 +559,65 @@ abstract class Abstract_Cart
 
 
     /**
-     * Sideload and/or Initialize monroney_sticker
+     * Initialize monroney_sticker as an external image embed URL only.
+     *
+     * Monroney stickers should never be sideloaded into WordPress media.
      *
      * @return void
      */
     protected function fetch_monroney()
     {
-        add_filter('image_sideload_extensions', function ($accepted_extensions) {
-            $accepted_extensions[] = 'pdf';
-            return $accepted_extensions;
-        });
-
         $this->monroney_sticker = null;
 
-        if (isset($this->cart['_id'])) {
-            $site_monroney_url = '';
-            $monroney_name = $this->generate_monroney_name();
-
-            $remote_monroney_name = $this->cart['_id'] . '.pdf';
-            $args = array(
-                'post_type' => 'attachment',
-                'name' => sanitize_title($monroney_name),
-                'posts_per_page' => 1,
-                'post_status' => 'inherit',
-            );
-            $_mheader = get_posts($args);
-            $mheader = $_mheader ? array_pop($_mheader) : false;
-            $site_monroney_url = $mheader ? wp_get_attachment_url($mheader->ID) : '';
-
-            // Delete outdated monroney
-            if ($mheader !== false)
-                wp_delete_post($mheader->ID, false);
-
-            // $site_monroney_url = media_sideload_image(file: "https://s3.amazonaws.com/prod.docs.s3/cart-window-stickers/$remote_monroney_name", desc: $this->name . ' ' . $this->sku . ' Monroney Sticker', return_type: 'src');
-            $monroney_filename = preg_replace('/\s+/', '-', strtolower($monroney_name));
-            $monroney_data = [
-                'post_title' => $monroney_name,
-                'post_content' => $this->name,
-                '_wp_attachment_image_alt' => $this->name
-            ];
-
-            $site_monroney_url = \Tigon\DmsConnect\Includes\Somatic::attach_external_image(
-                url: "$this->file_source/cart-window-stickers/$remote_monroney_name",
-                filename: $monroney_filename,
-                post_data: $monroney_data,
-                return: 'url'
-            );
-
-
-
-            if (is_wp_error($site_monroney_url))
-                $site_monroney_url = '';
-
-            $this->monroney_sticker = '[pdf-embedder url="' . $site_monroney_url . '"]';
+        $monroney_url = $this->resolve_monroney_url();
+        if (empty($monroney_url)) {
+            return;
         }
+
+        $safe_url = esc_url_raw($monroney_url);
+        if (empty($safe_url)) {
+            return;
+        }
+
+        $alt = esc_attr($this->name . ' Monroney Sticker');
+        $this->monroney_sticker = '<img class="dms-monroney-sticker-image" src="' . $safe_url . '" alt="' . $alt . '" loading="lazy" decoding="async" />';
+    }
+
+    /**
+     * Resolve monroney image URL from payload, then fallback to bucket URL convention.
+     *
+     * @return string
+     */
+    protected function resolve_monroney_url()
+    {
+        $candidates = [];
+
+        if (!empty($this->cart['monroney']) && is_array($this->cart['monroney'])) {
+            foreach (['image', 'imageUrl', 'imageURL', 'url', 'link', 'src'] as $key) {
+                if (!empty($this->cart['monroney'][$key]) && is_string($this->cart['monroney'][$key])) {
+                    $candidates[] = $this->cart['monroney'][$key];
+                }
+            }
+        }
+
+        foreach (['monroneyImage', 'monroneyImageUrl', 'monroneyImageURL', 'monroneyUrl', 'monroneyURL', 'windowStickerImage', 'windowStickerImageUrl', 'windowStickerUrl'] as $key) {
+            if (!empty($this->cart[$key]) && is_string($this->cart[$key])) {
+                $candidates[] = $this->cart[$key];
+            }
+        }
+
+        foreach ($candidates as $candidate) {
+            $candidate = trim((string) $candidate);
+            if (!empty($candidate) && wp_http_validate_url($candidate)) {
+                return $candidate;
+            }
+        }
+
+        if (!empty($this->cart['_id'])) {
+            return trailingslashit($this->file_source) . 'cart-window-stickers/' . $this->cart['_id'] . '.png';
+        }
+
+        return '';
     }
 
     protected function generate_monroney_name()
