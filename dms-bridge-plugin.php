@@ -601,7 +601,7 @@ function tigon_dms_create_woo_product($cart_id, $title, $price, $cart_data, $spe
         $store_data = DMS_API::get_city_and_state_by_store_id($store_id);
         $city = $store_data['city'] ?? '';
         $state = $store_data['state'] ?? '';
-        
+
         if (!empty($city) && !empty($state)) {
             $dealership_name = 'TIGON Golf Carts ' . $city . ' ' . $state;
             $dealership_parent_id = tigon_dms_get_existing_category('TIGON Dealership', 0);
@@ -613,24 +613,153 @@ function tigon_dms_create_woo_product($cart_id, $title, $price, $cart_data, $spe
             }
         }
     }
-    
+
+    // 7. Golf Carts top-level category
+    $golf_carts_cat_id = tigon_dms_get_existing_category('Golf Carts', 0);
+    if ($golf_carts_cat_id) {
+        $categories[] = $golf_carts_cat_id;
+    }
+
+    // 8. Power type categories (Electric/Gas, battery type, voltage, street legal)
+    $is_electric = isset($cart_data['isElectric']) && $cart_data['isElectric'];
+    $is_street_legal = isset($cart_data['title']['isStreetLegal']) && $cart_data['title']['isStreetLegal'];
+
+    if ($is_electric) {
+        $electric_cat_id = tigon_dms_get_existing_category('Electric', 0);
+        if ($electric_cat_id) {
+            $categories[] = $electric_cat_id;
+        }
+
+        $zev_cat_id = tigon_dms_get_existing_category('Zero Emission Vehicles (ZEVs)', 0);
+        if ($zev_cat_id) {
+            $categories[] = $zev_cat_id;
+        }
+
+        // Battery type category (Lithium / Lead-Acid)
+        $battery_type = $cart_data['battery']['type'] ?? '';
+        if ($battery_type === 'Lithium') {
+            $lithium_cat_id = tigon_dms_get_existing_category('Lithium', 0);
+            if ($lithium_cat_id) {
+                $categories[] = $lithium_cat_id;
+            }
+        } elseif ($battery_type === 'Lead') {
+            $lead_cat_id = tigon_dms_get_existing_category('Lead-Acid', 0);
+            if ($lead_cat_id) {
+                $categories[] = $lead_cat_id;
+            }
+        }
+
+        // Voltage category
+        $pack_voltage = $cart_data['battery']['packVoltage'] ?? '';
+        if (!empty($pack_voltage)) {
+            $voltage_cat_id = tigon_dms_get_existing_category($pack_voltage . ' Volt', 0);
+            if ($voltage_cat_id) {
+                $categories[] = $voltage_cat_id;
+            }
+        }
+
+        // Street legal electric categories
+        if ($is_street_legal) {
+            foreach (['Street Legal', 'Neighborhood Electric Vehicles (NEVs)', 'Battery Electric Vehicles (BEVs)', 'Low Speed Vehicles (LSVs)', 'Medium Speed Vehicles (MSVs)'] as $cat_name) {
+                $cat_id = tigon_dms_get_existing_category($cat_name, 0);
+                if ($cat_id) {
+                    $categories[] = $cat_id;
+                }
+            }
+        }
+    } else {
+        $gas_cat_id = tigon_dms_get_existing_category('Gas', 0);
+        if ($gas_cat_id) {
+            $categories[] = $gas_cat_id;
+        }
+        $ptv_cat_id = tigon_dms_get_existing_category('Personal Transportation Vehicles (PTVs)', 0);
+        if ($ptv_cat_id) {
+            $categories[] = $ptv_cat_id;
+        }
+    }
+
+    // 9. Lifted category
+    $is_lifted = isset($cart_data['cartAttributes']['isLifted']) && $cart_data['cartAttributes']['isLifted'];
+    if ($is_lifted) {
+        $lifted_cat_id = tigon_dms_get_existing_category('Lifted', 0);
+        if ($lifted_cat_id) {
+            $categories[] = $lifted_cat_id;
+        }
+    }
+
+    // 10. Seating categories
+    if (!empty($passengers)) {
+        if ($passengers === 'Utility') {
+            $seater_cat_id = tigon_dms_get_existing_category('2 Seater', 0);
+        } else {
+            $num_seats = explode(' ', $passengers)[0];
+            $seater_cat_id = tigon_dms_get_existing_category($num_seats . ' Seater', 0);
+        }
+        if (!empty($seater_cat_id)) {
+            $categories[] = $seater_cat_id;
+        }
+    }
+
+    // 11. New/Used category
+    $new_used_cat_id = tigon_dms_get_existing_category($is_used ? 'Used' : 'New', 0);
+    if ($new_used_cat_id) {
+        $categories[] = $new_used_cat_id;
+    }
+
+    // 12. Inventory status category
+    if ($is_used) {
+        $inv_cat_id = tigon_dms_get_existing_category('Local Used Active Inventory', 0);
+    } else {
+        $inv_cat_id = tigon_dms_get_existing_category('Local New Active Inventory', 0);
+    }
+    if (!empty($inv_cat_id)) {
+        $categories[] = $inv_cat_id;
+    }
+
     // Assign all categories to product
+    $categories = array_unique(array_filter($categories));
     if (!empty($categories)) {
         wp_set_object_terms($product_id, $categories, 'product_cat');
     }
-    
+
     // Set DMS meta
     update_post_meta($product_id, '_dms_cart_id', sanitize_text_field($cart_id));
     update_post_meta($product_id, '_dms_payload', wp_json_encode($cart_data));
-    
+
     // Store parsed DMS cart data in structured meta
     update_post_meta($product_id, '_dms_cart_specs', $specs);
     update_post_meta($product_id, '_dms_cart_images', $images);
     update_post_meta($product_id, '_dms_cart_warranty', $warranty);
-    
+
+    // SKU (VIN > Serial > Generated fallback)
+    $sku = '';
+    if (!empty($cart_data['vinNo'])) {
+        $sku = $cart_data['vinNo'];
+    } elseif (!empty($cart_data['serialNo'])) {
+        $sku = $cart_data['serialNo'];
+    } else {
+        $sku = strtoupper(
+            substr(preg_replace('/\s/', '', $make), 0, 3) .
+            substr(preg_replace('/\s/', '', $model), 0, 3) .
+            substr(preg_replace('/\s/', '', $cart_data['cartAttributes']['cartColor'] ?? ''), 0, 3) .
+            substr(preg_replace('/\s/', '', $cart_data['cartAttributes']['seatColor'] ?? ''), 0, 3) .
+            substr(preg_replace('/\s/', '', $city), 0, 3)
+        );
+    }
+    if (!empty($sku)) {
+        update_post_meta($product_id, '_sku', sanitize_text_field($sku));
+    }
+
     // Price fields for WooCommerce compatibility
     update_post_meta($product_id, '_regular_price', floatval($price));
     update_post_meta($product_id, '_price', floatval($price));
+
+    // Sale price
+    $sale_price = $cart_data['salePrice'] ?? '';
+    if (!empty($sale_price) && floatval($sale_price) > 0 && floatval($sale_price) < floatval($price)) {
+        update_post_meta($product_id, '_sale_price', floatval($sale_price));
+        update_post_meta($product_id, '_price', floatval($sale_price));
+    }
     
     // Enable shipping (not virtual)
     update_post_meta($product_id, '_virtual', 'no');
@@ -650,7 +779,26 @@ function tigon_dms_create_woo_product($cart_id, $title, $price, $cart_data, $spe
     update_post_meta($product_id, '_visibility', 'visible'); // Visible in catalog and search
     update_post_meta($product_id, '_sold_individually', 'yes');
     update_post_meta($product_id, '_backorders', 'no');
-    
+
+    // Google/Facebook product feed meta
+    $condition = $is_used ? 'used' : 'new';
+    $color = $cart_data['cartAttributes']['cartColor'] ?? '';
+    update_post_meta($product_id, '_wc_gla_condition', $condition);
+    update_post_meta($product_id, '_wc_gla_brand', strtoupper($make));
+    update_post_meta($product_id, '_wc_gla_color', strtoupper($color));
+    update_post_meta($product_id, '_wc_gla_pattern', $model);
+    update_post_meta($product_id, '_wc_gla_gtin', '');
+    update_post_meta($product_id, '_wc_gla_mpn', '');
+    update_post_meta($product_id, '_wc_gla_size_system', 'US');
+    update_post_meta($product_id, '_wc_facebook_enhanced_catalog_attributes_brand', strtoupper($make));
+    update_post_meta($product_id, '_wc_facebook_enhanced_catalog_attributes_color', strtoupper($color));
+    update_post_meta($product_id, '_wc_facebook_enhanced_catalog_attributes_condition', $condition);
+    update_post_meta($product_id, '_wc_facebook_product_image_source', 'product');
+    update_post_meta($product_id, 'fb_sync_enabled', 'yes');
+    update_post_meta($product_id, 'fb_visibility', 'yes');
+    update_post_meta($product_id, '_wc_pinterest_condition', $condition);
+    update_post_meta($product_id, '_wc_pinterest_google_product_category', 'Vehicles & Parts > Vehicles > Motor Vehicles > Golf Carts');
+
     return $product_id;
 }
 
@@ -680,7 +828,16 @@ function tigon_dms_update_woo_product($product_id, $title, $price, $cart_data, $
     // Update price
     update_post_meta($product_id, '_regular_price', floatval($price));
     update_post_meta($product_id, '_price', floatval($price));
-    
+
+    // Sale price
+    $sale_price = $cart_data['salePrice'] ?? '';
+    if (!empty($sale_price) && floatval($sale_price) > 0 && floatval($sale_price) < floatval($price)) {
+        update_post_meta($product_id, '_sale_price', floatval($sale_price));
+        update_post_meta($product_id, '_price', floatval($sale_price));
+    } else {
+        delete_post_meta($product_id, '_sale_price');
+    }
+
     // Update DMS payload
     update_post_meta($product_id, '_dms_payload', wp_json_encode($cart_data));
     
@@ -784,7 +941,7 @@ function tigon_dms_update_woo_product($product_id, $title, $price, $cart_data, $
         $store_data = DMS_API::get_city_and_state_by_store_id($store_id);
         $city = $store_data['city'] ?? '';
         $state = $store_data['state'] ?? '';
-        
+
         if (!empty($city) && !empty($state)) {
             $dealership_name = 'TIGON Golf Carts ' . $city . ' ' . $state;
             $dealership_parent_id = tigon_dms_get_existing_category('TIGON Dealership', 0);
@@ -796,12 +953,112 @@ function tigon_dms_update_woo_product($product_id, $title, $price, $cart_data, $
             }
         }
     }
-    
+
+    // 7. Golf Carts top-level category
+    $golf_carts_cat_id = tigon_dms_get_existing_category('Golf Carts', 0);
+    if ($golf_carts_cat_id) {
+        $categories[] = $golf_carts_cat_id;
+    }
+
+    // 8. Power type categories (Electric/Gas, battery type, voltage, street legal)
+    $is_electric = isset($cart_data['isElectric']) && $cart_data['isElectric'];
+    $is_street_legal = isset($cart_data['title']['isStreetLegal']) && $cart_data['title']['isStreetLegal'];
+
+    if ($is_electric) {
+        $electric_cat_id = tigon_dms_get_existing_category('Electric', 0);
+        if ($electric_cat_id) {
+            $categories[] = $electric_cat_id;
+        }
+
+        $zev_cat_id = tigon_dms_get_existing_category('Zero Emission Vehicles (ZEVs)', 0);
+        if ($zev_cat_id) {
+            $categories[] = $zev_cat_id;
+        }
+
+        $battery_type = $cart_data['battery']['type'] ?? '';
+        if ($battery_type === 'Lithium') {
+            $lithium_cat_id = tigon_dms_get_existing_category('Lithium', 0);
+            if ($lithium_cat_id) {
+                $categories[] = $lithium_cat_id;
+            }
+        } elseif ($battery_type === 'Lead') {
+            $lead_cat_id = tigon_dms_get_existing_category('Lead-Acid', 0);
+            if ($lead_cat_id) {
+                $categories[] = $lead_cat_id;
+            }
+        }
+
+        $pack_voltage = $cart_data['battery']['packVoltage'] ?? '';
+        if (!empty($pack_voltage)) {
+            $voltage_cat_id = tigon_dms_get_existing_category($pack_voltage . ' Volt', 0);
+            if ($voltage_cat_id) {
+                $categories[] = $voltage_cat_id;
+            }
+        }
+
+        if ($is_street_legal) {
+            foreach (['Street Legal', 'Neighborhood Electric Vehicles (NEVs)', 'Battery Electric Vehicles (BEVs)', 'Low Speed Vehicles (LSVs)', 'Medium Speed Vehicles (MSVs)'] as $cat_name) {
+                $cat_id = tigon_dms_get_existing_category($cat_name, 0);
+                if ($cat_id) {
+                    $categories[] = $cat_id;
+                }
+            }
+        }
+    } else {
+        $gas_cat_id = tigon_dms_get_existing_category('Gas', 0);
+        if ($gas_cat_id) {
+            $categories[] = $gas_cat_id;
+        }
+        $ptv_cat_id = tigon_dms_get_existing_category('Personal Transportation Vehicles (PTVs)', 0);
+        if ($ptv_cat_id) {
+            $categories[] = $ptv_cat_id;
+        }
+    }
+
+    // 9. Lifted category
+    $is_lifted = isset($cart_data['cartAttributes']['isLifted']) && $cart_data['cartAttributes']['isLifted'];
+    if ($is_lifted) {
+        $lifted_cat_id = tigon_dms_get_existing_category('Lifted', 0);
+        if ($lifted_cat_id) {
+            $categories[] = $lifted_cat_id;
+        }
+    }
+
+    // 10. Seating categories
+    if (!empty($passengers)) {
+        if ($passengers === 'Utility') {
+            $seater_cat_id = tigon_dms_get_existing_category('2 Seater', 0);
+        } else {
+            $num_seats = explode(' ', $passengers)[0];
+            $seater_cat_id = tigon_dms_get_existing_category($num_seats . ' Seater', 0);
+        }
+        if (!empty($seater_cat_id)) {
+            $categories[] = $seater_cat_id;
+        }
+    }
+
+    // 11. New/Used category
+    $new_used_cat_id = tigon_dms_get_existing_category($is_used ? 'Used' : 'New', 0);
+    if ($new_used_cat_id) {
+        $categories[] = $new_used_cat_id;
+    }
+
+    // 12. Inventory status category
+    if ($is_used) {
+        $inv_cat_id = tigon_dms_get_existing_category('Local Used Active Inventory', 0);
+    } else {
+        $inv_cat_id = tigon_dms_get_existing_category('Local New Active Inventory', 0);
+    }
+    if (!empty($inv_cat_id)) {
+        $categories[] = $inv_cat_id;
+    }
+
     // Assign all categories to product
+    $categories = array_unique(array_filter($categories));
     if (!empty($categories)) {
         wp_set_object_terms($product_id, $categories, 'product_cat');
     }
-    
+
     // Ensure product is visible in catalog (remove any exclude-from-catalog terms)
     // This ensures synced products appear on inventory page
     $current_visibility = wp_get_object_terms($product_id, 'product_visibility', array('fields' => 'slugs'));
@@ -821,7 +1078,24 @@ function tigon_dms_update_woo_product($product_id, $title, $price, $cart_data, $
     
     // Update visibility meta to ensure compatibility
     update_post_meta($product_id, '_visibility', 'visible');
-    
+
+    // Google/Facebook product feed meta
+    $condition = $is_used ? 'used' : 'new';
+    $color = $cart_data['cartAttributes']['cartColor'] ?? '';
+    update_post_meta($product_id, '_wc_gla_condition', $condition);
+    update_post_meta($product_id, '_wc_gla_brand', strtoupper($make));
+    update_post_meta($product_id, '_wc_gla_color', strtoupper($color));
+    update_post_meta($product_id, '_wc_gla_pattern', $model);
+    update_post_meta($product_id, '_wc_gla_size_system', 'US');
+    update_post_meta($product_id, '_wc_facebook_enhanced_catalog_attributes_brand', strtoupper($make));
+    update_post_meta($product_id, '_wc_facebook_enhanced_catalog_attributes_color', strtoupper($color));
+    update_post_meta($product_id, '_wc_facebook_enhanced_catalog_attributes_condition', $condition);
+    update_post_meta($product_id, '_wc_facebook_product_image_source', 'product');
+    update_post_meta($product_id, 'fb_sync_enabled', 'yes');
+    update_post_meta($product_id, 'fb_visibility', 'yes');
+    update_post_meta($product_id, '_wc_pinterest_condition', $condition);
+    update_post_meta($product_id, '_wc_pinterest_google_product_category', 'Vehicles & Parts > Vehicles > Motor Vehicles > Golf Carts');
+
     return $product_id;
 }
 
@@ -829,7 +1103,7 @@ function tigon_dms_update_woo_product($product_id, $title, $price, $cart_data, $
  * ============================================================================
  * WooCommerce Product Tabs: Inject DMS Cart Data
  * ============================================================================
- * 
+ *
  * Hooks into woocommerce_product_tabs to override the existing Custom Data
  * tab (or Additional Information tab) and render DMS cart specifications,
  * images, and window sticker PDF link.

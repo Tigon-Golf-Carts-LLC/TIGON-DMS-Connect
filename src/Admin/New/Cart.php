@@ -60,7 +60,8 @@ class Cart extends \Tigon\DmsConnect\Abstracts\Abstract_Cart
 
         //DMS generated
         if($this->cart['advertising']['websiteUrl']) {
-            $this->slug = end(explode('/', $this->cart['advertising']['websiteUrl']));
+            $url_parts = explode('/', $this->cart['advertising']['websiteUrl']);
+            $this->slug = end($url_parts);
             $this->slug = preg_replace('/\+/', '-plus-', $this->slug);
             if(substr($this->slug,-1) === '/') $this->slug = substr_replace($this->slug,'',-1);
         } else {

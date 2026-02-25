@@ -81,7 +81,7 @@ abstract class Abstract_Import_Controller
 
         $new_cart = new \Tigon\DmsConnect\Admin\New\Cart($data);
 
-        $converted_cart = $new_cart->convert(SKU ^ PRICE ^ SALE_PRICE ^ IN_STOCK ^ MONRONEY_STICKER);
+        $converted_cart = $new_cart->convert(SKU | PRICE | SALE_PRICE | IN_STOCK | MONRONEY_STICKER);
 
         // Get old monroney ID
         $monroney_url = explode('"', get_post_meta($data['pid'])['monroney_sticker'][0])[1];
