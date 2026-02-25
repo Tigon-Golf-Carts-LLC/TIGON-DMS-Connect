@@ -28,7 +28,7 @@ jQuery(document).ready(() => {
     var dmsProps = jQuery.ajax({
         dataType: 'json',
         url: global.ajaxurl,
-        data: { action: "tigon_dms_get_dms_props" },
+        data: { action: "tigon_dms_get_dms_props", nonce: global.nonce },
         complete: function(res) {
             jQuery("#dms-schema").html(res.responseText);
             jQuery(".caret").click(e => {
@@ -62,7 +62,7 @@ jQuery(document).ready(() => {
         jQuery.ajax({
             dataType: 'json',
             url: global.ajaxurl,
-            data: { action: "tigon_dms_save_settings", data: settings }
+            data: { action: "tigon_dms_save_settings", data: settings, nonce: global.nonce }
         }).then(response => {
             location.reload();
         });

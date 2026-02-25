@@ -1,5 +1,3 @@
-import {serialize, unserialize} from './node_modules/php-serialize/index.js';
-import { Database_Object } from './database-object.js';
 import { global } from './globals.js';
 
 jQuery(document).ready(() => {
@@ -12,7 +10,7 @@ jQuery(document).ready(() => {
             type: "post",
             dataType: "json",
             url: global.ajaxurl,
-            data: { action: "tigon_dms_query", query: query, endpoint: endpoint }
+            data: { action: "tigon_dms_query", query: query, endpoint: endpoint, nonce: global.nonce }
         });
 
         dmsQuery.then(cartList => {
@@ -43,7 +41,7 @@ jQuery(document).ready(() => {
             type: "post",
             dataType: "json",
             url: global.ajaxurl,
-            data: { action: "tigon_dms_post_import", query: query, endpoint: endpoint }
+            data: { action: "tigon_dms_post_import", nonce: global.nonce }
         });
     }
 
@@ -60,13 +58,14 @@ jQuery(document).ready(() => {
             return jQuery.ajax({
                 dataType: 'json',
                 url: global.ajaxurl,
-                data: { action: "tigon_dms_ajax_import_convert", data: JSON.stringify(targetCart) }
+                data: { action: "tigon_dms_ajax_import_convert", data: JSON.stringify(targetCart), nonce: global.nonce }
             })
                 .catch(e => {
                     console.log(e);
                 })
-                .then(convertedCart => {
-                    convertedCart = unserialize(convertedCart.data, {'Tigon\\DmsConnect\\Admin\\Database_Object': Database_Object});
+                .then(response => {
+                    // Parse JSON-encoded Database_Object data (replaces PHP unserialize)
+                    let convertedCart = { data: JSON.parse(response.data) };
                     if(convertedCart.hasOwnProperty("data")) {
                         convertedCart.data._id = _id;
                     }
@@ -83,7 +82,7 @@ jQuery(document).ready(() => {
                 type: "post",
                 dataType: 'json',
                 url: global.ajaxurl,
-                data: { action: "tigon_dms_ajax_import_create", data: targetCart }
+                data: { action: "tigon_dms_ajax_import_create", data: targetCart, nonce: global.nonce }
             })
                 .then(createdCart => {
                     count++;
@@ -101,7 +100,7 @@ jQuery(document).ready(() => {
                 type: "post",
                 dataType: 'json',
                 url: global.ajaxurl,
-                data: { action: "tigon_dms_ajax_import_update", data: targetCart }
+                data: { action: "tigon_dms_ajax_import_update", data: targetCart, nonce: global.nonce }
             })
                 .then(updatedCart => {
                     count++;
@@ -119,7 +118,7 @@ jQuery(document).ready(() => {
                 type: "post",
                 dataType: 'json',
                 url: global.ajaxurl,
-                data: { action: "tigon_dms_ajax_import_delete", data: targetCart }
+                data: { action: "tigon_dms_ajax_import_delete", data: targetCart, nonce: global.nonce }
             })
                 .then(deletedCart => {
                     count++;
@@ -156,7 +155,7 @@ jQuery(document).ready(() => {
                 type: "post",
                 dataType: "json",
                 url: global.ajaxurl,
-                data: { action: "tigon_dms_query", query: query, endpoint: endpoint }
+                data: { action: "tigon_dms_query", query: query, endpoint: endpoint, nonce: global.nonce }
             });
 
             // Create array of convert promises, return Promise.all of array
@@ -187,13 +186,14 @@ jQuery(document).ready(() => {
             processedCartPromises.forEach(processedCartPromise => {
                 if(processedCartPromise.status == "fulfilled") {
                     let processedCart = processedCartPromise.value;
-                    let serializedCart = serialize(processedCart, {'Tigon\\DmsConnect\\Admin\\Database_Object': Database_Object});
+                    // Send as JSON string (replaces PHP serialize)
+                    let jsonCart = JSON.stringify(processedCart.data);
                     if (processedCart.data.method == "create" && !processedCart.data.posts.hasOwnProperty("ID")) {
-                        createRequests.push(createCart(serializedCart));
+                        createRequests.push(createCart(jsonCart));
                     } else if (processedCart.data.method == "update" && processedCart.data.posts.hasOwnProperty("ID")) {
-                        updateRequests.push(updateCart(serializedCart));
+                        updateRequests.push(updateCart(jsonCart));
                     } else if (processedCart.data.method == "delete" && processedCart.data.posts.hasOwnProperty("ID") && processedCart.data.posts.ID) {
-                        updateRequests.push(deleteCart(serializedCart));
+                        updateRequests.push(deleteCart(jsonCart));
                     }
                     else {
                         jQuery('#errors').append('<div>Not marked for import: ' + processedCart.data.postmeta._sku.meta_value + '</div>')
@@ -282,7 +282,8 @@ jQuery(document).ready(() => {
                 data: {
                     action: "tigon_dms_ajax_import_new",
                     data: JSON.stringify(data),
-                    forced: JSON.stringify(forcedFields)
+                    forced: JSON.stringify(forcedFields),
+                    nonce: global.nonce
                 }
 			});
             return query.then(async (cart) => {
@@ -297,7 +298,7 @@ jQuery(document).ready(() => {
             type: "post",
             dataType: "json",
             url: global.ajaxurl,
-            data: { action: "tigon_dms_query", query: query, endpoint: endpoint }
+            data: { action: "tigon_dms_query", query: query, endpoint: endpoint, nonce: global.nonce }
         });
 
         let allImported = dmsQuery.then(dmsCarts => {
@@ -307,7 +308,7 @@ jQuery(document).ready(() => {
             dmsCarts = dmsCarts.filter((cart) => {
                 return !cart.serialNo.toUpperCase().includes("DELETE") && !cart.vinNo.toUpperCase().includes("DELETE")
             });
-            dmsCarts = dmsCarts.filter((obj1, i, arr) => 
+            dmsCarts = dmsCarts.filter((obj1, i, arr) =>
                 arr.findIndex(obj2 => {
                     let url = obj2.advertising?.websiteUrl === obj1.advertising?.websiteUrl;
                     let make = obj2.cartType?.make === obj1.cartType?.make;
@@ -396,7 +397,7 @@ jQuery(document).ready(() => {
                 jQuery('.cb-container.top-level').addClass('active');
                 jQuery('.cb-container.top-level input').prop('checked', true);
             }
-        } 
+        }
     });
 
     jQuery('.cb-container.top-level').click (e => {

@@ -106,7 +106,8 @@ class Core
 
         wp_localize_script('@tigon-dms/globals', 'globals', [
             'ajaxurl' => admin_url('admin-ajax.php'),
-            'siteurl' => get_site_url()
+            'siteurl' => get_site_url(),
+            'nonce' => wp_create_nonce('tigon_dms_ajax_nonce'),
         ]);
 
         wp_enqueue_script('@tigon-dms/globals');
@@ -143,7 +144,8 @@ class Core
 
         wp_localize_script('@tigon-dms/globals', 'globals', [
             'ajaxurl' => admin_url('admin-ajax.php'),
-            'siteurl' => get_site_url()
+            'siteurl' => get_site_url(),
+            'nonce' => wp_create_nonce('tigon_dms_ajax_nonce'),
         ]);
 
         wp_enqueue_script('@tigon-dms/globals');
@@ -160,7 +162,8 @@ class Core
 
         wp_localize_script('@tigon-dms/globals', 'globals', [
             'ajaxurl' => admin_url('admin-ajax.php'),
-            'siteurl' => get_site_url()
+            'siteurl' => get_site_url(),
+            'nonce' => wp_create_nonce('tigon_dms_ajax_nonce'),
         ]);
 
         wp_enqueue_script('@tigon-dms/globals');

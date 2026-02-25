@@ -1,12 +1,17 @@
 <?php
 /**
  * Plugin Name: TIGON DMS Connect
+ * Plugin URI: https://github.com/TigonGolfCarts/wordpress_connection
  * Description: TIGON DMS Connect — fetches, imports, maps and displays golf carts from the DMS into WooCommerce.
  * Version: 2.0.0
  * Author: Jaslow Digital | Noah Jaslow
  * Author URI: https://jaslowdigital.com/
  * Text Domain: tigon-dms-connect
+ * Requires at least: 5.8
+ * Requires PHP: 7.4
  * Requires Plugins: woocommerce
+ * License: GPL v2 or later
+ * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  */
 
 if (!defined('ABSPATH')) {
