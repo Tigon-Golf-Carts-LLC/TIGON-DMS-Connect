@@ -98,6 +98,18 @@ class Cart extends \Tigon\DmsConnect\Abstracts\Abstract_Cart
                 $this->seat_color_hyphenated,
                 $this->location_hyphenated
             ]));
+        $this->brand_hyphenated = preg_replace('/\s+/', '-', $this->cart['cartType']['make']);
+        $this->pattern_hyphenated = preg_replace('/\s+/', '-', $this->cart['cartType']['model']);
+        $this->color_hyphenated = preg_replace('/\s+/', '-', $this->cart['cartAttributes']['cartColor']);
+        $this->seat_color_hyphenated = preg_replace('/\s+/', '-', $this->cart['cartAttributes']['seatColor']);
+        $this->location_hyphenated = preg_replace('/\s+/', '-', Attributes::$locations[$this->location_id]['city'] . "-" . Attributes::$locations[$this->location_id]['st']);
+
+        //DMS generated
+        if($this->cart['advertising']['websiteUrl']) {
+            $url_parts = explode('/', $this->cart['advertising']['websiteUrl']);
+            $this->slug = end($url_parts);
+            $this->slug = preg_replace('/\+/', '-plus-', $this->slug);
+            if(substr($this->slug,-1) === '/') $this->slug = substr_replace($this->slug,'',-1);
         } else {
             $this->slug = strtolower(implode('-', [
                 $this->brand_hyphenated,

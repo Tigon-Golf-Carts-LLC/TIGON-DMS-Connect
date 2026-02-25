@@ -96,7 +96,7 @@ abstract class Abstract_Import_Controller
 
         $new_cart = new \Tigon\DmsConnect\Admin\New\Cart($data);
 
-        $converted_cart = $new_cart->convert(SKU ^ PRICE ^ SALE_PRICE ^ IN_STOCK ^ MONRONEY_STICKER);
+        $converted_cart = $new_cart->convert(SKU | PRICE | SALE_PRICE | IN_STOCK | MONRONEY_STICKER);
 
         $result = Database_Write_Controller::update_from_database_object($converted_cart);
 
@@ -158,12 +158,19 @@ abstract class Abstract_Import_Controller
         $location_id = \Tigon\DmsConnect\Admin\Attributes::resolve_location_id($data['cartLocation'] ?? []);
         $location_data = \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id] ?? [];
         $city = $location_data['city_short'] ?? ($location_data['city'] ?? 'National');
+        $location_id = $data['cartLocation']['locationId'];
+        if (!isset(\Tigon\DmsConnect\Admin\Attributes::$locations[$location_id])) {
+            return new \WP_Error(400, ['pid' => 0, 'error' => "Unknown location: $location_id"]);
+        }
+        $loc = \Tigon\DmsConnect\Admin\Attributes::$locations[$location_id];
+        $city = $loc['city_short'] ?? $loc['city'];
 
         $make = preg_replace('/\s+/', '-', trim(preg_replace('/\+/', ' plus ', $data['cartType']['make'])));
         $model = preg_replace('/\s+/', '-', trim(preg_replace('/\+/', ' plus ', $data['cartType']['model'])));
         $color = preg_replace('/\s+/', '-', $data['cartAttributes']['cartColor']);
         $seat = preg_replace('/\s+/', '-', $data['cartAttributes']['seatColor']);
         $location = preg_replace('/\s+/', '-', $city . "-" . ($location_data['st'] ?? 'US'));
+        $location = preg_replace('/\s+/', '-', $city . "-" . $loc['st']);
         $year = preg_replace('/\s+/', '-', $data['cartType']['year']);
 
         $base_slug = strtolower("$make-$model-$color-seat-$seat-$location");

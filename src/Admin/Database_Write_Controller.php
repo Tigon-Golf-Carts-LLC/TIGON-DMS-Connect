@@ -42,7 +42,7 @@ final class Database_Write_Controller {
 
         $unique_slug = wp_unique_post_slug(
             $posts['post_name'],
-            $posts['ID'],
+            $post_id,
             $posts['post_status'],
             $posts['post_type'],
             null

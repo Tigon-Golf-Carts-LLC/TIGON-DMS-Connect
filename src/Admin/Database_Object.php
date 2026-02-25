@@ -330,6 +330,12 @@ class Database_Object
         }
 
         $postmeta = $wpdb->get_results('SELECT meta_key, meta_value FROM ' . $wpdb->prefix . 'postmeta WHERE post_id = ' . intval($id) . ';', ARRAY_A);
+        $posts = $wpdb->get_row('SELECT * FROM '.$wpdb->prefix.'posts WHERE ID = '.$id.';', ARRAY_A);
+        foreach($posts as $column => $value) {
+            $database_object->set_value('posts', $value, $column);
+        }
+
+        $postmeta = $wpdb->get_results('SELECT * FROM '.$wpdb->prefix.'postmeta WHERE post_id = '.$id.';', ARRAY_A);
         foreach($postmeta as $row) {
             if (!empty($row['meta_key'])) {
                 $database_object->set_postmeta_value($row['meta_key'], $row['meta_value']);
@@ -337,6 +343,7 @@ class Database_Object
         }
 
         $term_relationships = $wpdb->get_results('SELECT term_taxonomy_id FROM ' . $wpdb->prefix . 'term_relationships WHERE object_id = ' . intval($id) . ';', ARRAY_A);
+        $term_relationships = $wpdb->get_results('SELECT * FROM '.$wpdb->prefix.'term_relationships WHERE object_id = '.$id.';', ARRAY_A);
         $terms = [];
         foreach($term_relationships as $row) {
             $terms[] = $row['term_taxonomy_id'];

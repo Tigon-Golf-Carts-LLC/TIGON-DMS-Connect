@@ -434,14 +434,20 @@ abstract class Abstract_Cart
     protected function generate_location_data() {
         $this->location_id = Attributes::resolve_location_id($this->cart['cartLocation'] ?? []);
 
-        $this->city_shortname = Attributes::$locations[$this->location_id]['city_short'] ?? Attributes::$locations[$this->location_id]['city'];
+        // Fallback to T1 if location is not recognized
+        if (!isset(Attributes::$locations[$this->location_id])) {
+            $this->location_id = 'T1';
+        }
+
+        $loc = Attributes::$locations[$this->location_id];
+        $this->city_shortname = $loc['city_short'] ?? $loc['city'];
 
         $this->tigonwm_text = 'TIGON®';
-        
+
         if ($this->location_id) {
             $this->tigonwm_text =
-                ( $this->city_shortname ) . 
-                ' ' . Attributes::$locations[$this->location_id]['st'];
+                ( $this->city_shortname ) .
+                ' ' . $loc['st'];
         }
         if (isset($this->cart['isRental']) && $this->cart['isRental']){
             $this->tigonwm_text = 'TIGON® RENTALS';  
@@ -1649,30 +1655,30 @@ abstract class Abstract_Cart
                         array_push($tab_names, "EVolution Classic 4 Plus Images");
                         array_push($tab_names, "EVolution Classic 4 Plus Specs");
                         break;
-                    case 'EVOLUTION D5-MAVERICK 2+2':
+                    case 'D5 MAVERICK 2+2':
                         array_push($tab_names, 'EVolution D5-Maverick 2+2');
                         array_push($tab_names, 'EVolution D5-Maverick 2+2 Images');
                         break;
-                    case 'EVOLUTION D5-MAVERICK 2+2 PLUS':
+                    case 'D5 MAVERICK 2+2 PLUS':
                         array_push($tab_names, 'EVolution D5-Maverick 2+2 Plus Images');
                         break;
-                    case 'EVOLUTION D5 RANGER 2+2':
+                    case 'D5 RANGER 2+2':
                         array_push($tab_names, 'EVOLUTION D5 RANGER 2+2 IMAGES');
                         array_push($tab_names, 'EVOLUTION D5 RANGER 2+2 SPECS');
                         break;
-                    case 'EVOLUTION D5 RANER 2+2':
-                        array_push($tab_names, 'EVOLUTION D5 RANER 2+2 PLUS');
+                    case 'D5 RANGER 2+2 PLUS':
+                        array_push($tab_names, 'EVOLUTION D5 RANGER 2+2 PLUS IMAGES');
                         array_push($tab_names, 'EVOLUTION D5 RANGER 2+2 PLUS SPECS');
                         break;
-                    case 'EVOLUTION D5 RANGER 4':
+                    case 'D5 RANGER 4':
                         array_push($tab_names, 'EVOLUTION D5 RANGER 4 IMAGES');
                         array_push($tab_names, 'EVOLUTION D5 RANGER 4 SPEC');
                         break;
-                    case 'EVOLUTION D5 RANGER 4 PLUS':
+                    case 'D5 RANGER 4 PLUS':
                         array_push($tab_names, 'EVOLUTION D5 RANGER 4 PLUS IMAGES');
                         array_push($tab_names, 'EVOLUTION D5 RANGER 4 PLUS SPECS');
                         break;
-                    case 'EVOLUTION D5 RANGER 6':
+                    case 'D5 RANGER 6':
                         array_push($tab_names, 'EVOLUTION D5 RANGER 6 IMAGES');
                         array_push($tab_names, 'EVOLUTION D5 RANGER 6 SPECS');
                         break;

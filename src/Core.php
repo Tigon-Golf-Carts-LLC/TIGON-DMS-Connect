@@ -50,6 +50,7 @@ class Core
         add_action('wp_ajax_tigon_dms_post_import', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::process_post_import');
         add_action('wp_ajax_tigon_dms_refresh_active_inventory', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::refresh_active_inventory');
         add_action('wp_ajax_tigon_dms_repull_dms_inventory', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::repull_dms_inventory');
+        add_action('wp_ajax_tigon_dms_sync_mapped', 'Tigon\DmsConnect\Core::ajax_sync_mapped_inventory');
 
         // Add admin page
         add_action('admin_menu', 'Tigon\DmsConnect\Admin\Admin_Page::add_menu_page');
@@ -195,7 +196,7 @@ class Core
             "rims"
         ];
 
-        $product_id = is_callable(array($object, 'get_id')) ? $object->get_id() : (!empty($$object->ID) ? $object->ID : null);
+        $product_id = is_callable(array($object, 'get_id')) ? $object->get_id() : (!empty($object->ID) ? $object->ID : null);
         $params = $request->get_params();
         foreach ($numeric_taxonomies as $taxonomy) {
             $terms = isset($params[$taxonomy]) ? $params[$taxonomy] : array();
@@ -360,6 +361,156 @@ class Core
                 'option_value' => '',
             )
         );
+    }
+
+    /**
+     * AJAX handler: Sync all mapped inventory from DMS using the Database_Object engine
+     *
+     * Fetches all used and new carts from DMS that need to be on the website,
+     * converts them via Used\Cart / New\Cart, and writes via Database_Write_Controller.
+     */
+    public static function ajax_sync_mapped_inventory()
+    {
+        check_ajax_referer('tigon_dms_sync_mapped_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized', 403);
+        }
+
+        ignore_user_abort(true);
+        set_time_limit(600);
+
+        $stats = [
+            'updated' => 0,
+            'created' => 0,
+            'skipped' => 0,
+            'errors'  => 0,
+            'total'   => 0,
+            'error_details' => [],
+        ];
+
+        // Fetch used carts from DMS
+        $used_raw = \Tigon\DmsConnect\Includes\DMS_Connector::request(
+            '{"isUsed":true, "isInStock": true, "isInBoneyard": false, "needOnWebsite": true}',
+            '/chimera/lookup',
+            'POST'
+        );
+        $used_carts = json_decode($used_raw, true) ?? [];
+
+        // Fetch new carts from DMS
+        $new_raw = \Tigon\DmsConnect\Includes\DMS_Connector::request(
+            '{"isUsed":false, "needOnWebsite": true, "isInStock": true, "isInBoneyard": false}',
+            '/chimera/lookup',
+            'POST'
+        );
+        $new_carts = json_decode($new_raw, true) ?? [];
+
+        // --- Sync used carts ---
+        foreach ($used_carts as $cart) {
+            $stats['total']++;
+            try {
+                $used = new \Tigon\DmsConnect\Admin\Used\Cart($cart);
+                $converted = $used->convert();
+
+                if (is_wp_error($converted)) {
+                    $stats['errors']++;
+                    $stats['error_details'][] = ($cart['_id'] ?? 'unknown') . ': ' . $converted->get_error_message();
+                    continue;
+                }
+
+                $method = $converted->get_value('method');
+                if ($method === 'update') {
+                    $result = \Tigon\DmsConnect\Admin\Database_Write_Controller::update_from_database_object($converted);
+                } else {
+                    $result = \Tigon\DmsConnect\Admin\Database_Write_Controller::create_from_database_object($converted);
+                }
+
+                if (is_wp_error($result)) {
+                    $stats['errors']++;
+                    $stats['error_details'][] = ($cart['_id'] ?? 'unknown') . ': ' . $result->get_error_message();
+                } else {
+                    $stats[$method === 'update' ? 'updated' : 'created']++;
+
+                    // Report PID back to DMS
+                    if (!empty($result['pid'])) {
+                        $pid_request = json_encode([[
+                            '_id' => $cart['_id'] ?? '',
+                            'pid' => $result['pid'],
+                            'advertising' => [
+                                'onWebsite'  => true,
+                                'websiteUrl' => $result['websiteUrl'] ?? get_permalink($result['pid']),
+                            ],
+                        ]]);
+                        \Tigon\DmsConnect\Includes\DMS_Connector::request($pid_request, '/chimera/carts', 'PUT');
+                    }
+                }
+            } catch (\Exception $e) {
+                $stats['errors']++;
+                $stats['error_details'][] = ($cart['_id'] ?? 'unknown') . ': ' . $e->getMessage();
+            }
+        }
+
+        // --- Sync new carts (deduplicated by type) ---
+        $seen_new = [];
+        foreach ($new_carts as $cart) {
+            $stats['total']++;
+
+            // Skip carts marked DELETE
+            $serial = strtoupper($cart['serialNo'] ?? '');
+            $vin = strtoupper($cart['vinNo'] ?? '');
+            if (str_contains($serial, 'DELETE') || str_contains($vin, 'DELETE')) {
+                $stats['skipped']++;
+                continue;
+            }
+
+            // Skip unknown locations
+            $location_id = $cart['cartLocation']['locationId'] ?? '';
+            if (!isset(\Tigon\DmsConnect\Admin\Attributes::$locations[$location_id])) {
+                $stats['skipped']++;
+                continue;
+            }
+
+            // Deduplicate by make/model/color/seat/location
+            $dedup_key = implode('|', [
+                $cart['cartType']['make'] ?? '',
+                $cart['cartType']['model'] ?? '',
+                $cart['cartAttributes']['cartColor'] ?? '',
+                $cart['cartAttributes']['seatColor'] ?? '',
+                $location_id,
+            ]);
+            if (isset($seen_new[$dedup_key])) {
+                $stats['skipped']++;
+                continue;
+            }
+            $seen_new[$dedup_key] = true;
+
+            try {
+                \Tigon\DmsConnect\Includes\Product_Fields::define_constants();
+                $result = \Tigon\DmsConnect\Abstracts\Abstract_Import_Controller::import_new($cart, 0);
+
+                if (is_wp_error($result)) {
+                    $stats['errors']++;
+                    $stats['error_details'][] = ($cart['_id'] ?? 'unknown') . ': ' . $result->get_error_message();
+                } else {
+                    $pid = $result['pid'] ?? 0;
+                    if ($pid) {
+                        $stats['updated']++;
+                    } else {
+                        $stats['skipped']++;
+                    }
+                }
+            } catch (\Exception $e) {
+                $stats['errors']++;
+                $stats['error_details'][] = ($cart['_id'] ?? 'unknown') . ': ' . $e->getMessage();
+            }
+        }
+
+        // Refresh WooCommerce lookup tables
+        if (function_exists('wc_update_product_lookup_tables')) {
+            wc_update_product_lookup_tables();
+        }
+
+        wp_send_json_success($stats);
     }
 
     // Deactivation Hook
