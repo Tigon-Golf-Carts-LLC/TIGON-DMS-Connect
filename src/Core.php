@@ -330,6 +330,9 @@ class Core
         // Create field mappings table
         \Tigon\DmsConnect\Admin\Field_Mapping::install();
 
+        // Create DMS carts staging table
+        \Tigon\DmsConnect\Admin\CartModel::install();
+
         $github_token = $wpdb->get_var("SELECT option_name FROM $table_name WHERE option_name = 'github_token'");
         if($github_token === null) $wpdb->insert(
             $table_name,
@@ -441,6 +444,12 @@ class Core
         // --- Sync used carts ---
         foreach ($used_carts as $cart) {
             $stats['total']++;
+
+            // Stage cart in local tigon_dms_carts table
+            $store_id   = $cart['cartLocation']['locationId'] ?? '';
+            $store_name = \DMS_API::get_city_by_store_id($store_id);
+            \Tigon\DmsConnect\Admin\CartModel::upsert_from_api($cart, $store_name, '', $store_id);
+
             try {
                 $used = new \Tigon\DmsConnect\Admin\Used\Cart($cart);
                 $converted = $used->convert();
@@ -487,6 +496,11 @@ class Core
         $seen_new = [];
         foreach ($new_carts as $cart) {
             $stats['total']++;
+
+            // Stage cart in local tigon_dms_carts table
+            $loc_id     = $cart['cartLocation']['locationId'] ?? '';
+            $loc_name   = \DMS_API::get_city_by_store_id($loc_id);
+            \Tigon\DmsConnect\Admin\CartModel::upsert_from_api($cart, $loc_name, '', $loc_id);
 
             // Skip carts marked DELETE
             $serial = strtoupper($cart['serialNo'] ?? '');

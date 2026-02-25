@@ -88,6 +88,12 @@ class DMS_Sync
 
                 $cart_id = $cart_data['_id'];
 
+                // Stage cart data in local tigon_dms_carts table
+                // This preserves ALL DMS fields locally for debugging/querying
+                $store_id   = $cart_data['cartLocation']['locationId'] ?? '';
+                $store_name = DMS_API::get_city_by_store_id($store_id);
+                \Tigon\DmsConnect\Admin\CartModel::upsert_from_api($cart_data, $store_name, '', $store_id);
+
                 // Check if product already exists (for stats tracking)
                 $existing_product_id = tigon_dms_get_product_by_cart_id($cart_id);
                 $was_existing = (bool) $existing_product_id;
@@ -95,11 +101,11 @@ class DMS_Sync
                 try {
                     // Use existing function to create/update product (idempotent)
                     $product_id = tigon_dms_ensure_woo_product($cart_data, $cart_id);
-                    
+
                     if ($product_id) {
                         // Handle images (featured + gallery)
                         self::sync_product_images($product_id, $cart_data);
-                        
+
                         // Track stats
                         if ($was_existing) {
                             $stats['updated']++;
