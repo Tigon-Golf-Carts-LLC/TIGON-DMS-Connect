@@ -399,20 +399,44 @@ class Core
         ];
 
         // Fetch used carts from DMS
-        $used_raw = \Tigon\DmsConnect\Includes\DMS_Connector::request(
-            '{"isUsed":true, "isInStock": true, "isInBoneyard": false, "needOnWebsite": true}',
-            '/chimera/lookup',
-            'POST'
-        );
-        $used_carts = json_decode($used_raw, true) ?? [];
+        try {
+            $used_raw = \Tigon\DmsConnect\Includes\DMS_Connector::request(
+                '{"isUsed":true, "isInStock": true, "isInBoneyard": false, "needOnWebsite": true}',
+                '/chimera/lookup',
+                'POST'
+            );
+        } catch (\Exception $e) {
+            $used_raw = false;
+            error_log('[DMS Sync] Failed to fetch used carts: ' . $e->getMessage());
+        }
+        if ($used_raw === false) {
+            $stats['errors']++;
+            $stats['error_details'][] = 'Failed to fetch used carts from DMS API';
+        }
+        $used_carts = ($used_raw !== false) ? (json_decode($used_raw, true) ?? []) : [];
+        if (!is_array($used_carts)) {
+            $used_carts = [];
+        }
 
         // Fetch new carts from DMS
-        $new_raw = \Tigon\DmsConnect\Includes\DMS_Connector::request(
-            '{"isUsed":false, "needOnWebsite": true, "isInStock": true, "isInBoneyard": false}',
-            '/chimera/lookup',
-            'POST'
-        );
-        $new_carts = json_decode($new_raw, true) ?? [];
+        try {
+            $new_raw = \Tigon\DmsConnect\Includes\DMS_Connector::request(
+                '{"isUsed":false, "needOnWebsite": true, "isInStock": true, "isInBoneyard": false}',
+                '/chimera/lookup',
+                'POST'
+            );
+        } catch (\Exception $e) {
+            $new_raw = false;
+            error_log('[DMS Sync] Failed to fetch new carts: ' . $e->getMessage());
+        }
+        if ($new_raw === false) {
+            $stats['errors']++;
+            $stats['error_details'][] = 'Failed to fetch new carts from DMS API';
+        }
+        $new_carts = ($new_raw !== false) ? (json_decode($new_raw, true) ?? []) : [];
+        if (!is_array($new_carts)) {
+            $new_carts = [];
+        }
 
         // --- Sync used carts ---
         foreach ($used_carts as $cart) {
