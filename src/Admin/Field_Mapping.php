@@ -216,6 +216,12 @@ class Field_Mapping
     public static function get_known_dms_fields(): array
     {
         return [
+            // Top-level identifiers
+            '_id',
+            'pid',
+            'serialNo',
+            'vinNo',
+
             // Cart Type
             'cartType.make',
             'cartType.model',
@@ -253,29 +259,39 @@ class Field_Mapping
             // Location
             'cartLocation.locationId',
             'cartLocation.locationDescription',
+            'cartLocation.latestStoreId',
 
             // Title / Legal
             'title.isStreetLegal',
             'title.isTitleInPossession',
+            'title.storeID',
 
             // Advertising
             'advertising.websiteUrl',
             'advertising.needOnWebsite',
 
-            // Top-level scalars
-            '_id',
+            // RFS Status
+            'rfsStatus.isRFS',
+            'rfsStatus.notRFSOption',
+
+            // Pricing & status
             'retailPrice',
             'salePrice',
             'isElectric',
             'isUsed',
             'isInStock',
             'isInBoneyard',
-            'serialNo',
-            'vinNo',
             'odometer',
             'warrantyLength',
-            'pid',
+            'status',
+            'hour',
+
+            // Images
             'imageUrls',
+            'internalCartImageUrls',
+
+            // Window sticker
+            'cartWindowStickerUrl',
         ];
     }
 

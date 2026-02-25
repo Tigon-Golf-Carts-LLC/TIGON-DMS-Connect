@@ -143,22 +143,20 @@ class DMS_Sync
      */
     private static function sync_product_images($product_id, $cart_data)
     {
-        $image_urls = $cart_data['imageUrls'] ?? array();
+        // Use centralized image resolver (handles coming-soon placeholder)
+        $resolved_urls = DMS_API::resolve_cart_image_urls($cart_data);
 
-        if (empty($image_urls) || !is_array($image_urls)) {
+        if (empty($resolved_urls)) {
             return;
         }
 
         $attachment_ids = array();
         $featured_image_id = null;
 
-        foreach ($image_urls as $index => $image_filename) {
-            if (empty($image_filename)) {
+        foreach ($resolved_urls as $index => $image_url) {
+            if (empty($image_url)) {
                 continue;
             }
-
-            // Build full image URL
-            $image_url = self::get_image_base_url() . ltrim($image_filename, '/');
 
             // Check if attachment already exists by URL
             $existing_attachment_id = self::get_attachment_id_by_url($image_url);
