@@ -455,7 +455,7 @@ abstract class Abstract_Import_Controller
             $new_carts = new \Tigon\DmsConnect\Admin\New\New_Cart_Converter();
 
             // Fill empty data with defaults if available
-            $cart_defaults = $new_carts->get_specific(preg_replace('/\+$/', ' Plus', $data['cartType']['model']));
+            $cart_defaults = $new_carts->get_specific_from_payload($data);
             if (is_wp_error($cart_defaults)) $cart_defaults = [];
 
             $cart = array_replace_recursive($cart_defaults, $data);
