@@ -34,6 +34,7 @@ class Core
         add_action('load-tigon-dms-connect_page_import', 'Tigon\DmsConnect\Core::import_script_enqueue');
         add_action('load-tigon-dms-connect_page_settings', 'Tigon\DmsConnect\Core::settings_script_enqueue');
         add_action('load-tigon-dms-connect_page_field-mapping', 'Tigon\DmsConnect\Core::field_mapping_script_enqueue');
+        add_action('load-tigon-dms-connect_page_dms-inventory-sync', 'Tigon\DmsConnect\Core::sync_script_enqueue');
 
         // Register Ajax functions
         add_action('wp_ajax_tigon_dms_query', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::query_dms');
@@ -535,6 +536,14 @@ class Core
         ]);
 
         wp_enqueue_script('@tigon-dms/globals');
+        wp_enqueue_script('jquery');
+    }
+
+    /**
+     * Enqueue scripts for the Sync admin page.
+     */
+    public static function sync_script_enqueue()
+    {
         wp_enqueue_script('jquery');
     }
 

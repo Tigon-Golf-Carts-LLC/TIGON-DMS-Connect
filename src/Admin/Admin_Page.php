@@ -33,6 +33,7 @@ class Admin_Page
         self::add_settings_page();
         self::add_database_objects_page();
         self::add_field_mapping_page();
+        self::add_sync_page();
     }
 
     /**
@@ -98,6 +99,22 @@ class Admin_Page
     }
 
     /**
+     * Add Sync submenu
+     * @return void
+     */
+    public static function add_sync_page()
+    {
+        add_submenu_page(
+            'tigon-dms-connect',
+            'DMS Inventory Sync',
+            'Sync',
+            'manage_options',
+            'dms-inventory-sync',
+            'Tigon\DmsConnect\Admin\Admin_Page::sync_page'
+        );
+    }
+
+    /**
      * Field Mapping admin page.
      *
      * Displays the DMS → WooCommerce field mapping editor.
@@ -130,7 +147,7 @@ class Admin_Page
         self::page_header();
 
         echo '
-        <div class="body" style="flex-direction:column;">
+        <div class="body" style="display:flex; flex-direction:column;">
             <div class="action-box-group">
                 <div class="action-box primary" style="flex-direction:column; gap:1rem; flex:1;">
                     <h2>DMS &rarr; WooCommerce Field Mapping</h2>
@@ -451,6 +468,190 @@ class Admin_Page
         ';
     }
 
+    /**
+     * Sync admin page.
+     *
+     * Manual + scheduled inventory sync and DMS Connect mapped sync.
+     */
+    public static function sync_page()
+    {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized access');
+        }
+
+        $sync_running = false;
+        $sync_results = null;
+        $interval_updated = false;
+        $sync_interval = class_exists('\DMS_Sync') ? \DMS_Sync::get_sync_interval() : 6;
+
+        // Handle manual sync request
+        if (isset($_POST['dms_manual_sync']) && check_admin_referer('dms_manual_sync', 'dms_sync_nonce')) {
+            $sync_running = true;
+            if (class_exists('\DMS_Sync')) {
+                $sync_results = \DMS_Sync::sync_inventory();
+            } else {
+                $sync_results = ['success' => false, 'message' => 'DMS_Sync class not found'];
+            }
+        }
+
+        // Handle interval update
+        if (isset($_POST['dms_update_interval']) && check_admin_referer('dms_update_interval', 'dms_interval_nonce')) {
+            $new_interval = isset($_POST['sync_interval']) ? (int) $_POST['sync_interval'] : 6;
+            $new_interval = max(1, min(168, $new_interval));
+            \DMS_Sync::set_sync_interval($new_interval);
+            \tigon_dms_reschedule_sync();
+            $sync_interval = $new_interval;
+            $interval_updated = true;
+        }
+
+        $next_sync = wp_next_scheduled('tigon_dms_sync_inventory');
+        $mapped_nonce = wp_create_nonce('tigon_dms_sync_mapped_nonce');
+
+        self::page_header();
+
+        echo '
+        <div class="body" style="display:flex; flex-direction:column;">
+            <div class="action-box-group" style="grid-template-rows:auto;">
+                <div class="action-box primary" style="flex-direction:column; gap:1rem;">';
+
+        // Show sync results inline (admin.css hides .notice)
+        if ($sync_running && $sync_results) {
+            if (!empty($sync_results['success'])) {
+                $stats = $sync_results['stats'];
+                echo '
+                    <div style="background:#d4edda; border:1px solid #c3e6cb; padding:1rem; border-radius:4px; width:100%;">
+                        <h3 style="margin-top:0;">Sync Completed</h3>
+                        <ul style="list-style:disc; padding-left:1.5rem;">
+                            <li><strong>Total carts processed:</strong> ' . esc_html($stats['total']) . '</li>
+                            <li><strong>Products created:</strong> ' . esc_html($stats['created']) . '</li>
+                            <li><strong>Products updated:</strong> ' . esc_html($stats['updated']) . '</li>
+                            <li><strong>Skipped:</strong> ' . esc_html($stats['skipped']) . '</li>
+                            <li><strong>Errors:</strong> ' . esc_html($stats['errors']) . '</li>
+                        </ul>
+                    </div>';
+            } else {
+                echo '
+                    <div style="background:#f8d7da; border:1px solid #f5c6cb; padding:1rem; border-radius:4px; width:100%;">
+                        <p><strong>Sync Failed:</strong> ' . esc_html($sync_results['message'] ?? 'Unknown error') . '</p>
+                    </div>';
+            }
+        }
+
+        echo '
+                    <h2>Manual Sync</h2>
+                    <p>Manually trigger a full inventory sync from the DMS API. This may take several minutes depending on the number of carts.</p>
+                    <form method="post" action="">
+                        ' . wp_nonce_field('dms_manual_sync', 'dms_sync_nonce', true, false) . '
+                        <button type="submit" name="dms_manual_sync" class="button button-primary" style="height:auto; min-width:auto; background-color:var(--accent-color); color:var(--font-light); padding:0.5rem 1.5rem;">
+                            Sync Inventory Now
+                        </button>
+                    </form>
+                </div>
+
+                <div class="action-box primary" style="flex-direction:column; gap:1rem;">';
+
+        if ($interval_updated) {
+            echo '
+                    <div style="background:#d4edda; border:1px solid #c3e6cb; padding:0.75rem; border-radius:4px; width:100%;">
+                        <p style="margin:0;">Sync interval updated successfully.</p>
+                    </div>';
+        }
+
+        echo '
+                    <h2>Scheduled Sync</h2>
+                    <form method="post" action="" style="display:flex; flex-direction:column; gap:0.75rem; align-items:flex-start;">
+                        ' . wp_nonce_field('dms_update_interval', 'dms_interval_nonce', true, false) . '
+                        <div style="display:flex; align-items:center; gap:0.5rem;">
+                            <label for="sync_interval"><strong>Sync Interval (hours):</strong></label>
+                            <input type="number" id="sync_interval" name="sync_interval" value="' . esc_attr($sync_interval) . '" min="1" max="168" step="1" style="width:80px;" />
+                        </div>
+                        <p style="margin:0;"><small>How often to automatically sync inventory (1&ndash;168 hours).</small></p>';
+
+        if ($next_sync) {
+            echo '
+                        <p style="margin:0;"><strong>Next Scheduled Sync:</strong> ' . esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $next_sync)) . '</p>';
+        }
+
+        echo '
+                        <button type="submit" name="dms_update_interval" class="button button-primary" style="height:auto; min-width:auto; background-color:var(--accent-color); color:var(--font-light); padding:0.5rem 1.5rem;">
+                            Update Interval
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="action-box-group" style="grid-template-columns:1fr; grid-template-rows:auto;">
+                <div class="action-box primary" style="flex-direction:column; gap:1rem;">
+                    <h2>Sync Mapped Inventory (DMS Connect)</h2>
+                    <p>Re-sync all DMS carts using the DMS Connect mapping engine. This updates existing WooCommerce products with the latest DMS data using mapped database objects (attributes, taxonomies, images, SEO, etc).</p>
+                    <div style="display:flex; align-items:center; gap:0.5rem;">
+                        <button type="button" id="dms-mapped-sync-btn" class="button button-primary" style="height:auto; min-width:auto; background-color:var(--accent-color); color:var(--font-light); padding:0.5rem 1.5rem;">
+                            Sync Mapped Inventory Now
+                        </button>
+                        <span id="dms-mapped-sync-spinner" class="spinner" style="float:none; margin-top:0;"></span>
+                    </div>
+                    <div id="dms-mapped-sync-results" style="display:none; width:100%;"></div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        jQuery(document).ready(function($) {
+            $("#dms-mapped-sync-btn").on("click", function() {
+                var $btn = $(this);
+                var $spinner = $("#dms-mapped-sync-spinner");
+                var $results = $("#dms-mapped-sync-results");
+
+                $btn.prop("disabled", true).text("Syncing...");
+                $spinner.addClass("is-active");
+                $results.hide();
+
+                $.ajax({
+                    url: ajaxurl,
+                    type: "POST",
+                    data: {
+                        action: "tigon_dms_sync_mapped",
+                        nonce: ' . wp_json_encode($mapped_nonce) . '
+                    },
+                    timeout: 600000,
+                    success: function(response) {
+                        $spinner.removeClass("is-active");
+                        $btn.prop("disabled", false).text("Sync Mapped Inventory Now");
+
+                        if (response.success && response.data) {
+                            var s = response.data;
+                            var html = \'<div style="background:#d4edda;border:1px solid #c3e6cb;padding:1rem;border-radius:4px;"><h3 style="margin-top:0;">Mapped Sync Completed</h3><ul style="list-style:disc;padding-left:1.5rem;">\';
+                            html += "<li><strong>Total:</strong> " + s.total + "</li>";
+                            html += "<li><strong>Updated:</strong> " + s.updated + "</li>";
+                            html += "<li><strong>Created:</strong> " + s.created + "</li>";
+                            html += "<li><strong>Skipped:</strong> " + s.skipped + "</li>";
+                            html += "<li><strong>Errors:</strong> " + s.errors + "</li>";
+                            html += "</ul>";
+                            if (s.error_details && s.error_details.length > 0) {
+                                html += "<details><summary>Error details</summary><ul style=\'list-style:disc;padding-left:1.5rem;\'>";
+                                s.error_details.forEach(function(e) {
+                                    html += "<li>" + $("<span>").text(e).html() + "</li>";
+                                });
+                                html += "</ul></details>";
+                            }
+                            html += "</div>";
+                            $results.html(html).show();
+                        } else {
+                            $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Sync failed:</strong> \' + (response.data || "Unknown error") + "</p></div>").show();
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        $spinner.removeClass("is-active");
+                        $btn.prop("disabled", false).text("Sync Mapped Inventory Now");
+                        $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Request failed:</strong> \' + error + "</p></div>").show();
+                    }
+                });
+            });
+        });
+        </script>
+        ';
+    }
+
     public static function page_header()
     {
         $css = file_get_contents(__DIR__ . '/../../assets/css/admin.css');
@@ -648,7 +849,7 @@ class Admin_Page
         self::page_header();
 
         echo '
-        <div class="body" style="flex-direction: column;">
+        <div class="body" style="display:flex; flex-direction: column;">
             <div class="action-box-group">
                 <div class="action-box primary" id="new-status">
                     <h2>New Carts</h2>
@@ -711,7 +912,7 @@ class Admin_Page
         self::page_header();
 
         echo '
-        <div class="body">
+        <div class="body" style="display:flex;">
             <!--<div class="action-box" style="flex-direction:row;">
                 <a id="new" class="tigon_dms_action tigon_dms_import" data-nonce="' . $nonce . '" href="' . $link . '"><button>Import New Carts</button></a>
             </div>-->
@@ -806,7 +1007,7 @@ class Admin_Page
         $selected_id = isset($_GET['product_id']) ? intval($_GET['product_id']) : 0;
 
         echo '
-        <div class="body" style="flex-direction:column;">
+        <div class="body" style="display:flex; flex-direction:column;">
             <div class="action-box-group">
                 <div class="action-box primary" style="flex-direction:column; gap:1rem;">
                     <h2>DMS Products on this Site</h2>
@@ -944,7 +1145,7 @@ class Admin_Page
         $schema_short_description = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'schema_short_description'") ?? $default_short_description;
 
         echo '
-        <div class="body">
+        <div class="body" style="display:flex; flex-direction:column;">
             <div class="tabbed-panel">
                 <div class="tigon-dms-nav" style="flex-direction:row;">
                     <button class="tigon-dms-tab" id="general-tab">General</button>
