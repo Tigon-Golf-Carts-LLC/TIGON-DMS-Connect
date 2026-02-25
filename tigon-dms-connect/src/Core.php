@@ -68,7 +68,7 @@ class Core
             // Only load updater if config table exists
             if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
                 $config = array(
-                    'slug' => 'dms-bridge-plugin/dms-bridge-plugin.php',
+                    'slug' => basename(TIGON_DMS_PLUGIN_DIR) . '/dms-bridge-plugin.php',
                     'proper_folder_name' => basename(TIGON_DMS_PLUGIN_DIR),
                     'api_url' => 'https://api.github.com/repos/TigonGolfCarts/wordpress_connection',
                     'raw_url' => 'https://raw.github.com/TigonGolfCarts/wordpress_connection/main',
