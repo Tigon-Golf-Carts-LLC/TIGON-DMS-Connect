@@ -260,27 +260,46 @@ class Database_Object
     public function get_value(...$path) : mixed {
         return \Tigon\DmsConnect\Includes\Utilities::array_access($this->data, ...$path);
     }
-    
+
     /**
-     * Sets a value in the Database Object
+     * Sets a value in the Database Object.
      *
-     * @param [type] $table
-     * @param [type] $value
-     * @param [type] $key
+     * @param string $table
+     * @param mixed $value
+     * @param ?string $key
      * @return void
      */
     public function set_value($table, $value, $key = null) {
         switch($table) {
             case 'posts':
-                if($key) $this->data['posts'][$key] = $value;
+                if($key) {
+                    $this->data['posts'][$key] = $value;
+                }
                 break;
             case 'postmeta':
-                if($key) $this->data['postmeta'][$key]['meta_value'] = $value;
+                if ($key) {
+                    if (!isset($this->data['postmeta'][$key])) {
+                        $this->data['postmeta'][$key] = ['meta_key' => $key];
+                    }
+                    $this->data['postmeta'][$key]['meta_value'] = $value;
+                }
                 break;
             case 'term_relationships':
                 $this->data['term_relationships'] = $value;
                 break;
         }
+    }
+
+    /**
+     * Convenience setter for postmeta by real WordPress meta_key.
+     *
+     * @param string $meta_key
+     * @param mixed $meta_value
+     * @return void
+     */
+    public function set_postmeta_value(string $meta_key, $meta_value): void
+    {
+        $this->set_value('postmeta', $meta_value, $meta_key);
     }
 
     public static function save_to_database(Database_Object $database_object) {
@@ -303,6 +322,14 @@ class Database_Object
         global $wpdb;
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
 
+        $posts = $wpdb->get_row('SELECT * FROM ' . $wpdb->prefix . 'posts WHERE ID = ' . intval($id) . ';', ARRAY_A);
+        if (is_array($posts)) {
+            foreach($posts as $column => $value) {
+                $database_object->set_value('posts', $value, $column);
+            }
+        }
+
+        $postmeta = $wpdb->get_results('SELECT meta_key, meta_value FROM ' . $wpdb->prefix . 'postmeta WHERE post_id = ' . intval($id) . ';', ARRAY_A);
         $posts = $wpdb->get_row('SELECT * FROM '.$wpdb->prefix.'posts WHERE ID = '.$id.';', ARRAY_A);
         foreach($posts as $column => $value) {
             $database_object->set_value('posts', $value, $column);
@@ -310,15 +337,16 @@ class Database_Object
 
         $postmeta = $wpdb->get_results('SELECT * FROM '.$wpdb->prefix.'postmeta WHERE post_id = '.$id.';', ARRAY_A);
         foreach($postmeta as $row) {
-            foreach($row as $column => $value) {
-                $database_object->set_value('postmeta', $value, $column);
+            if (!empty($row['meta_key'])) {
+                $database_object->set_postmeta_value($row['meta_key'], $row['meta_value']);
             }
         }
 
+        $term_relationships = $wpdb->get_results('SELECT term_taxonomy_id FROM ' . $wpdb->prefix . 'term_relationships WHERE object_id = ' . intval($id) . ';', ARRAY_A);
         $term_relationships = $wpdb->get_results('SELECT * FROM '.$wpdb->prefix.'term_relationships WHERE object_id = '.$id.';', ARRAY_A);
         $terms = [];
         foreach($term_relationships as $row) {
-            array_push($terms, $row['term_taxonomy_id']);
+            $terms[] = $row['term_taxonomy_id'];
         }
         $database_object->set_value('term_relationships', $terms);
 

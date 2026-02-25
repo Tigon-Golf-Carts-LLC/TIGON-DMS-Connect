@@ -56,9 +56,6 @@ class REST_Routes
                         wp_delete_post($i, true);
                     }
 
-                    $monroney_url = explode('"', get_post_meta($processed_request['pid'])['monroney_sticker'][0])[1];
-                    $monroney = attachment_url_to_postid($monroney_url);
-                    wp_delete_post($monroney, true);
                 } else $processed_request['pid'] = null;
             }
 
@@ -122,12 +119,7 @@ class REST_Routes
             }
             $images = $product?->get_gallery_image_ids()??[];
 
-            // Get Monroney PDF
-            $monroney_url = explode('"', get_post_meta($request['pid'])['monroney_sticker'][0])[1];
-            $monroney = attachment_url_to_postid($monroney_url);
-
             array_push($images, $featured);
-            array_push($images, $monroney);
 
             $result = \Tigon\DmsConnect\Admin\REST_Import_Controller::import_delete(new Database_Object(id: $request['pid']));
             if (isset($result['errors'])) {

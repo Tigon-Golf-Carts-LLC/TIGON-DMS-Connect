@@ -2613,6 +2613,8 @@ class New_Cart_Converter
         ];
 
         $model_structure = [
+            'manufacturerMd' => null,
+            'modelMd' => null,
             'cartType' => [
                 'make' => null,
                 'model' => null,
@@ -2665,6 +2667,13 @@ class New_Cart_Converter
         $count = 0;
         foreach ($models as $model) {
             $populated_cart = array_replace_recursive($model_structure, $model);
+
+            if (!$populated_cart['manufacturerMd']) {
+                $populated_cart['manufacturerMd'] = $populated_cart['cartType']['make'];
+            }
+            if (!$populated_cart['modelMd']) {
+                $populated_cart['modelMd'] = $populated_cart['cartType']['model'];
+            }
             
             $populated_cart['advertising']['cartAddOns'] = ['Standard Add Ons'];
             $populated_cart['addedFeatures']['stockOptions'] = true;
@@ -2685,13 +2694,87 @@ class New_Cart_Converter
         exit;
     }
 
+    /**
+     * Resolve a default new-cart template from full payload data.
+     * This supports dynamic make/model naming changes while preserving existing mappings.
+     *
+     * @param array $cart_data
+     * @return array|WP_Error
+     */
+    public function get_specific_from_payload(array $cart_data)
+    {
+        $model = (string) ($cart_data['cartType']['model'] ?? '');
+        $make = (string) ($cart_data['cartType']['make'] ?? '');
+
+        $candidate_model_keys = $this->model_variants($model);
+        $candidate_make_keys = $this->model_variants($make);
+
+        foreach ($this->new_carts as $cart) {
+            $existing_model = (string) ($cart['cartType']['model'] ?? '');
+            $existing_make = (string) ($cart['cartType']['make'] ?? '');
+
+            if (!in_array($this->normalize_lookup_key($existing_model), $candidate_model_keys, true)) {
+                continue;
+            }
+
+            if (!empty($make) && !in_array($this->normalize_lookup_key($existing_make), $candidate_make_keys, true)) {
+                continue;
+            }
+
+            return $cart;
+        }
+
+        return new WP_Error(400, 'Specified cart not in list.', $model);
+    }
+
     public function get_specific($model)
     {
+        $candidate_model_keys = $this->model_variants((string)$model);
+
         foreach ($this->new_carts as $cart) {
-            if ($cart['cartType']['model'] == $model) {
+            $existing_model = (string) ($cart['cartType']['model'] ?? '');
+            if (in_array($this->normalize_lookup_key($existing_model), $candidate_model_keys, true)) {
                 return $cart;
             }
         }
+
         return new WP_Error(400, 'Specified cart not in list.', "$model");
+    }
+
+    /**
+     * Normalize names for reliable model/make matching as names evolve.
+     *
+     * @param string $value
+     * @return string
+     */
+    protected function normalize_lookup_key(string $value): string
+    {
+        $value = strtolower(trim($value));
+        $value = preg_replace('/\bplus\b/', '+', $value);
+        $value = preg_replace('/[^a-z0-9]+/', '', $value);
+        return (string) $value;
+    }
+
+    /**
+     * Build model variants (e.g. "D5 Plus" and "D5+") for tolerant matching.
+     *
+     * @param string $model
+     * @return array<int,string>
+     */
+    protected function model_variants(string $model): array
+    {
+        $raw = trim($model);
+        if ($raw === '') {
+            return [];
+        }
+
+        $variants = [
+            $this->normalize_lookup_key($raw),
+            $this->normalize_lookup_key(preg_replace('/\+$/', ' Plus', $raw)),
+            $this->normalize_lookup_key(str_replace(' Plus', '+', $raw)),
+            $this->normalize_lookup_key(str_replace('+', ' Plus', $raw)),
+        ];
+
+        return array_values(array_unique(array_filter($variants)));
     }
 }

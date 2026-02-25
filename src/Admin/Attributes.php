@@ -152,8 +152,97 @@ class Attributes
             "state_id" => 72816,
             "phone" => "1-844-844-6638",
             "url" => ""
+        ],
+        "NATIONAL" => [
+            "address" => "",
+            "city" => "National",
+            "city_short" => "National",
+            "state" => "US",
+            "st" => "US",
+            "zip" => "",
+            "city_id" => 0,
+            "state_id" => 0,
+            "phone" => "",
+            "url" => ""
         ]
     ];
+
+    public static function resolve_location_id($cart_location): string
+    {
+        $location_id = 'T1';
+        $latest_store_id = null;
+
+        if (is_array($cart_location)) {
+            $location_id = $cart_location['locationId'] ?? 'T1';
+            $latest_store_id = $cart_location['latestStoreId'] ?? null;
+        } else if (is_string($cart_location) && $cart_location !== '') {
+            $location_id = $cart_location;
+        }
+
+        if ($location_id === 'Other' && $latest_store_id) {
+            $location_id = $latest_store_id;
+        }
+
+        if (isset(self::$locations[$location_id])) {
+            return $location_id;
+        }
+
+        if ($latest_store_id && isset(self::$locations[$latest_store_id])) {
+            return $latest_store_id;
+        }
+
+        if (strtoupper((string)$location_id) === 'NATIONAL' && isset(self::$locations['NATIONAL'])) {
+            return 'NATIONAL';
+        }
+
+        return isset(self::$locations['T1']) ? 'T1' : array_key_first(self::$locations);
+    }
+
+    public static function load_custom_locations()
+    {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'tigon_dms_config';
+        $json = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'locations_json'");
+        if (!$json) {
+            return;
+        }
+
+        $custom_locations = json_decode($json, true);
+        if (!is_array($custom_locations)) {
+            return;
+        }
+
+        foreach ($custom_locations as $location_id => $location_data) {
+            if (!is_array($location_data)) {
+                continue;
+            }
+
+            if (!preg_match('/^(T\d+|NATIONAL)$/', strtoupper($location_id))) {
+                continue;
+            }
+
+            self::$locations[$location_id] = array_merge(
+                self::$locations[$location_id] ?? [],
+                [
+                    'address' => $location_data['address'] ?? '',
+                    'city' => $location_data['city'] ?? ($location_data['city_short'] ?? ''),
+                    'city_short' => $location_data['city_short'] ?? null,
+                    'state' => $location_data['state'] ?? '',
+                    'st' => $location_data['st'] ?? '',
+                    'zip' => $location_data['zip'] ?? '',
+                    'city_id' => intval($location_data['city_id'] ?? 0),
+                    'state_id' => intval($location_data['state_id'] ?? 0),
+                    'location_term_id' => intval($location_data['location_term_id'] ?? ($location_data['city_id'] ?? 0)),
+                    't_location_term_id' => intval($location_data['t_location_term_id'] ?? 0),
+                    'phone' => $location_data['phone'] ?? '',
+                    'url' => $location_data['url'] ?? '',
+                    'google_cid' => $location_data['google_cid'] ?? '',
+                    'facebook_url' => $location_data['facebook_url'] ?? '',
+                    'youtube_url' => $location_data['youtube_url'] ?? '',
+                ]
+            );
+        }
+    }
 
     //Automatically propagated
     public $categories = [];

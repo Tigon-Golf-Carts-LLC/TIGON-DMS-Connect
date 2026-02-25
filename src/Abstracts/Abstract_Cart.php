@@ -432,10 +432,7 @@ abstract class Abstract_Cart
      * @return void
      */
     protected function generate_location_data() {
-        $this->location_id = $this->cart['cartLocation']['locationId'];
-        if($this->location_id === "Other") {
-            $this->location_id = $this->cart['cartLocation']['latestStoreId'] ?? 'T1';
-        }
+        $this->location_id = Attributes::resolve_location_id($this->cart['cartLocation'] ?? []);
 
         // Fallback to T1 if location is not recognized
         if (!isset(Attributes::$locations[$this->location_id])) {
@@ -568,60 +565,65 @@ abstract class Abstract_Cart
 
 
     /**
-     * Sideload and/or Initialize monroney_sticker
+     * Initialize monroney_sticker as an external image embed URL only.
+     *
+     * Monroney stickers should never be sideloaded into WordPress media.
      *
      * @return void
      */
     protected function fetch_monroney()
     {
-        add_filter('image_sideload_extensions', function ($accepted_extensions) {
-            $accepted_extensions[] = 'pdf';
-            return $accepted_extensions;
-        });
-
         $this->monroney_sticker = null;
 
-        if (isset($this->cart['_id'])) {
-            $site_monroney_url = '';
-            $monroney_name = $this->generate_monroney_name();
-
-            $remote_monroney_name = $this->cart['_id'] . '.pdf';
-            $args = array(
-                'post_type' => 'attachment',
-                'name' => sanitize_title($monroney_name),
-                'posts_per_page' => 1,
-                'post_status' => 'inherit',
-            );
-            $_mheader = get_posts($args);
-            $mheader = $_mheader ? array_pop($_mheader) : false;
-            $site_monroney_url = $mheader ? wp_get_attachment_url($mheader->ID) : '';
-
-            // Delete outdated monroney
-            if ($mheader !== false)
-                wp_delete_post($mheader->ID, false);
-
-            // $site_monroney_url = media_sideload_image(file: "https://s3.amazonaws.com/prod.docs.s3/cart-window-stickers/$remote_monroney_name", desc: $this->name . ' ' . $this->sku . ' Monroney Sticker', return_type: 'src');
-            $monroney_filename = preg_replace('/\s+/', '-', strtolower($monroney_name));
-            $monroney_data = [
-                'post_title' => $monroney_name,
-                'post_content' => $this->name,
-                '_wp_attachment_image_alt' => $this->name
-            ];
-
-            $site_monroney_url = \Tigon\DmsConnect\Includes\Somatic::attach_external_image(
-                url: "$this->file_source/cart-window-stickers/$remote_monroney_name",
-                filename: $monroney_filename,
-                post_data: $monroney_data,
-                return: 'url'
-            );
-
-
-
-            if (is_wp_error($site_monroney_url))
-                $site_monroney_url = '';
-
-            $this->monroney_sticker = '[pdf-embedder url="' . $site_monroney_url . '"]';
+        $monroney_url = $this->resolve_monroney_url();
+        if (empty($monroney_url)) {
+            return;
         }
+
+        $safe_url = esc_url_raw($monroney_url);
+        if (empty($safe_url)) {
+            return;
+        }
+
+        $alt = esc_attr($this->name . ' Monroney Sticker');
+        $this->monroney_sticker = '<img class="dms-monroney-sticker-image" src="' . $safe_url . '" alt="' . $alt . '" loading="lazy" decoding="async" />';
+    }
+
+    /**
+     * Resolve monroney image URL from payload, then fallback to bucket URL convention.
+     *
+     * @return string
+     */
+    protected function resolve_monroney_url()
+    {
+        $candidates = [];
+
+        if (!empty($this->cart['monroney']) && is_array($this->cart['monroney'])) {
+            foreach (['image', 'imageUrl', 'imageURL', 'url', 'link', 'src'] as $key) {
+                if (!empty($this->cart['monroney'][$key]) && is_string($this->cart['monroney'][$key])) {
+                    $candidates[] = $this->cart['monroney'][$key];
+                }
+            }
+        }
+
+        foreach (['monroneyImage', 'monroneyImageUrl', 'monroneyImageURL', 'monroneyUrl', 'monroneyURL', 'windowStickerImage', 'windowStickerImageUrl', 'windowStickerUrl'] as $key) {
+            if (!empty($this->cart[$key]) && is_string($this->cart[$key])) {
+                $candidates[] = $this->cart[$key];
+            }
+        }
+
+        foreach ($candidates as $candidate) {
+            $candidate = trim((string) $candidate);
+            if (!empty($candidate) && wp_http_validate_url($candidate)) {
+                return $candidate;
+            }
+        }
+
+        if (!empty($this->cart['_id'])) {
+            return trailingslashit($this->file_source) . 'cart-window-stickers/' . $this->cart['_id'] . '.png';
+        }
+
+        return '';
     }
 
     protected function generate_monroney_name()
@@ -655,34 +657,41 @@ abstract class Abstract_Cart
             $tag_seats = $this->number_seats . ' SEATS';
         }
 
+        $manufacturer_term_keys = $this->get_manufacturer_term_keys();
+        $manufacturer_term_key = $manufacturer_term_keys[0];
+        $manufacturer_category_id = $this->find_first_existing_term_id(
+            $this->generated_attributes->categories,
+            $manufacturer_term_keys
+        );
+        $model_category_id = $this->find_first_existing_term_id(
+            $this->generated_attributes->categories,
+            $this->get_model_term_keys()
+        );
+
         // make
-        if (strtoupper($this->make_with_symbol) == 'SWIFT EV®') {
+        if ($manufacturer_term_key == 'SWIFT®') {
             array_push(
                 $this->taxonomy_terms,
                 $this->generated_attributes->categories['SWIFT®'],
                 $this->generated_attributes->tags['SWIFT®']
             );
-        } else if (strtoupper($this->make_with_symbol) == 'EZGO®') {
+        } else if ($manufacturer_term_key == 'EZ-GO®') {
             array_push(
                 $this->taxonomy_terms,
                 $this->generated_attributes->categories['EZ-GO®'],
                 $this->generated_attributes->tags['EZGO®']
             );
-        } else {
+        } else if ($manufacturer_category_id) {
             array_push(
                 $this->taxonomy_terms,
-                $this->generated_attributes->categories[strtoupper($this->make_with_symbol)],
+                $manufacturer_category_id,
                 $this->generated_attributes->tags[strtoupper($this->make_with_symbol)]
             );
         }
 
         // make and model
-        if (isset($this->generated_attributes->categories[strtoupper($cat_make_model)])) {
-            if ($this->make_with_symbol === 'EZGO®') {
-                array_push($this->taxonomy_terms, $this->generated_attributes->categories[strtoupper('EZ-GO® ' . $this->cart['cartType']['model'])]);
-            } else {
-                array_push($this->taxonomy_terms, $this->generated_attributes->categories[strtoupper($cat_make_model)]);
-            }
+        if ($model_category_id) {
+            array_push($this->taxonomy_terms, $model_category_id);
         }
 
 
@@ -858,7 +867,103 @@ abstract class Abstract_Cart
         /*
          * Primary Category ID
          */
-        $this->primary_category = $this->generated_attributes->categories[strtoupper($this->make_with_symbol)];
+        $this->primary_category = $model_category_id ?: $manufacturer_category_id;
+    }
+
+    protected function get_manufacturer_term_keys(): array
+    {
+        $raw_make_key = trim($this->cart['manufacturerMd'] ?? $this->make_with_symbol ?? '');
+        $normalized_make_key = $this->normalize_taxonomy_key($raw_make_key);
+
+        $primary_key = match ($normalized_make_key) {
+            'SWIFT EV', 'SWIFT' => 'SWIFT®',
+            'STAR', 'STAR EV' => 'STAR EV®',
+            'EZGO', 'E Z GO' => 'EZ-GO®',
+            default => strtoupper($raw_make_key),
+        };
+
+        return array_values(array_unique(array_filter([
+            $primary_key,
+            strtoupper($raw_make_key),
+            strtoupper($this->make_with_symbol ?? ''),
+            strtoupper($this->cart['cartType']['make'] ?? ''),
+        ])));
+    }
+
+    protected function get_manufacturer_term_key(): string
+    {
+        $keys = $this->get_manufacturer_term_keys();
+
+        return $keys[0] ?? strtoupper($this->make_with_symbol ?? '');
+    }
+
+    protected function get_model_term_keys(): array
+    {
+        $manufacturer_keys = $this->get_manufacturer_term_keys();
+        $model_keys = array_values(array_unique(array_filter([
+            strtoupper(trim($this->cart['modelMd'] ?? '')),
+            strtoupper(trim($this->cart['cartType']['model'] ?? '')),
+        ])));
+
+        $keys = [];
+
+        foreach ($manufacturer_keys as $manufacturer_key) {
+            foreach ($model_keys as $model_key) {
+                switch ($model_key) {
+                    case 'DS':
+                        $keys[] = $manufacturer_key . ' DS ELECTRIC';
+                        break;
+                    case 'PRECEDENT':
+                        $keys[] = $manufacturer_key . ' PRECEDENT ELECTRIC';
+                        break;
+                    case '4L':
+                        $keys[] = $manufacturer_key . ' CROWN 4 LIFTED';
+                        break;
+                    case '6L':
+                        $keys[] = $manufacturer_key . ' CROWN 6 LIFTED';
+                        break;
+                    case 'DRIVE 2':
+                        $keys[] = $manufacturer_key . ' DRIVE2';
+                        break;
+                }
+
+                $keys[] = $manufacturer_key . ' ' . $model_key;
+            }
+        }
+
+        return array_values(array_unique(array_filter($keys)));
+    }
+
+    protected function find_first_existing_term_id(array $terms, array $keys): ?int
+    {
+        foreach ($keys as $key) {
+            if (isset($terms[$key])) {
+                return $terms[$key];
+            }
+        }
+
+        $normalized_term_map = [];
+        foreach ($terms as $key => $term_id) {
+            $normalized_term_map[$this->normalize_taxonomy_key($key)] = $term_id;
+        }
+
+        foreach ($keys as $key) {
+            $normalized_key = $this->normalize_taxonomy_key($key);
+            if (isset($normalized_term_map[$normalized_key])) {
+                return $normalized_term_map[$normalized_key];
+            }
+        }
+
+        return null;
+    }
+
+    protected function normalize_taxonomy_key(string $value): string
+    {
+        $value = strtoupper($value);
+        $value = preg_replace('/[®™]/u', '', $value);
+        $value = preg_replace('/[^A-Z0-9]+/u', ' ', $value);
+
+        return trim(preg_replace('/\s+/', ' ', $value));
     }
 
 
@@ -1144,71 +1249,39 @@ abstract class Abstract_Cart
 
     protected function attach_taxonomies()
     {
+        $location_data = Attributes::$locations[$this->location_id] ?? [];
+
         // Location
-        array_push($this->taxonomy_terms, Attributes::$locations[$this->location_id]['city_id']);
-        array_push($this->taxonomy_terms, Attributes::$locations[$this->location_id]['state_id']);
-        $this->primary_location = Attributes::$locations[$this->location_id]['city_id'];
+        if (!empty($location_data['location_term_id'])) {
+            array_push($this->taxonomy_terms, $location_data['location_term_id']);
+            $this->primary_location = $location_data['location_term_id'];
+        } else {
+            if (!empty($location_data['city_id'])) array_push($this->taxonomy_terms, $location_data['city_id']);
+            if (!empty($location_data['state_id'])) array_push($this->taxonomy_terms, $location_data['state_id']);
+            $this->primary_location = $location_data['city_id'] ?? null;
+        }
+        if (!empty($location_data['t_location_term_id'])) {
+            array_push($this->taxonomy_terms, $location_data['t_location_term_id']);
+        }
 
         // Manufacturers
-        if (strtoupper($this->make_with_symbol) == 'SWIFT EV®') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->manufacturers_taxonomy['SWIFT®']
-            );
-        } else if (strtoupper($this->make_with_symbol) == 'STAR®') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->manufacturers_taxonomy['STAR EV®']
-            );
-        } else {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->manufacturers_taxonomy[strtoupper($this->make_with_symbol)]
-            );
+        $manufacturer_taxonomy_id = $this->find_first_existing_term_id(
+            $this->generated_attributes->manufacturers_taxonomy,
+            $this->get_manufacturer_term_keys()
+        );
+        if ($manufacturer_taxonomy_id) {
+            array_push($this->taxonomy_terms, $manufacturer_taxonomy_id);
         }
 
         // Models
-        if ($this->cart['cartType']['model'] == 'DS') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' DS ELECTRIC']
-            );
-        } else if ($this->cart['cartType']['model'] == 'Precedent') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' PRECEDENT ELECTRIC']
-            );
-        } else if ($this->cart['cartType']['model'] == '4L') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' CROWN 4 LIFTED']
-            );
-        } else if ($this->cart['cartType']['model'] == '6L') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' CROWN 6 LIFTED']
-            );
-        } else if ($this->cart['cartType']['model'] == 'Drive 2') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' DRIVE2']
-            );
-        } else if (strtoupper($this->make_with_symbol) == 'STAR®') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy['STAR EV®' . ' ' . strtoupper($this->cart['cartType']['model'])]
-            );
-        } else if (strtoupper($this->make_with_symbol) == 'EZGO®') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy['EZ-GO®' . ' ' . strtoupper($this->cart['cartType']['model'])]
-            );
-        } else {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol . ' ' . $this->cart['cartType']['model'])]
-            );
+        $model_taxonomy_id = $this->find_first_existing_term_id(
+            $this->generated_attributes->models_taxonomy,
+            $this->get_model_term_keys()
+        );
+        if ($model_taxonomy_id) {
+            array_push($this->taxonomy_terms, $model_taxonomy_id);
         }
+        $this->primary_model = $model_taxonomy_id;
 
         // Sound Systems
         if (strtoupper($this->make_with_symbol) == 'SWIFT®') {

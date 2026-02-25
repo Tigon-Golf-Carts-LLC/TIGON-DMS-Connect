@@ -29,6 +29,8 @@ class Ajax_Settings_Controller
             if($file_source && substr($file_source,0,4) !== 'http') $file_source = 'https://'.$file_source;
             if(substr($file_source,-1) === '/') $file_source = substr_replace($file_source,'',-1);
 
+            $locations_json = stripcslashes($_REQUEST['data']['locations_json'] ?? '');
+
             // Ensure rows exist
             if(!$wpdb->query("SELECT * FROM $table_name WHERE option_name = 'github_token'"))
                 $wpdb->insert($table_name, ['option_name' => 'github_token']);
@@ -45,6 +47,9 @@ class Ajax_Settings_Controller
             if(!$wpdb->query("SELECT * FROM $table_name WHERE option_name = 'file_source'"))
                 $wpdb->insert($table_name, ['option_name' => 'file_source']);
 
+            if(!$wpdb->query("SELECT * FROM $table_name WHERE option_name = 'locations_json'"))
+                $wpdb->insert($table_name, ['option_name' => 'locations_json']);
+
             // Write setting to DB
             if(!empty($github_token)) {
                 $wpdb->update($table_name, ['option_value' => $github_token], ['option_name' => 'github_token']);
@@ -59,6 +64,8 @@ class Ajax_Settings_Controller
             if(!empty($file_source)) {
                 $wpdb->update($table_name, ['option_value' => $file_source], ['option_name' => 'file_source']);
             }
+            $wpdb->update($table_name, ['option_value' => $locations_json], ['option_name' => 'locations_json']);
+            \Tigon\DmsConnect\Admin\Attributes::load_custom_locations();
 
             echo true;
         } else {
