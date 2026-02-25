@@ -68,7 +68,7 @@ class Core
             // Only load updater if config table exists
             if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
                 $config = array(
-                    'slug' => 'dms-bridge-plugin/dms-bridge-plugin.php',
+                    'slug' => basename(TIGON_DMS_PLUGIN_DIR) . '/dms-bridge-plugin.php',
                     'proper_folder_name' => basename(TIGON_DMS_PLUGIN_DIR),
                     'api_url' => 'https://api.github.com/repos/TigonGolfCarts/wordpress_connection',
                     'raw_url' => 'https://raw.github.com/TigonGolfCarts/wordpress_connection/main',
@@ -192,7 +192,7 @@ class Core
             "rims"
         ];
 
-        $product_id = is_callable(array($object, 'get_id')) ? $object->get_id() : (!empty($$object->ID) ? $object->ID : null);
+        $product_id = is_callable(array($object, 'get_id')) ? $object->get_id() : (!empty($object->ID) ? $object->ID : null);
         $params = $request->get_params();
         foreach ($numeric_taxonomies as $taxonomy) {
             $terms = isset($params[$taxonomy]) ? $params[$taxonomy] : array();
@@ -295,6 +295,7 @@ class Core
     ) $charset_collate;";
 
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        ob_start();
         dbDelta($sql);
 
         // Create cart lists table
@@ -307,6 +308,7 @@ class Core
     ) $charset_collate;";
 
         dbDelta($sql);
+        ob_end_clean();
 
         $github_token = $wpdb->get_var("SELECT option_name FROM $table_name WHERE option_name = 'github_token'");
         if($github_token === null) $wpdb->insert(
