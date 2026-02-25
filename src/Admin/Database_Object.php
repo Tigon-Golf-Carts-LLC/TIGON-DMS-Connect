@@ -303,19 +303,32 @@ class Database_Object
         global $wpdb;
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
 
-        $posts = $wpdb->get_row('SELECT * FROM '.$wpdb->prefix.'posts WHERE ID = '.$id.';', ARRAY_A);
-        foreach($posts as $column => $value) {
-            $database_object->set_value('posts', $value, $column);
+        $id = absint($id);
+
+        $posts = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}posts WHERE ID = %d",
+            $id
+        ), ARRAY_A);
+        if ($posts) {
+            foreach($posts as $column => $value) {
+                $database_object->set_value('posts', $value, $column);
+            }
         }
 
-        $postmeta = $wpdb->get_results('SELECT * FROM '.$wpdb->prefix.'postmeta WHERE post_id = '.$id.';', ARRAY_A);
+        $postmeta = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}postmeta WHERE post_id = %d",
+            $id
+        ), ARRAY_A);
         foreach($postmeta as $row) {
             foreach($row as $column => $value) {
                 $database_object->set_value('postmeta', $value, $column);
             }
         }
 
-        $term_relationships = $wpdb->get_results('SELECT * FROM '.$wpdb->prefix.'term_relationships WHERE object_id = '.$id.';', ARRAY_A);
+        $term_relationships = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}term_relationships WHERE object_id = %d",
+            $id
+        ), ARRAY_A);
         $terms = [];
         foreach($term_relationships as $row) {
             array_push($terms, $row['term_taxonomy_id']);

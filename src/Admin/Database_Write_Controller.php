@@ -21,9 +21,11 @@ final class Database_Write_Controller {
             foreach($database_object->get_value('postmeta') as $meta) {
                 if(isset($meta['meta_value'])) {
                     $meta['post_id'] = $post_id;
-                    if($wpdb->query(
-                        'SELECT meta_id FROM '.$wpdb->prefix.'postmeta WHERE post_id = '.$post_id.' AND meta_key = "'.$meta['meta_key'].'";'
-                    )) {
+                    if($wpdb->get_var($wpdb->prepare(
+                        "SELECT meta_id FROM {$wpdb->prefix}postmeta WHERE post_id = %d AND meta_key = %s",
+                        $post_id,
+                        $meta['meta_key']
+                    ))) {
                         $wpdb->update($wpdb->prefix.'postmeta', $meta, [
                             'post_id' => $post_id,
                             'meta_key' => $meta['meta_key']

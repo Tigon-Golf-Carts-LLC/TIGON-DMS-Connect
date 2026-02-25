@@ -58,11 +58,12 @@ class REST_Product_Grid_Controller
                 GROUP BY lists.location_name;'
             );
 
-            $like_statements = array_map(function($e) {
-                return "posts.post_name NOT LIKE '%$e%'";
+            $like_statements = array_map(function($e) use ($wpdb) {
+                $escaped = $wpdb->esc_like($e);
+                return $wpdb->prepare("posts.post_name NOT LIKE %s", '%' . $escaped . '%');
             }, $set_locations);
             $like_statements = implode(' AND ', $like_statements);
-            
+
             $unset_landing_pages = $wpdb->get_col(
                 'SELECT posts.ID FROM '.$wpdb->prefix.'posts AS posts
                 WHERE posts.post_type = "page" AND posts.post_title LIKE "New % Used Golf Carts%"
@@ -166,11 +167,20 @@ class REST_Product_Grid_Controller
         global $wpdb;
         $table_name = $wpdb->prefix . "postmeta";
 
-        $meta_id = $wpdb->get_var("SELECT meta_id FROM $table_name WHERE post_id = '$page_id' AND meta_key = '_elementor_data'");
+        $page_id = absint($page_id);
+        $meta_id = $wpdb->get_var($wpdb->prepare(
+            "SELECT meta_id FROM $table_name WHERE post_id = %d AND meta_key = %s",
+            $page_id,
+            '_elementor_data'
+        ));
 
-        $elementor = $wpdb->get_var("SELECT meta_value FROM $table_name WHERE meta_id = '$meta_id'");
+        $meta_id = absint($meta_id);
+        $elementor = $wpdb->get_var($wpdb->prepare(
+            "SELECT meta_value FROM $table_name WHERE meta_id = %d",
+            $meta_id
+        ));
         $elementor = json_decode($elementor, true)??[];
-        return array('elementor'=>$elementor,'meta_id'=>$meta_id);  
+        return array('elementor'=>$elementor,'meta_id'=>$meta_id);
     }
 
     /**
@@ -230,14 +240,35 @@ class REST_Product_Grid_Controller
         $table_name = $wpdb->prefix . "postmeta";
         $table_posts = $wpdb->prefix . "posts";
 
-        $meta_id_product_archive = $wpdb->get_results("SELECT pm.post_id, p.post_title FROM $table_name as pm JOIN $table_posts as p ON p.id=pm.post_id WHERE pm.meta_value = 'product-archive' AND pm.meta_key = '_elementor_template_type' AND p.id NOT IN ( '" . implode( "', '" , $archive_not_in ) . "' )",ARRAY_A);
+        $archive_not_in = array_map('absint', $archive_not_in);
+        $not_in_placeholders = implode(',', array_fill(0, count($archive_not_in), '%d'));
+        $meta_id_product_archive = $wpdb->get_results($wpdb->prepare(
+            "SELECT pm.post_id, p.post_title FROM $table_name as pm JOIN $table_posts as p ON p.id=pm.post_id WHERE pm.meta_value = 'product-archive' AND pm.meta_key = '_elementor_template_type' AND p.id NOT IN ($not_in_placeholders)",
+            ...$archive_not_in
+        ), ARRAY_A);
 
-        $post_ids = implode(',',array_column($meta_id_product_archive, 'post_id'));
+        $post_ids = array_map('absint', array_column($meta_id_product_archive, 'post_id'));
+        if (empty($post_ids)) {
+            $meta_ids = [];
+            $elementor_array = [];
+        } else {
+            $post_id_placeholders = implode(',', array_fill(0, count($post_ids), '%d'));
+            $meta_ids = $wpdb->get_results($wpdb->prepare(
+                "SELECT meta_id FROM $table_name WHERE post_id IN ($post_id_placeholders) AND meta_key = '_elementor_data'",
+                ...$post_ids
+            ), ARRAY_A);
 
-        $meta_ids = $wpdb->get_results("SELECT meta_id FROM $table_name WHERE post_id IN (".$post_ids.") AND meta_key = '_elementor_data'",ARRAY_A);
-        $meta_ids_implode = implode(',',array_column($meta_ids, 'meta_id'));
-
-        $elementor_array = $wpdb->get_results("SELECT meta_value,meta_id FROM $table_name WHERE meta_id IN (".$meta_ids_implode.")",ARRAY_A);
+            $meta_id_values = array_map('absint', array_column($meta_ids, 'meta_id'));
+            if (empty($meta_id_values)) {
+                $elementor_array = [];
+            } else {
+                $meta_id_placeholders = implode(',', array_fill(0, count($meta_id_values), '%d'));
+                $elementor_array = $wpdb->get_results($wpdb->prepare(
+                    "SELECT meta_value, meta_id FROM $table_name WHERE meta_id IN ($meta_id_placeholders)",
+                    ...$meta_id_values
+                ), ARRAY_A);
+            }
+        }
 
         if (isset($data['popularCarts']) && !empty($elementor_array)) {
             foreach($elementor_array as $key=>$value){
@@ -280,7 +311,11 @@ class REST_Product_Grid_Controller
         $insert_table = $wpdb->prefix . "tigon_dms_cart_lists";
 
         //Insert new data in table 'dev_tigon_dms_cart_lists'
-        $value_check = $wpdb->query("SELECT * FROM $insert_table WHERE location_name = '$location_name' AND list_name = '$list_name'");
+        $value_check = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $insert_table WHERE location_name = %s AND list_name = %s",
+            $location_name,
+            $list_name
+        ));
 
         array_filter($ids);
 
@@ -315,12 +350,19 @@ class REST_Product_Grid_Controller
      */
     private static function replenish_grid(array $list, int $size, array $filters) {
         $filters = array_filter($filters, function($e) {return $e != 'national';});
+        // Sanitize filters to alphanumeric and hyphens only (for use as SQL aliases)
+        $filters = array_map(function($f) {
+            return preg_replace('/[^a-zA-Z0-9_\-]/', '', $f);
+        }, $filters);
 
         global $wpdb;
         $posts = $wpdb->prefix . 'posts';
         $postmeta = $wpdb->prefix . 'postmeta';
         $term_relationships = $wpdb->prefix . 'term_relationships';
         $terms = $wpdb->prefix . 'terms';
+
+        // Sanitize list IDs
+        $list = array_map('absint', $list);
 
         // posts                -> p
         // postmeta             -> m
@@ -332,34 +374,39 @@ class REST_Product_Grid_Controller
             'p.post_status',
             'MAX(CASE WHEN t.slug LIKE "local-new-active-inventory" OR t.slug LIKE "local-used-active-inventory" THEN TRUE ELSE FALSE END) as local'
         ];
+
+        $not_in_list = !empty($list) ? implode(', ', $list) : '0';
         $conditions = [
-            'a.ID NOT IN ('.implode(', ', $list).')',
+            "a.ID NOT IN ($not_in_list)",
             'a.post_status = "publish"',
             'a.local = TRUE'
         ];
 
         foreach($filters as $filter) {
-            $column = "MAX(CASE WHEN t.slug = '$filter' THEN TRUE ELSE FALSE END) as $filter";
+            $safe_alias = '`' . str_replace('`', '', $filter) . '`';
+            $escaped_slug = esc_sql($filter);
+            $column = "MAX(CASE WHEN t.slug = '$escaped_slug' THEN TRUE ELSE FALSE END) as $safe_alias";
             array_push($columns, $column);
 
-            $condition = "a.$filter = TRUE";
+            $condition = "a.$safe_alias = TRUE";
             array_push($conditions, $condition);
         }
 
         $columns = implode(', ', $columns);
         $conditions = implode(' AND ', $conditions);
 
-        $limit = $size - count($list);
+        $limit = max(0, $size - count($list));
+        $limit = absint($limit);
 
         $query = "SELECT * FROM
         (
             SELECT $columns
-        
-            FROM $posts AS p 
+
+            FROM $posts AS p
             JOIN $term_relationships AS r ON p.ID = r.object_id
             JOIN $terms AS t ON r.term_taxonomy_id = t.term_id
             RIGHT JOIN $postmeta AS m ON p.ID = m.post_id AND m.meta_key = '_stock_status'
-        
+
             WHERE post_type = 'product'
             AND m.meta_value = 'instock'
             GROUP BY p.ID

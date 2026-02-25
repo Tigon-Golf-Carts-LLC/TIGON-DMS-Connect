@@ -67,8 +67,9 @@ class Core
             $table_name = $wpdb->prefix . 'tigon_dms_config';
             // Only load updater if config table exists
             if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
+                $plugin_slug = basename(TIGON_DMS_PLUGIN_DIR) . '/dms-bridge-plugin.php';
                 $config = array(
-                    'slug' => 'dms-bridge-plugin/dms-bridge-plugin.php',
+                    'slug' => $plugin_slug,
                     'proper_folder_name' => basename(TIGON_DMS_PLUGIN_DIR),
                     'api_url' => 'https://api.github.com/repos/TigonGolfCarts/wordpress_connection',
                     'raw_url' => 'https://raw.github.com/TigonGolfCarts/wordpress_connection/main',
@@ -78,7 +79,9 @@ class Core
                     'requires' => '3.0',
                     'tested' => '3.3',
                     'readme' => 'README.md',
-                    'access_token' => $wpdb->get_var('SELECT option_value FROM ' . $table_name . ' WHERE option_name = "github_token"'),
+                    'access_token' => $wpdb->get_var(
+                        $wpdb->prepare("SELECT option_value FROM $table_name WHERE option_name = %s", 'github_token')
+                    ),
                 );
                 new \Tigon\DmsConnect\Includes\WP_GitHub_Updater($config);
             }
@@ -246,25 +249,91 @@ class Core
     {
         register_rest_route('tigon-dms-connect', 'used', [
             'methods' => \WP_REST_Server::CREATABLE,
-            'callback' => 'Tigon\DmsConnect\Admin\REST_Routes::push_used_cart'
+            'callback' => 'Tigon\DmsConnect\Admin\REST_Routes::push_used_cart',
+            'permission_callback' => 'Tigon\DmsConnect\Core::verify_dms_auth_token',
         ]);
         register_rest_route('tigon-dms-connect', 'used', [
             'methods' => \WP_REST_Server::DELETABLE,
-            'callback' => 'Tigon\DmsConnect\Admin\REST_Routes::delete_used_cart'
+            'callback' => 'Tigon\DmsConnect\Admin\REST_Routes::delete_used_cart',
+            'permission_callback' => 'Tigon\DmsConnect\Core::verify_dms_auth_token',
         ]);
 
         register_rest_route('tigon-dms-connect', 'new/update', [
             'methods' => \WP_REST_Server::CREATABLE,
-            'callback' => 'Tigon\DmsConnect\Admin\REST_Routes::push_new_cart'
+            'callback' => 'Tigon\DmsConnect\Admin\REST_Routes::push_new_cart',
+            'permission_callback' => 'Tigon\DmsConnect\Core::verify_dms_auth_token',
         ]);
         register_rest_route('tigon-dms-connect', 'new/pid', [
             'methods' => \WP_REST_Server::CREATABLE,
-            'callback' => 'Tigon\DmsConnect\Admin\REST_Routes::id_by_slug'
+            'callback' => 'Tigon\DmsConnect\Admin\REST_Routes::id_by_slug',
+            'permission_callback' => 'Tigon\DmsConnect\Core::verify_dms_auth_token',
         ]);
         register_rest_route('tigon-dms-connect', 'showcase', [
             'methods' => \WP_REST_Server::CREATABLE,
-            'callback' => 'Tigon\DmsConnect\Admin\REST_Routes::set_grid'
+            'callback' => 'Tigon\DmsConnect\Admin\REST_Routes::set_grid',
+            'permission_callback' => 'Tigon\DmsConnect\Core::verify_dms_auth_token',
         ]);
+    }
+
+    /**
+     * Verify that incoming REST requests include a valid DMS auth token.
+     * Accepts the token via the X-Auth-Token header or Authorization: Bearer header.
+     *
+     * @param \WP_REST_Request $request
+     * @return bool|\WP_Error
+     */
+    public static function verify_dms_auth_token($request)
+    {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'tigon_dms_config';
+
+        $stored_token = $wpdb->get_var(
+            $wpdb->prepare("SELECT option_value FROM $table_name WHERE option_name = %s", 'auth_token')
+        );
+        $stored_user_token = $wpdb->get_var(
+            $wpdb->prepare("SELECT option_value FROM $table_name WHERE option_name = %s", 'user_token')
+        );
+
+        if (empty($stored_token) && empty($stored_user_token)) {
+            return new \WP_Error(
+                'rest_forbidden',
+                __('DMS authentication is not configured.', 'tigon-dms-connect'),
+                ['status' => 403]
+            );
+        }
+
+        // Check X-Auth-Token header
+        $provided_token = $request->get_header('x-auth-token');
+
+        // Fallback to Authorization: Bearer header
+        if (empty($provided_token)) {
+            $auth_header = $request->get_header('authorization');
+            if ($auth_header && stripos($auth_header, 'Bearer ') === 0) {
+                $provided_token = substr($auth_header, 7);
+            }
+        }
+
+        if (empty($provided_token)) {
+            return new \WP_Error(
+                'rest_forbidden',
+                __('Missing authentication token.', 'tigon-dms-connect'),
+                ['status' => 401]
+            );
+        }
+
+        // Validate against stored tokens using timing-safe comparison
+        if (
+            (!empty($stored_token) && hash_equals($stored_token, $provided_token)) ||
+            (!empty($stored_user_token) && hash_equals($stored_user_token, $provided_token))
+        ) {
+            return true;
+        }
+
+        return new \WP_Error(
+            'rest_forbidden',
+            __('Invalid authentication token.', 'tigon-dms-connect'),
+            ['status' => 403]
+        );
     }
 
     // Activation Hook
