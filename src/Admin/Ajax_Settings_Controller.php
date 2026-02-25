@@ -15,19 +15,27 @@ class Ajax_Settings_Controller
             global $wpdb;
             $table_name = $wpdb->prefix . 'tigon_dms_config';
 
-           // Data from AJAX request
+            // Data from AJAX request
             // AJAX produces unwanted slashes
-            $github_token = stripcslashes($_REQUEST['data']['github_token']);
+            $github_token = stripcslashes($_REQUEST['data']['github_token'] ?? '');
             
-            $dms_url = strtolower(stripcslashes($_REQUEST['data']['dms_url']));
+            $dms_url = strtolower(stripcslashes($_REQUEST['data']['dms_url'] ?? ''));
             if($dms_url && substr($dms_url,0,4) !== 'http') $dms_url = 'https://'.$dms_url;
             if(substr($dms_url,-1) === '/') $dms_url = substr_replace($dms_url,'',-1);
 
-            $user_token = stripcslashes($_REQUEST['data']['user_token']);
+            $user_token = stripcslashes($_REQUEST['data']['user_token'] ?? '');
 
-            $file_source = stripcslashes($_REQUEST['data']['file_source']);
+            $file_source = stripcslashes($_REQUEST['data']['file_source'] ?? '');
             if($file_source && substr($file_source,0,4) !== 'http') $file_source = 'https://'.$file_source;
             if(substr($file_source,-1) === '/') $file_source = substr_replace($file_source,'',-1);
+
+            // Schema templates
+            $schema_name              = stripcslashes($_REQUEST['data']['schema_name'] ?? '');
+            $schema_slug              = stripcslashes($_REQUEST['data']['schema_slug'] ?? '');
+            $schema_image_name        = stripcslashes($_REQUEST['data']['schema_image_name'] ?? '');
+            $schema_monroney_name     = stripcslashes($_REQUEST['data']['schema_monroney_name'] ?? '');
+            $schema_description       = stripcslashes($_REQUEST['data']['schema_description'] ?? '');
+            $schema_short_description = stripcslashes($_REQUEST['data']['schema_short_description'] ?? '');
 
             // Ensure rows exist
             if(!$wpdb->query("SELECT * FROM $table_name WHERE option_name = 'github_token'"))
@@ -45,6 +53,24 @@ class Ajax_Settings_Controller
             if(!$wpdb->query("SELECT * FROM $table_name WHERE option_name = 'file_source'"))
                 $wpdb->insert($table_name, ['option_name' => 'file_source']);
 
+            if(!$wpdb->query("SELECT * FROM $table_name WHERE option_name = 'schema_name'"))
+                $wpdb->insert($table_name, ['option_name' => 'schema_name']);
+
+            if(!$wpdb->query("SELECT * FROM $table_name WHERE option_name = 'schema_slug'"))
+                $wpdb->insert($table_name, ['option_name' => 'schema_slug']);
+
+            if(!$wpdb->query("SELECT * FROM $table_name WHERE option_name = 'schema_image_name'"))
+                $wpdb->insert($table_name, ['option_name' => 'schema_image_name']);
+
+            if(!$wpdb->query("SELECT * FROM $table_name WHERE option_name = 'schema_monroney_name'"))
+                $wpdb->insert($table_name, ['option_name' => 'schema_monroney_name']);
+
+            if(!$wpdb->query("SELECT * FROM $table_name WHERE option_name = 'schema_description'"))
+                $wpdb->insert($table_name, ['option_name' => 'schema_description']);
+
+            if(!$wpdb->query("SELECT * FROM $table_name WHERE option_name = 'schema_short_description'"))
+                $wpdb->insert($table_name, ['option_name' => 'schema_short_description']);
+
             // Write setting to DB
             if(!empty($github_token)) {
                 $wpdb->update($table_name, ['option_value' => $github_token], ['option_name' => 'github_token']);
@@ -58,6 +84,26 @@ class Ajax_Settings_Controller
             }
             if(!empty($file_source)) {
                 $wpdb->update($table_name, ['option_value' => $file_source], ['option_name' => 'file_source']);
+            }
+
+            // Write schema templates to DB (empty values are ignored to avoid clobbering)
+            if($schema_name !== '') {
+                $wpdb->update($table_name, ['option_value' => $schema_name], ['option_name' => 'schema_name']);
+            }
+            if($schema_slug !== '') {
+                $wpdb->update($table_name, ['option_value' => $schema_slug], ['option_name' => 'schema_slug']);
+            }
+            if($schema_image_name !== '') {
+                $wpdb->update($table_name, ['option_value' => $schema_image_name], ['option_name' => 'schema_image_name']);
+            }
+            if($schema_monroney_name !== '') {
+                $wpdb->update($table_name, ['option_value' => $schema_monroney_name], ['option_name' => 'schema_monroney_name']);
+            }
+            if($schema_description !== '') {
+                $wpdb->update($table_name, ['option_value' => $schema_description], ['option_name' => 'schema_description']);
+            }
+            if($schema_short_description !== '') {
+                $wpdb->update($table_name, ['option_value' => $schema_short_description], ['option_name' => 'schema_short_description']);
             }
 
             echo true;

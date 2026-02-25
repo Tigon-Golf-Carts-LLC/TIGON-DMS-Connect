@@ -309,9 +309,13 @@ class Database_Object
         }
 
         $postmeta = $wpdb->get_results('SELECT * FROM '.$wpdb->prefix.'postmeta WHERE post_id = '.$id.';', ARRAY_A);
-        foreach($postmeta as $row) {
-            foreach($row as $column => $value) {
-                $database_object->set_value('postmeta', $value, $column);
+        foreach ($postmeta as $row) {
+            $meta_key   = $row['meta_key']   ?? null;
+            $meta_value = $row['meta_value'] ?? null;
+
+            // Only map keys that exist in the Database_Object template
+            if ($meta_key !== null && array_key_exists($meta_key, $database_object->data['postmeta'])) {
+                $database_object->set_value('postmeta', $meta_value, $meta_key);
             }
         }
 

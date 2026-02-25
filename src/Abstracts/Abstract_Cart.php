@@ -187,6 +187,13 @@ abstract class Abstract_Cart
 
     protected $taxonomy_terms;
 
+    /**
+     * Cached schema templates loaded from tigon_dms_config.
+     *
+     * @var array<string,string>|null
+     */
+    protected static $schema_templates = null;
+
     public function __construct($input_cart)
     {
         \Tigon\DmsConnect\Includes\Product_Fields::define_constants();
@@ -195,6 +202,147 @@ abstract class Abstract_Cart
         });
         $this->cart = array_replace_recursive(self::$defaults, $this->cart);
         $this->generated_attributes = new Attributes();
+    }
+
+    /**
+     * Load schema templates from tigon_dms_config, with sensible defaults.
+     *
+     * @return array<string,string>
+     */
+    protected function get_schema_templates(): array
+    {
+        if (self::$schema_templates !== null) {
+            return self::$schema_templates;
+        }
+
+        global $wpdb;
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+
+        $table_name = $wpdb->prefix . 'tigon_dms_config';
+
+        $defaults = [
+            'schema_name'              => '{^make}® {^model} {cartColor} in {city}, {stateAbbr}',
+            'schema_slug'              => '{make}-{model}-{cartColor}-seat-{seatColor}-{city}-{state}',
+            'schema_image_name'        => '{^make}® {^model} {cartColor} in {city}, {stateAbbr} image',
+            'schema_monroney_name'     => '{^make}® {^model} {cartColor} in {city}, {stateAbbr} monroney',
+            'schema_description'       => '',
+            'schema_short_description' => '',
+        ];
+
+        $templates = [];
+        foreach ($defaults as $key => $default) {
+            $value = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = '$key'");
+            if ($value === null || $value === '') {
+                $value = $default;
+            }
+            $templates[$key] = $value;
+        }
+
+        self::$schema_templates = $templates;
+        return self::$schema_templates;
+    }
+
+    /**
+     * Build a flat variable map for template substitution
+     * from the current cart and location context.
+     *
+     * @return array<string,mixed>
+     */
+    protected function build_template_variables(): array
+    {
+        $loc = Attributes::$locations[$this->location_id] ?? [
+            'city' => '',
+            'st'   => '',
+            'state'=> '',
+        ];
+
+        $vars = [
+            'make'        => $this->cart['cartType']['make'] ?? '',
+            'model'       => $this->cart['cartType']['model'] ?? '',
+            'year'        => $this->cart['cartType']['year'] ?? '',
+            'cartColor'   => $this->cart['cartAttributes']['cartColor'] ?? '',
+            'seatColor'   => $this->cart['cartAttributes']['seatColor'] ?? '',
+            'tireRimSize' => $this->cart['cartAttributes']['tireRimSize'] ?? '',
+            'tireType'    => $this->cart['cartAttributes']['tireType'] ?? '',
+            'passengers'  => $this->cart['cartAttributes']['passengers'] ?? '',
+
+            'city'       => $loc['city'] ?? '',
+            'state'      => $loc['state'] ?? '',
+            'stateAbbr'  => $loc['st'] ?? '',
+            'cityShort'  => $this->city_shortname ?? ($loc['city'] ?? ''),
+
+            'retailPrice'=> $this->cart['retailPrice'] ?? '',
+            'salePrice'  => $this->cart['salePrice'] ?? '',
+        ];
+
+        // Battery
+        $vars['batteryType']      = $this->cart['battery']['type'] ?? '';
+        $vars['batteryVoltage']   = $this->cart['battery']['batteryVoltage'] ?? '';
+        $vars['packVoltage']      = $this->cart['battery']['packVoltage'] ?? '';
+        $vars['batteryBrand']     = $this->cart['battery']['brand'] ?? '';
+        $vars['batteryYear']      = $this->cart['battery']['year'] ?? '';
+        $vars['batteryAmpHours']  = $this->cart['battery']['ampHours'] ?? '';
+        $vars['batteryWarranty']  = $this->cart['battery']['warrantyLength'] ?? '';
+
+        // Title / status
+        $vars['isStreetLegal'] = isset($this->cart['title']['isStreetLegal'])
+            ? ($this->cart['title']['isStreetLegal'] ? 'Yes' : 'No')
+            : '';
+        $vars['isElectric'] = isset($this->cart['isElectric'])
+            ? ($this->cart['isElectric'] ? 'ELECTRIC' : 'GAS')
+            : '';
+        $vars['isUsed'] = isset($this->cart['isUsed'])
+            ? ($this->cart['isUsed'] ? 'USED' : 'NEW')
+            : '';
+
+        // Identifiers
+        $vars['serialNumber'] = $this->cart['serialNo'] ?? '';
+        $vars['vinNumber']    = $this->cart['vinNo'] ?? '';
+
+        return $vars;
+    }
+
+    /**
+     * Evaluate a schema template string against provided variables.
+     *
+     * Supports {var} and {^var} (ucwords) placeholders.
+     *
+     * @param string $template
+     * @param array<string,mixed> $vars
+     * @param bool $slugify When true, returns a slugified version.
+     * @return string
+     */
+    protected function evaluate_template(string $template, array $vars, bool $slugify = false): string
+    {
+        $result = preg_replace_callback('/\{([^}]+)\}/', function ($matches) use ($vars) {
+            $key = $matches[1];
+            $should_ucwords = false;
+
+            if (str_starts_with($key, '^')) {
+                $should_ucwords = true;
+                $key = substr($key, 1);
+            }
+
+            $value = $vars[$key] ?? '';
+            if (!is_string($value)) {
+                $value = (string) $value;
+            }
+
+            if ($should_ucwords && $value !== '') {
+                $value = ucwords(strtolower($value));
+            }
+
+            return $value;
+        }, $template);
+
+        // Normalize whitespace
+        $result = trim(preg_replace('/\s+/', ' ', $result));
+
+        if ($slugify) {
+            $result = sanitize_title($result);
+        }
+
+        return $result;
     }
 
     public function convert(?int $fields = ALL_FIELDS)
@@ -477,8 +625,12 @@ abstract class Abstract_Cart
             strtoupper($this->cart['cartType']['model']) . ' ' .
             $this->cart['cartAttributes']['cartColor'];
 
-        $this->name = $this->make_model_color . ' In ' . Attributes::$locations[$this->location_id]['city'] .
-            ' ' . Attributes::$locations[$this->location_id]['st'] ?? '';
+        // Use schema template for name
+        $templates = $this->get_schema_templates();
+        $vars      = $this->build_template_variables();
+        $name_tpl  = $templates['schema_name'] ?? '{^make}® {^model} {cartColor} in {city}, {stateAbbr}';
+
+        $this->name = $this->evaluate_template($name_tpl, $vars, false);
 
         // Auto-generate SEO Title / Social Title
         $this->yoast_seo_title = $this->name . ' - Tigon Golf Carts';
@@ -498,14 +650,12 @@ abstract class Abstract_Cart
         $this->seat_color_hyphenated = preg_replace('/\s+/', '-', $this->cart['cartAttributes']['seatColor']);
         $this->location_hyphenated = preg_replace('/\s+/', '-', Attributes::$locations[$this->location_id]['city'] . "-" . Attributes::$locations[$this->location_id]['st']);
 
-        //DMS generated
-        $this->slug = strtolower(implode('-', [
-            $this->brand_hyphenated,
-            $this->pattern_hyphenated,
-            $this->color_hyphenated,
-            'in',
-            $this->location_hyphenated
-        ]));
+        $templates = $this->get_schema_templates();
+        $vars      = $this->build_template_variables();
+        $slug_tpl  = $templates['schema_slug'] ?? '{make}-{model}-{cartColor}-seat-{seatColor}-{city}-{state}';
+
+        // Generate slug from template and slugify
+        $this->slug = $this->evaluate_template($slug_tpl, $vars, true);
         // throw new ErrorException($this->slug);
     }
 
@@ -563,7 +713,13 @@ abstract class Abstract_Cart
 
     protected function generate_image_name($i)
     {
-        return $this->name . ' For Sale' . $this->sku . ' ' . $i + 1;
+        $templates = $this->get_schema_templates();
+        $vars      = $this->build_template_variables();
+        $vars['index'] = $i + 1;
+
+        $image_tpl = $templates['schema_image_name'] ?? '{^make}® {^model} {cartColor} in {city}, {stateAbbr} image';
+
+        return $this->evaluate_template($image_tpl, $vars, false);
     }
 
 
@@ -626,7 +782,12 @@ abstract class Abstract_Cart
 
     protected function generate_monroney_name()
     {
-        return $this->name . ' Sticker From Tigon Golf Carts ' . $this->sku;
+        $templates = $this->get_schema_templates();
+        $vars      = $this->build_template_variables();
+
+        $monroney_tpl = $templates['schema_monroney_name'] ?? '{^make}® {^model} {cartColor} in {city}, {stateAbbr} monroney';
+
+        return $this->evaluate_template($monroney_tpl, $vars, false);
     }
 
     /**
@@ -1773,6 +1934,17 @@ abstract class Abstract_Cart
         // }
 
         $this->description = $this->description . '</tbody></table>';
+
+        // Apply schema overrides for description / short description if provided
+        $templates = $this->get_schema_templates();
+        $vars      = $this->build_template_variables();
+
+        if (!empty(trim($templates['schema_short_description'] ?? ''))) {
+            $this->short_description = $this->evaluate_template($templates['schema_short_description'], $vars, false);
+        }
+        if (!empty(trim($templates['schema_description'] ?? ''))) {
+            $this->description = $this->evaluate_template($templates['schema_description'], $vars, false);
+        }
 
         // Call Tigon Golf Carts shortcode
         $call_link = [

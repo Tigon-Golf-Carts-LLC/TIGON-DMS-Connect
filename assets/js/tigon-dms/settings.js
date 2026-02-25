@@ -56,7 +56,14 @@ jQuery(document).ready(() => {
             "github_token": jQuery("#txt-github-token").val(),
             "dms_url": jQuery("#txt-url").val(),
             "user_token": jQuery("#txt-api-key").val(),
-            "file_source": jQuery("#txt-file-source").val()
+            "file_source": jQuery("#txt-file-source").val(),
+            // Schema templates
+            "schema_name": jQuery("#schema-name").val(),
+            "schema_slug": jQuery("#schema-slug").val(),
+            "schema_image_name": jQuery("#schema-image-name").val(),
+            "schema_monroney_name": jQuery("#schema-monroney-name").val(),
+            "schema_description": jQuery("#schema-description").val(),
+            "schema_short_description": jQuery("#schema-short-description").val()
         }
 
         jQuery.ajax({

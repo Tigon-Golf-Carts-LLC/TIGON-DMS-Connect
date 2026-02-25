@@ -141,6 +141,141 @@ function tigon_dms_normalize_title($title) {
 }
 
 /**
+ * Load schema templates from tigon_dms_config for lazy WooCommerce product creation.
+ *
+ * @return array<string,string>
+ */
+function tigon_dms_get_schema_templates() {
+    global $wpdb;
+
+    $table_name = $wpdb->prefix . 'tigon_dms_config';
+
+    $defaults = [
+        'schema_name'              => '{^make}® {^model} {cartColor} in {city}, {stateAbbr}',
+        'schema_slug'              => '{make}-{model}-{cartColor}-seat-{seatColor}-{city}-{state}',
+        'schema_image_name'        => '{^make}® {^model} {cartColor} in {city}, {stateAbbr} image',
+        'schema_monroney_name'     => '{^make}® {^model} {cartColor} in {city}, {stateAbbr} monroney',
+        'schema_description'       => '',
+        'schema_short_description' => '',
+    ];
+
+    $templates = [];
+    foreach ($defaults as $key => $default) {
+        $value = $wpdb->get_var( $wpdb->prepare(
+            "SELECT option_value FROM {$table_name} WHERE option_name = %s LIMIT 1",
+            $key
+        ) );
+        if ($value === null || $value === '') {
+            $value = $default;
+        }
+        $templates[$key] = $value;
+    }
+
+    return $templates;
+}
+
+/**
+ * Build a flat variable map for template substitution from DMS cart data.
+ *
+ * @param array $cart_data
+ * @return array<string,mixed>
+ */
+function tigon_dms_build_template_variables_from_cart(array $cart_data) {
+    $make   = $cart_data['cartType']['make'] ?? '';
+    $model  = $cart_data['cartType']['model'] ?? '';
+    $year   = $cart_data['cartType']['year'] ?? '';
+    $color  = $cart_data['cartAttributes']['cartColor'] ?? '';
+    $seat   = $cart_data['cartAttributes']['seatColor'] ?? '';
+    $store_id = $cart_data['cartLocation']['locationId'] ?? '';
+
+    $city  = '';
+    $state = '';
+    $stateAbbr = '';
+
+    if ($store_id && class_exists('DMS_API')) {
+        $location_data = DMS_API::get_city_and_state_by_store_id($store_id);
+        $city  = $location_data['city'] ?? '';
+        $state = $location_data['state'] ?? '';
+        // No abbreviation from API at present; use full state name
+        $stateAbbr = $state;
+    }
+
+    $vars = [
+        'make'        => $make,
+        'model'       => $model,
+        'year'        => $year,
+        'cartColor'   => $color,
+        'seatColor'   => $seat,
+        'city'        => $city,
+        'state'       => $state,
+        'stateAbbr'   => $stateAbbr,
+        'retailPrice' => $cart_data['retailPrice'] ?? '',
+        'salePrice'   => $cart_data['salePrice'] ?? '',
+    ];
+
+    $vars['batteryType']     = $cart_data['battery']['type'] ?? '';
+    $vars['batteryVoltage']  = $cart_data['battery']['batteryVoltage'] ?? '';
+    $vars['packVoltage']     = $cart_data['battery']['packVoltage'] ?? '';
+    $vars['batteryBrand']    = $cart_data['battery']['brand'] ?? '';
+    $vars['batteryYear']     = $cart_data['battery']['year'] ?? '';
+    $vars['batteryAmpHours'] = $cart_data['battery']['ampHours'] ?? '';
+
+    $vars['isStreetLegal'] = isset($cart_data['title']['isStreetLegal'])
+        ? ($cart_data['title']['isStreetLegal'] ? 'Yes' : 'No')
+        : '';
+    $vars['isElectric'] = isset($cart_data['isElectric'])
+        ? ($cart_data['isElectric'] ? 'ELECTRIC' : 'GAS')
+        : '';
+    $vars['isUsed'] = isset($cart_data['isUsed'])
+        ? ($cart_data['isUsed'] ? 'USED' : 'NEW')
+        : '';
+
+    $vars['serialNumber'] = $cart_data['serialNo'] ?? '';
+    $vars['vinNumber']    = $cart_data['vinNo'] ?? '';
+
+    return $vars;
+}
+
+/**
+ * Evaluate a schema template ({var} / {^var}) against vars.
+ *
+ * @param string $template
+ * @param array<string,mixed> $vars
+ * @param bool $slugify
+ * @return string
+ */
+function tigon_dms_evaluate_template($template, array $vars, $slugify = false) {
+    $result = preg_replace_callback('/\{([^}]+)\}/', function ($matches) use ($vars) {
+        $key = $matches[1];
+        $should_ucwords = false;
+
+        if (strpos($key, '^') === 0) {
+            $should_ucwords = true;
+            $key = substr($key, 1);
+        }
+
+        $value = isset($vars[$key]) ? $vars[$key] : '';
+        if (!is_string($value)) {
+            $value = (string) $value;
+        }
+
+        if ($should_ucwords && $value !== '') {
+            $value = ucwords(strtolower($value));
+        }
+
+        return $value;
+    }, $template);
+
+    $result = trim(preg_replace('/\s+/', ' ', $result));
+
+    if ($slugify) {
+        $result = sanitize_title($result);
+    }
+
+    return $result;
+}
+
+/**
  * Parse DMS cart data into structured specs for product meta
  * 
  * Maps the actual /get-cart-by-id API response to Feature/Description pairs
@@ -380,28 +515,14 @@ function tigon_dms_ensure_woo_product($cart_data, $cart_id) {
     $retail_price = $cart_data['retailPrice'] ?? 0;
     $store_id     = $cart_data['cartLocation']['locationId'] ?? '';
     
-    // Get location info
-    $location_data = DMS_API::get_city_and_state_by_store_id($store_id);
-    $city = $location_data['city'];
-    $state = $location_data['state'];
-    $location_string = trim($city . ', ' . $state, ', ');
-    
-    // Build product title with ® between make and model (using " In " for location separator)
-    $title_parts = array();
-    if (!empty($make) && !empty($model)) {
-        $title_parts[] = $make . '® ' . $model;
-    } elseif (!empty($make)) {
-        $title_parts[] = $make;
-    } elseif (!empty($model)) {
-        $title_parts[] = $model;
-    }
-    if (!empty($color)) {
-        $title_parts[] = $color;
-    }
-    $title = trim(implode(' ', $title_parts));
-    if (!empty($location_string)) {
-        $title .= ' In ' . $location_string;
-    }
+    // Build title using schema template
+    $templates = tigon_dms_get_schema_templates();
+    $vars      = tigon_dms_build_template_variables_from_cart($cart_data);
+    $name_tpl  = isset($templates['schema_name']) && $templates['schema_name'] !== ''
+        ? $templates['schema_name']
+        : '{^make}® {^model} {cartColor} in {city}, {stateAbbr}';
+
+    $title = tigon_dms_evaluate_template($name_tpl, $vars, false);
     
     // Parse DMS cart data for meta storage
     $specs = tigon_dms_parse_cart_specs($cart_data);
@@ -487,9 +608,15 @@ function tigon_dms_create_woo_product($cart_id, $title, $price, $cart_data, $spe
     $normalized_title = tigon_dms_normalize_title($title);
     
     // Create product post
+    // Use slug schema template when available, otherwise derive from title
+    $slug_tpl = isset($templates['schema_slug']) && $templates['schema_slug'] !== ''
+        ? $templates['schema_slug']
+        : '{make}-{model}-{cartColor}-seat-{seatColor}-{city}-{state}';
+    $slug = tigon_dms_evaluate_template($slug_tpl, $vars, true);
+
     $product_id = wp_insert_post(array(
         'post_title'   => sanitize_text_field($normalized_title),
-        'post_name'    => sanitize_title($normalized_title),
+        'post_name'    => $slug,
         'post_status'  => 'publish',
         'post_type'    => 'product',
         'post_content' => '', // Content comes from DMS payload via template

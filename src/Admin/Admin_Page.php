@@ -31,6 +31,7 @@ class Admin_Page
         add_menu_page($page_title, $menu_title, $capability, $menu_slug, $callback, $icon_url, $position);
         self::add_import_page();
         self::add_settings_page();
+        self::add_database_objects_page();
     }
 
     /**
@@ -60,6 +61,23 @@ class Admin_Page
         $capability = "manage_options";
         $menu_slug = "settings";
         $callback = 'Tigon\DmsConnect\Admin\Admin_Page::settings_page';
+        add_submenu_page($parent_slug, $page_title, $menu_title, $capability, $menu_slug, $callback);
+    }
+
+    /**
+     * Add Database Objects submenu
+     *
+     * @return void
+     */
+    public static function add_database_objects_page()
+    {
+        $parent_slug = "tigon-dms-connect";
+        $page_title  = "DMS Database Objects";
+        $menu_title  = "Database Objects";
+        $capability  = "manage_options";
+        $menu_slug   = "database-objects";
+        $callback    = 'Tigon\DmsConnect\Admin\Admin_Page::database_objects_page';
+
         add_submenu_page($parent_slug, $page_title, $menu_title, $capability, $menu_slug, $callback);
     }
 
@@ -388,6 +406,129 @@ class Admin_Page
         ';
     }
 
+    /**
+     * Database Objects inspector page
+     *
+     * Lists WooCommerce products created from DMS (identified by _dms_cart_id meta)
+     * and shows a side‑by‑side view of the stored DMS payload and the corresponding
+     * WordPress Database_Object representation for a selected product.
+     *
+     * @return void
+     */
+    public static function database_objects_page()
+    {
+        self::page_header();
+
+        // Find DMS-backed products (those with _dms_cart_id meta)
+        $query = new \WP_Query([
+            'post_type'      => 'product',
+            'posts_per_page' => 50,
+            'post_status'    => ['publish', 'draft', 'pending'],
+            'meta_query'     => [
+                [
+                    'key'     => '_dms_cart_id',
+                    'compare' => 'EXISTS',
+                ],
+            ],
+        ]);
+
+        $selected_id = isset($_GET['product_id']) ? intval($_GET['product_id']) : 0;
+
+        echo '
+        <div class="body" style="flex-direction:column;">
+            <div class="action-box-group">
+                <div class="action-box primary" style="flex-direction:column; gap:1rem;">
+                    <h2>DMS Products on this Site</h2>
+                    <p>Select a product to inspect its DMS payload and WordPress database object.</p>
+                    <form method="get" style="margin-bottom:1rem;">
+                        <input type="hidden" name="page" value="database-objects" />
+                        <label for="product_id"><strong>Product ID:</strong></label>
+                        <input type="number" id="product_id" name="product_id" value="' . ($selected_id ? esc_attr($selected_id) : '') . '" style="width:120px; margin-left:0.5rem;" />
+                        <button class="button button-primary" type="submit">Load</button>
+                    </form>
+                    <div class="tigon-dms-table-wrapper">
+                        <table class="widefat striped">
+                            <thead>
+                                <tr>
+                                    <th>Product ID</th>
+                                    <th>Title</th>
+                                    <th>DMS Cart ID</th>
+                                    <th>View</th>
+                                </tr>
+                            </thead>
+                            <tbody>';
+
+        if ($query->have_posts()) {
+            while ($query->have_posts()) {
+                $query->the_post();
+                $pid        = get_the_ID();
+                $cart_id    = get_post_meta($pid, '_dms_cart_id', true);
+                $is_current = ($pid === $selected_id);
+
+                echo '
+                                <tr' . ($is_current ? ' style="background:#f0f6ff;"' : '') . '>
+                                    <td>' . esc_html($pid) . '</td>
+                                    <td>' . esc_html(get_the_title()) . '</td>
+                                    <td>' . esc_html($cart_id) . '</td>
+                                    <td><a href="' . esc_url(add_query_arg(['page' => 'database-objects', 'product_id' => $pid], admin_url('admin.php'))) . '">Inspect</a></td>
+                                </tr>';
+            }
+            wp_reset_postdata();
+        } else {
+            echo '
+                                <tr>
+                                    <td colspan="4">No DMS-backed products found (products with <code>_dms_cart_id</code> meta).</td>
+                                </tr>';
+        }
+
+        echo '
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>';
+
+        // Detail view for a selected product
+        if ($selected_id) {
+            $dms_payload_raw = get_post_meta($selected_id, '_dms_payload', true);
+            $dms_payload     = $dms_payload_raw ? json_decode($dms_payload_raw, true) : null;
+
+            // Safely build Database_Object representation if possible
+            $database_data = [];
+            if (class_exists('Tigon\DmsConnect\Admin\Database_Object')) {
+                try {
+                    $db_object = \Tigon\DmsConnect\Admin\Database_Object::get_from_wpdb($selected_id);
+                    if ($db_object instanceof \Tigon\DmsConnect\Admin\Database_Object) {
+                        $database_data = $db_object->data ?? [];
+                    }
+                } catch (\Throwable $e) {
+                    $database_data = ['error' => $e->getMessage()];
+                }
+            }
+
+            $dms_json = $dms_payload ? wp_json_encode($dms_payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : 'No stored DMS payload found for this product.';
+            $db_json  = !empty($database_data) ? wp_json_encode($database_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : 'Unable to build Database_Object for this product.';
+
+            echo '
+            <div class="action-box-group" style="margin-top:1.5rem;">
+                <div class="action-box primary" style="flex:1; min-width:0;">
+                    <h2>API Payload (Stored DMS Data)</h2>
+                    <p>This is the raw DMS payload stored in <code>_dms_payload</code> for product ID ' . esc_html($selected_id) . '.</p>
+                    <pre style="max-height:400px; overflow:auto; background:#111827; color:#e5e7eb; padding:1rem; border-radius:4px;">' . esc_html($dms_json) . '</pre>
+                </div>
+                <div class="action-box primary" style="flex:1; min-width:0;">
+                    <h2>WordPress Database Object</h2>
+                    <p>This is the normalized database object representation used by the DMS Connect engine.</p>
+                    <pre style="max-height:400px; overflow:auto; background:#111827; color:#e5e7eb; padding:1rem; border-radius:4px;">' . esc_html($db_json) . '</pre>
+                </div>
+            </div>';
+        }
+
+        echo '
+        </div>
+        ';
+    }
+
     public static function settings_page()
     {
         $nonce = wp_create_nonce("tigon_dms_run_import_nonce");
@@ -415,13 +556,21 @@ class Admin_Page
 
         self::page_header();
 
-        // Textbox placeholders from database
-        $name = '{^make}® {^model} {cartColor} in {city}, {stateAbbr}';
-        $slug = '{make}-{model}-{cartColor}-seat-{seatColor}-{city}-{state}';
-        $image_name = '{^make}® {^model} {cartColor} in {city}, {stateAbbr} image';
-        $monroney_name = '{^make}® {^model} {cartColor} in {city}, {stateAbbr} monroney';
-        $description = 'Lorem ipsum dolor sit amet';
-        $short_description = 'Lorem ipsum';
+        // Default schema templates
+        $default_name              = '{^make}® {^model} {cartColor} in {city}, {stateAbbr}';
+        $default_slug              = '{make}-{model}-{cartColor}-seat-{seatColor}-{city}-{state}';
+        $default_image_name        = '{^make}® {^model} {cartColor} in {city}, {stateAbbr} image';
+        $default_monroney_name     = '{^make}® {^model} {cartColor} in {city}, {stateAbbr} monroney';
+        $default_description       = 'Lorem ipsum dolor sit amet';
+        $default_short_description = 'Lorem ipsum';
+
+        // Load saved schema templates (fall back to defaults)
+        $schema_name              = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'schema_name'") ?? $default_name;
+        $schema_slug              = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'schema_slug'") ?? $default_slug;
+        $schema_image_name        = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'schema_image_name'") ?? $default_image_name;
+        $schema_monroney_name     = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'schema_monroney_name'") ?? $default_monroney_name;
+        $schema_description       = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'schema_description'") ?? $default_description;
+        $schema_short_description = $wpdb->get_var("SELECT option_value FROM $table_name WHERE option_name = 'schema_short_description'") ?? $default_short_description;
 
         echo '
         <div class="body">
@@ -460,32 +609,32 @@ class Admin_Page
                         <div class="settings form" id="attr-form">
                             <div>
                                 <span>Name Schema:</span>
-                                <input type="text" style="float:right" id="Name Schema" placeholder="'.$name.'" />
+                                <input type="text" style="float:right" id="schema-name" value="'.esc_attr($schema_name).'" placeholder="'.esc_attr($default_name).'" />
                             </div>
                             
                             <div>
                                 <span>Slug Schema:</span>
-                                <input type="text" style="float:right" id="Slug Schema" placeholder="'.$slug.'" />
+                                <input type="text" style="float:right" id="schema-slug" value="'.esc_attr($schema_slug).'" placeholder="'.esc_attr($default_slug).'" />
                             </div>
                             
                             <div>
                                 <span>Image Name:</span>
-                                <input type="text" style="float:right" id="Image Name" placeholder="'.$image_name.'" />
+                                <input type="text" style="float:right" id="schema-image-name" value="'.esc_attr($schema_image_name).'" placeholder="'.esc_attr($default_image_name).'" />
                             </div>
                             
                             <div>
                                 <span>Monroney Name:</span>
-                                <input type="text" style="float:right" id="Monroney Name" placeholder="'.$monroney_name.'" />
+                                <input type="text" style="float:right" id="schema-monroney-name" value="'.esc_attr($schema_monroney_name).'" placeholder="'.esc_attr($default_monroney_name).'" />
                             </div>
                             
                             <div>
                                 <span>Description:</span>
-                                <input type="text" style="float:right" id="Description" placeholder="'.$description.'" />
+                                <input type="text" style="float:right" id="schema-description" value="'.esc_attr($schema_description).'" placeholder="'.esc_attr($default_description).'" />
                             </div>
                             
                             <div>
                                 <span>Short Description:</span>
-                                <input type="text" style="float:right" id="Short Description" placeholder="'.$short_description.'" />
+                                <input type="text" style="float:right" id="schema-short-description" value="'.esc_attr($schema_short_description).'" placeholder="'.esc_attr($default_short_description).'" />
                             </div>
                             
                             <!--<div>
@@ -619,7 +768,7 @@ class Admin_Page
                             loading dms properties...
                         </div>
                     </div>
-                    <a id="save" class="tigon_dms_action tigon_dms_schema_save" data-nonce="' . $nonce . '"><button>Save Settings</button></a>
+                    <a id="save" class="tigon_dms_action tigon_dms_save" data-nonce="' . $nonce . '"><button>Save Settings</button></a>
                 </div>
             </div>
                 </div>
