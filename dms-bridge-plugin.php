@@ -1348,6 +1348,33 @@ function tigon_dms_get_make_with_symbol($make) {
 }
 
 /**
+ * Get a cached Attributes instance for fast term ID lookups.
+ *
+ * Lazily instantiates the Attributes class once and caches it for the
+ * duration of the request. All sync functions use this to avoid hundreds
+ * of individual get_term_by() database queries per product.
+ *
+ * @return \Tigon\DmsConnect\Admin\Attributes|null Attributes instance or null
+ */
+function tigon_dms_get_attributes_instance() {
+    static $instance = null;
+    static $attempted = false;
+
+    if (!$attempted) {
+        $attempted = true;
+        if (class_exists('\Tigon\DmsConnect\Admin\Attributes')) {
+            try {
+                $instance = new \Tigon\DmsConnect\Admin\Attributes();
+            } catch (\Throwable $e) {
+                $instance = null;
+            }
+        }
+    }
+
+    return $instance;
+}
+
+/**
  * Apply rich product mapping from Abstract_Cart logic
  *
  * @param int   $product_id WooCommerce product ID
@@ -1459,7 +1486,30 @@ function tigon_dms_assign_product_tags($product_id, $cart_data) {
     $tags[] = 'TIGON GOLF CARTS';
 
     $tags = array_unique(array_filter($tags));
-    if (!empty($tags)) {
+    if (empty($tags)) {
+        return;
+    }
+
+    // Use Attributes cache for fast term ID resolution
+    $attrs = tigon_dms_get_attributes_instance();
+    if ($attrs && !empty($attrs->tags)) {
+        $tag_ids = array();
+        $tag_names_new = array();
+        foreach ($tags as $tag) {
+            $id = $attrs->tags[strtoupper($tag)] ?? null;
+            if ($id !== null) {
+                $tag_ids[] = (int) $id;
+            } else {
+                $tag_names_new[] = $tag;
+            }
+        }
+        if (!empty($tag_ids)) {
+            wp_set_object_terms($product_id, $tag_ids, 'product_tag', true);
+        }
+        if (!empty($tag_names_new)) {
+            wp_set_object_terms($product_id, $tag_names_new, 'product_tag', true);
+        }
+    } else {
         wp_set_object_terms($product_id, $tags, 'product_tag', true);
     }
 }
@@ -1734,8 +1784,11 @@ function tigon_dms_assign_product_attributes($product_id, $cart_data) {
     $product_attributes = array();
     $position = 0;
 
-    // Helper: register attribute and assign terms (only if taxonomy + terms exist)
-    $set_attr = function($attr_slug, $term_values) use ($product_id, &$product_attributes, &$position) {
+    // Cached Attributes instance for fast O(1) term lookups
+    $attrs = tigon_dms_get_attributes_instance();
+
+    // Helper: register attribute and assign terms using Attributes cache or DB fallback
+    $set_attr = function($attr_slug, $term_values) use ($product_id, &$product_attributes, &$position, $attrs) {
         $taxonomy = 'pa_' . $attr_slug;
         if (!taxonomy_exists($taxonomy)) {
             return;
@@ -1744,6 +1797,14 @@ function tigon_dms_assign_product_attributes($product_id, $cart_data) {
         $term_ids = array();
         foreach ((array) $term_values as $term_name) {
             if (empty($term_name)) continue;
+
+            // Fast path: use Attributes pre-loaded attribute options
+            if ($attrs && isset($attrs->attributes[$attr_slug]['options'][strtoupper($term_name)])) {
+                $term_ids[] = (int) $attrs->attributes[$attr_slug]['options'][strtoupper($term_name)];
+                continue;
+            }
+
+            // Slow path: individual DB lookup
             $term = get_term_by('name', $term_name, $taxonomy);
             if (!$term) {
                 $term = get_term_by('slug', sanitize_title($term_name), $taxonomy);
@@ -1757,14 +1818,20 @@ function tigon_dms_assign_product_attributes($product_id, $cart_data) {
             return;
         }
 
-        $product_attributes[$taxonomy] = array(
-            'name'         => $taxonomy,
-            'value'        => '',
-            'position'     => $position++,
-            'is_visible'   => 1,
-            'is_variation' => 0,
-            'is_taxonomy'  => 1,
-        );
+        // Use Attributes object structure for consistency with class-based import
+        if ($attrs && isset($attrs->attributes[$attr_slug]['object'])) {
+            $product_attributes[$taxonomy] = $attrs->attributes[$attr_slug]['object'];
+            $product_attributes[$taxonomy]['position'] = $position++;
+        } else {
+            $product_attributes[$taxonomy] = array(
+                'name'         => $taxonomy,
+                'value'        => '',
+                'position'     => $position++,
+                'is_visible'   => 1,
+                'is_variation' => 0,
+                'is_taxonomy'  => 1,
+            );
+        }
         wp_set_object_terms($product_id, $term_ids, $taxonomy);
     };
 
@@ -1921,14 +1988,37 @@ function tigon_dms_assign_custom_taxonomies($product_id, $cart_data) {
 
     $make_symbol = tigon_dms_get_make_with_symbol($make);
 
-    // Helper: safely assign terms to a taxonomy (only existing terms)
-    $assign = function($taxonomy, $term_names) use ($product_id) {
+    // Cached Attributes instance for fast taxonomy term lookups
+    $attrs = tigon_dms_get_attributes_instance();
+
+    // Map taxonomy slugs to Attributes property names for O(1) lookups
+    $taxonomy_map = array(
+        'manufacturers'    => 'manufacturers_taxonomy',
+        'models'           => 'models_taxonomy',
+        'sound-systems'    => 'sound_systems_taxonomy',
+        'added-features'   => 'added_features_taxonomy',
+        'vehicle-class'    => 'vehicle_classes_taxonomy',
+        'inventory-status' => 'inventory_status_taxonomy',
+        'drivetrain'       => 'drivetrains_taxonomy',
+    );
+
+    // Helper: safely assign terms using Attributes cache or DB fallback
+    $assign = function($taxonomy, $term_names) use ($product_id, $attrs, $taxonomy_map) {
         if (!taxonomy_exists($taxonomy)) {
             return;
         }
         $ids = array();
         foreach ((array) $term_names as $name) {
             if (empty($name)) continue;
+
+            // Fast path: use Attributes pre-loaded taxonomy map
+            $prop = $taxonomy_map[$taxonomy] ?? null;
+            if ($attrs && $prop && isset($attrs->$prop[strtoupper($name)])) {
+                $ids[] = (int) $attrs->$prop[strtoupper($name)];
+                continue;
+            }
+
+            // Slow path: individual DB lookup
             $term = get_term_by('name', $name, $taxonomy);
             if (!$term) {
                 $term = get_term_by('slug', sanitize_title($name), $taxonomy);
@@ -2151,9 +2241,16 @@ function tigon_dms_set_product_fields_meta($product_id, $cart_data) {
     $yoast_active = defined('WPSEO_VERSION') || class_exists('WPSEO_Meta');
 
     if ($yoast_active) {
-        // Primary category = make category
+        // Primary category = make category (use Attributes cache for O(1) lookup)
         if (!empty($make)) {
-            $make_cat_id = tigon_dms_get_existing_category($make, 0);
+            $attrs = tigon_dms_get_attributes_instance();
+            $make_cat_id = null;
+            if ($attrs && !empty($attrs->categories)) {
+                $make_cat_id = $attrs->categories[strtoupper($make_symbol)] ?? null;
+            }
+            if (!$make_cat_id) {
+                $make_cat_id = tigon_dms_get_existing_category($make, 0);
+            }
             if ($make_cat_id) {
                 update_post_meta($product_id, '_yoast_wpseo_primary_product_cat', $make_cat_id);
             }
@@ -2188,12 +2285,23 @@ function tigon_dms_set_product_fields_meta($product_id, $cart_data) {
                 $model_term_name = strtoupper($make_symbol . ' ' . $model);
             }
 
-            $model_term = get_term_by('name', $model_term_name, 'models');
-            if (!$model_term) {
-                $model_term = get_term_by('slug', sanitize_title($model_term_name), 'models');
+            // Fast path: Attributes cache
+            $model_term_id = null;
+            if ($attrs && !empty($attrs->models_taxonomy)) {
+                $model_term_id = $attrs->models_taxonomy[strtoupper($model_term_name)] ?? null;
             }
-            if ($model_term && !is_wp_error($model_term)) {
-                update_post_meta($product_id, '_yoast_wpseo_primary_models', $model_term->term_id);
+            if (!$model_term_id) {
+                // Slow path: DB lookup
+                $model_term = get_term_by('name', $model_term_name, 'models');
+                if (!$model_term) {
+                    $model_term = get_term_by('slug', sanitize_title($model_term_name), 'models');
+                }
+                if ($model_term && !is_wp_error($model_term)) {
+                    $model_term_id = $model_term->term_id;
+                }
+            }
+            if ($model_term_id) {
+                update_post_meta($product_id, '_yoast_wpseo_primary_models', $model_term_id);
             }
         }
 
@@ -2277,17 +2385,21 @@ function tigon_dms_set_product_fields_meta($product_id, $cart_data) {
  * @return string|null Serialized tabs array or null
  */
 function tigon_dms_build_custom_tabs($cart_data) {
-    // Load tabs from Yikes option
-    $saved_tabs = get_option('yikes_woo_reusable_products_tabs');
-    if (empty($saved_tabs) || !is_array($saved_tabs)) {
-        return null;
-    }
-
-    // Index tabs by name
-    $tabs_by_name = array();
-    foreach ($saved_tabs as $tab) {
-        if (!empty($tab['tab_name'])) {
-            $tabs_by_name[$tab['tab_name']] = $tab;
+    // Use Attributes cache for pre-loaded tabs (already indexed by name)
+    $attrs = tigon_dms_get_attributes_instance();
+    if ($attrs && !empty($attrs->tabs)) {
+        $tabs_by_name = $attrs->tabs;
+    } else {
+        // Fallback: load tabs from Yikes option
+        $saved_tabs = get_option('yikes_woo_reusable_products_tabs');
+        if (empty($saved_tabs) || !is_array($saved_tabs)) {
+            return null;
+        }
+        $tabs_by_name = array();
+        foreach ($saved_tabs as $tab) {
+            if (!empty($tab['tab_name'])) {
+                $tabs_by_name[$tab['tab_name']] = $tab;
+            }
         }
     }
 
@@ -2414,19 +2526,23 @@ function tigon_dms_build_custom_tabs($cart_data) {
  * @return string|null Serialized options array or null
  */
 function tigon_dms_build_custom_options($cart_data) {
-    // Load WCPA forms
-    $forms = get_posts(array(
-        'post_type'   => 'wcpa_pt_forms',
-        'numberposts' => -1,
-    ));
-    if (empty($forms)) {
-        return null;
-    }
-
-    // Index by title
-    $forms_by_title = array();
-    foreach ($forms as $form) {
-        $forms_by_title[$form->post_title] = $form->ID;
+    // Use Attributes cache for pre-loaded WCPA forms (already indexed by title)
+    $attrs = tigon_dms_get_attributes_instance();
+    if ($attrs && !empty($attrs->custom_options)) {
+        $forms_by_title = $attrs->custom_options;
+    } else {
+        // Fallback: load WCPA forms from DB
+        $forms = get_posts(array(
+            'post_type'   => 'wcpa_pt_forms',
+            'numberposts' => -1,
+        ));
+        if (empty($forms)) {
+            return null;
+        }
+        $forms_by_title = array();
+        foreach ($forms as $form) {
+            $forms_by_title[$form->post_title] = $form->ID;
+        }
     }
 
     $make   = $cart_data['cartType']['make'] ?? '';
