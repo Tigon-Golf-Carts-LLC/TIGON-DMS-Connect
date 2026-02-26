@@ -1190,93 +1190,583 @@ class Admin_Page
     }
 
     /**
-     * Database Objects inspector page
+     * Database Objects explorer page
      *
-     * Lists WooCommerce products created from DMS (identified by _dms_cart_id meta)
-     * and shows a side‑by‑side view of the stored DMS payload and the corresponding
-     * WordPress Database_Object representation for a selected product.
+     * Comprehensive view of all database objects used by the site, organized
+     * into tabs: Overview, Post Types, WooCommerce, Taxonomies, Meta Keys,
+     * Database Tables, Plugins, and a Product Inspector.
      *
      * @return void
      */
     public static function database_objects_page()
     {
+        global $wpdb;
         self::page_header();
 
-        // Find DMS-backed products (those with _dms_cart_id meta)
-        $query = new \WP_Query([
+        // ── Gather data ────────────────────────────────────────────────
+
+        // Post type counts
+        $post_type_objects = get_post_types([], 'objects');
+        $post_type_counts  = [];
+        foreach ($post_type_objects as $slug => $pt) {
+            $counts = wp_count_posts($slug);
+            $total  = 0;
+            foreach ((array) $counts as $c) {
+                $total += (int) $c;
+            }
+            $post_type_counts[$slug] = [
+                'label'   => $pt->label,
+                'public'  => $pt->public,
+                'builtin' => $pt->_builtin,
+                'publish' => isset($counts->publish) ? (int) $counts->publish : 0,
+                'draft'   => isset($counts->draft) ? (int) $counts->draft : 0,
+                'trash'   => isset($counts->trash) ? (int) $counts->trash : 0,
+                'total'   => $total,
+            ];
+        }
+
+        // Taxonomy data
+        $taxonomy_objects = get_taxonomies([], 'objects');
+        $taxonomy_counts  = [];
+        foreach ($taxonomy_objects as $slug => $tax) {
+            $count = wp_count_terms(['taxonomy' => $slug, 'hide_empty' => false]);
+            $taxonomy_counts[$slug] = [
+                'label'       => $tax->label,
+                'public'      => $tax->public,
+                'hierarchical' => $tax->hierarchical,
+                'post_types'  => $tax->object_type,
+                'count'       => is_wp_error($count) ? 0 : (int) $count,
+            ];
+        }
+
+        // Product meta keys grouped by plugin/system
+        $meta_rows = $wpdb->get_results(
+            "SELECT pm.meta_key, COUNT(*) AS cnt
+             FROM {$wpdb->postmeta} pm
+             INNER JOIN {$wpdb->posts} p ON pm.post_id = p.ID
+             WHERE p.post_type = 'product'
+             GROUP BY pm.meta_key
+             ORDER BY pm.meta_key",
+            ARRAY_A
+        );
+
+        $wc_core_keys = [
+            '_price', '_regular_price', '_sale_price', '_sale_price_dates_from',
+            '_sale_price_dates_to', '_sku', '_stock', '_stock_status', '_manage_stock',
+            '_backorders', '_sold_individually', '_virtual', '_downloadable',
+            '_download_limit', '_download_expiry', '_product_version',
+            '_product_image_gallery', '_thumbnail_id', '_weight', '_length', '_width',
+            '_height', '_tax_status', '_tax_class', '_featured', '_crosssell_ids',
+            '_upsell_ids', '_purchase_note', '_default_attributes', '_product_attributes',
+            '_global_unique_id', '_wc_average_rating', '_wc_review_count',
+            '_wc_rating_count', 'total_sales',
+        ];
+
+        $meta_groups = [
+            'WooCommerce Core'          => [],
+            'DMS Bridge'                => [],
+            'Yoast SEO'                 => [],
+            'Google for WooCommerce'    => [],
+            'Facebook for WooCommerce'  => [],
+            'Pinterest for WooCommerce' => [],
+            'WCPA Product Addons'       => [],
+            'Other'                     => [],
+        ];
+
+        foreach ($meta_rows as $row) {
+            $key = $row['meta_key'];
+            $cnt = (int) $row['cnt'];
+            $entry = ['key' => $key, 'count' => $cnt];
+
+            if (strpos($key, '_dms_') === 0 || strpos($key, 'tigon_') === 0) {
+                $meta_groups['DMS Bridge'][] = $entry;
+            } elseif (strpos($key, '_yoast_') === 0) {
+                $meta_groups['Yoast SEO'][] = $entry;
+            } elseif (strpos($key, '_wc_gla_') === 0) {
+                $meta_groups['Google for WooCommerce'][] = $entry;
+            } elseif (strpos($key, '_wc_facebook') === 0 || strpos($key, '_wc_fb_') === 0 || in_array($key, ['fb_product_group_id', 'fb_product_item_id'], true)) {
+                $meta_groups['Facebook for WooCommerce'][] = $entry;
+            } elseif (strpos($key, '_pinterest_') === 0 || strpos($key, 'pinterest_') === 0) {
+                $meta_groups['Pinterest for WooCommerce'][] = $entry;
+            } elseif (strpos($key, '_wcpa_') === 0 || strpos($key, 'wcpa_') === 0) {
+                $meta_groups['WCPA Product Addons'][] = $entry;
+            } elseif (in_array($key, $wc_core_keys, true) || strpos($key, '_wc_') === 0) {
+                $meta_groups['WooCommerce Core'][] = $entry;
+            } else {
+                $meta_groups['Other'][] = $entry;
+            }
+        }
+
+        // Database tables via information_schema (fast metadata read)
+        $db_name = DB_NAME;
+        $table_info = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT TABLE_NAME AS name, TABLE_ROWS AS approx_rows, DATA_LENGTH + INDEX_LENGTH AS size_bytes
+                 FROM information_schema.TABLES
+                 WHERE TABLE_SCHEMA = %s
+                 ORDER BY TABLE_NAME",
+                $db_name
+            ),
+            ARRAY_A
+        );
+
+        $wp_prefix    = $wpdb->prefix;
+        $dms_tables   = [];
+        $wc_tables    = [];
+        $wp_tables    = [];
+        $other_tables = [];
+        $wp_core_list = ['commentmeta', 'comments', 'links', 'options', 'postmeta', 'posts',
+            'term_relationships', 'term_taxonomy', 'termmeta', 'terms', 'usermeta', 'users'];
+
+        foreach ($table_info as $tbl) {
+            $name = $tbl['name'];
+            $entry = [
+                'name' => $name,
+                'rows' => (int) $tbl['approx_rows'],
+                'size' => (int) $tbl['size_bytes'],
+            ];
+            if (strpos($name, $wp_prefix . 'tigon_dms_') === 0) {
+                $dms_tables[] = $entry;
+            } elseif (strpos($name, $wp_prefix . 'wc_') === 0 || strpos($name, $wp_prefix . 'woocommerce_') === 0) {
+                $wc_tables[] = $entry;
+            } elseif (in_array(str_replace($wp_prefix, '', $name), $wp_core_list, true)) {
+                $wp_tables[] = $entry;
+            } else {
+                $other_tables[] = $entry;
+            }
+        }
+
+        // WooCommerce product attributes
+        $wc_attributes = function_exists('wc_get_attribute_taxonomies') ? wc_get_attribute_taxonomies() : [];
+
+        // DMS-related wp_options
+        $dms_options = $wpdb->get_results(
+            "SELECT option_name, LEFT(option_value, 120) AS val_preview, LENGTH(option_value) AS val_length
+             FROM {$wpdb->options}
+             WHERE option_name LIKE 'tigon_dms_%'
+                OR option_name LIKE 'dms_%'
+                OR option_name LIKE '%dms_bridge%'
+             ORDER BY option_name",
+            ARRAY_A
+        );
+
+        // Active plugins (extract name from path)
+        $active_plugins = get_option('active_plugins', []);
+
+        // Known plugin integrations
+        $plugin_integrations = [
+            'woocommerce'         => ['name' => 'WooCommerce', 'detected' => false, 'slug' => 'woocommerce/woocommerce.php'],
+            'yoast'               => ['name' => 'Yoast SEO', 'detected' => false, 'slug' => 'wordpress-seo/wp-seo.php'],
+            'google-wc'           => ['name' => 'Google for WooCommerce', 'detected' => false, 'slug' => 'google-listings-and-ads/google-listings-and-ads.php'],
+            'facebook-wc'         => ['name' => 'Facebook for WooCommerce', 'detected' => false, 'slug' => 'facebook-for-woocommerce/facebook-for-woocommerce.php'],
+            'pinterest-wc'        => ['name' => 'Pinterest for WooCommerce', 'detected' => false, 'slug' => 'pinterest-for-woocommerce/pinterest-for-woocommerce.php'],
+            'wcpa'                => ['name' => 'WCPA - Custom Product Addons', 'detected' => false, 'slug' => 'wc-product-addon/start.php'],
+            'yikes-tabs'          => ['name' => 'YIKES Custom Product Tabs', 'detected' => false, 'slug' => 'yikes-inc-easy-custom-woocommerce-product-tabs/yikes-inc-easy-custom-woocommerce-product-tabs.php'],
+            'dms-bridge'          => ['name' => 'DMS Bridge (This Plugin)', 'detected' => true, 'slug' => ''],
+        ];
+        foreach ($active_plugins as $plugin_path) {
+            foreach ($plugin_integrations as $key => &$info) {
+                if (!empty($info['slug']) && strpos($plugin_path, $info['slug']) !== false) {
+                    $info['detected'] = true;
+                }
+            }
+            unset($info);
+        }
+        // Also check by class existence for some plugins
+        if (class_exists('WooCommerce'))       $plugin_integrations['woocommerce']['detected'] = true;
+        if (class_exists('WPSEO_Options'))     $plugin_integrations['yoast']['detected'] = true;
+
+        // DMS product count
+        $dms_product_count = (int) $wpdb->get_var(
+            "SELECT COUNT(DISTINCT p.ID)
+             FROM {$wpdb->posts} p
+             INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_dms_cart_id'
+             WHERE p.post_type = 'product'"
+        );
+
+        // Summary stats
+        $total_products = isset($post_type_counts['product']) ? $post_type_counts['product']['total'] : 0;
+        $selected_id    = isset($_GET['product_id']) ? intval($_GET['product_id']) : 0;
+
+        // ── Inline styles ───────────────────────────────────────────────
+        echo '<style>
+        .dbo-wrap{display:flex;flex-direction:column;width:92%;max-width:1400px;margin:1.5rem auto;color:var(--font-dark);}
+        .dbo-tabs{display:flex;gap:0;border-bottom:3px solid var(--main-color);margin-bottom:0;flex-wrap:wrap;}
+        .dbo-tab{padding:0.65rem 1.2rem;background:var(--content-color);border:1px solid #ccc;border-bottom:none;
+                  border-radius:0.4rem 0.4rem 0 0;cursor:pointer;font-size:0.85rem;font-weight:600;color:var(--font-dark);
+                  transition:background 0.15s,color 0.15s;user-select:none;margin-right:2px;}
+        .dbo-tab:hover{background:#e8e8e8;}
+        .dbo-tab.active{background:var(--main-color);color:#fff;border-color:var(--main-color);}
+        .dbo-panel{display:none;background:var(--content-color);border:1px solid #ddd;border-top:none;
+                   border-radius:0 0 0.5rem 0.5rem;padding:1.5rem;box-shadow:0 2px 6px rgba(0,0,0,0.08);}
+        .dbo-panel.active{display:block;}
+        .dbo-search{width:100%;padding:0.5rem 0.75rem;border:1px solid #ccc;border-radius:0.35rem;font-size:0.85rem;
+                    margin-bottom:1rem;box-sizing:border-box;}
+        .dbo-search:focus{outline:none;border-color:var(--accent-color);box-shadow:0 0 0 2px rgba(85,116,134,0.2);}
+        .dbo-table{width:100%;border-collapse:collapse;font-size:0.82rem;}
+        .dbo-table th{background:var(--main-color);color:#fff;padding:0.55rem 0.75rem;text-align:left;
+                      position:sticky;top:0;z-index:2;font-weight:600;white-space:nowrap;}
+        .dbo-table td{padding:0.45rem 0.75rem;border-bottom:1px solid #e0e0e0;vertical-align:top;}
+        .dbo-table tr:hover td{background:rgba(156,52,52,0.04);}
+        .dbo-table code{background:#f0f0f0;padding:0.1rem 0.35rem;border-radius:3px;font-size:0.8rem;}
+        .dbo-scroll{max-height:500px;overflow-y:auto;border:1px solid #ddd;border-radius:0.35rem;}
+        .dbo-scroll::-webkit-scrollbar{width:8px;}
+        .dbo-scroll::-webkit-scrollbar-thumb{background:#bbb;border-radius:4px;}
+        .dbo-badge{display:inline-block;padding:0.15rem 0.55rem;border-radius:1rem;font-size:0.72rem;
+                   font-weight:700;color:#fff;white-space:nowrap;}
+        .dbo-badge.green{background:#39c939;} .dbo-badge.red{background:#cf1010;}
+        .dbo-badge.blue{background:#3b82f6;} .dbo-badge.orange{background:#e67e22;}
+        .dbo-badge.gray{background:#808080;} .dbo-badge.purple{background:#8b5cf6;}
+        .dbo-badge.teal{background:#0d9488;}
+        .dbo-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1rem;margin-bottom:1.5rem;}
+        .dbo-card{background:#fff;border:1px solid #ddd;border-radius:0.5rem;padding:1.2rem;text-align:center;
+                  box-shadow:0 1px 3px rgba(0,0,0,0.06);transition:transform 0.15s,box-shadow 0.15s;}
+        .dbo-card:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,0.1);}
+        .dbo-card .num{font-size:2rem;font-weight:800;color:var(--main-color);line-height:1.1;}
+        .dbo-card .lbl{font-size:0.8rem;color:#666;margin-top:0.3rem;}
+        .dbo-section{margin-bottom:1.5rem;}
+        .dbo-section-hd{display:flex;align-items:center;gap:0.5rem;cursor:pointer;padding:0.6rem 0.75rem;
+                        background:#fff;border:1px solid #ddd;border-radius:0.4rem;margin-bottom:0.5rem;user-select:none;
+                        transition:background 0.15s;}
+        .dbo-section-hd:hover{background:#f5f5f5;}
+        .dbo-section-hd .arrow{transition:transform 0.2s;font-size:0.75rem;}
+        .dbo-section-hd.open .arrow{transform:rotate(90deg);}
+        .dbo-section-hd h3{margin:0;font-size:0.95rem;flex:1;}
+        .dbo-section-bd{display:none;}
+        .dbo-section-hd.open + .dbo-section-bd{display:block;}
+        .dbo-pill-row{display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem;}
+        .dbo-pill{padding:0.25rem 0.65rem;border-radius:2rem;border:1px solid #ccc;font-size:0.75rem;
+                  cursor:pointer;user-select:none;transition:all 0.15s;background:#fff;}
+        .dbo-pill:hover{border-color:var(--main-color);color:var(--main-color);}
+        .dbo-pill.active{background:var(--main-color);color:#fff;border-color:var(--main-color);}
+        .dbo-pre{max-height:400px;overflow:auto;background:#111827;color:#e5e7eb;padding:1rem;
+                 border-radius:0.4rem;font-size:0.8rem;line-height:1.4;white-space:pre-wrap;word-break:break-word;}
+        .dbo-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:1rem;}
+        @media(max-width:900px){.dbo-grid-2{grid-template-columns:1fr;} .dbo-cards{grid-template-columns:repeat(2,1fr);}}
+        .dbo-size{color:#888;font-size:0.75rem;}
+        .dbo-empty{padding:2rem;text-align:center;color:#999;font-style:italic;}
+        </style>';
+
+        // ── Tab structure ───────────────────────────────────────────────
+        echo '<div class="dbo-wrap">';
+
+        // Tab buttons
+        $tabs = [
+            'overview'   => 'Overview',
+            'posttypes'  => 'Post Types',
+            'woocommerce'=> 'WooCommerce',
+            'taxonomies' => 'Taxonomies',
+            'metakeys'   => 'Meta Keys',
+            'tables'     => 'Database Tables',
+            'plugins'    => 'Plugins',
+            'inspector'  => 'Product Inspector',
+        ];
+        echo '<div class="dbo-tabs">';
+        $first = true;
+        foreach ($tabs as $id => $label) {
+            echo '<div class="dbo-tab' . ($first ? ' active' : '') . '" data-tab="' . esc_attr($id) . '">' . esc_html($label) . '</div>';
+            $first = false;
+        }
+        echo '</div>';
+
+        // ── TAB 1: Overview ─────────────────────────────────────────────
+        echo '<div class="dbo-panel active" data-panel="overview">';
+        echo '<h2 style="margin-top:0;">Site Database Overview</h2>';
+        echo '<div class="dbo-cards">';
+        echo '<div class="dbo-card"><div class="num">' . esc_html($total_products) . '</div><div class="lbl">WC Products</div></div>';
+        echo '<div class="dbo-card"><div class="num">' . esc_html($dms_product_count) . '</div><div class="lbl">DMS Products</div></div>';
+        echo '<div class="dbo-card"><div class="num">' . esc_html(count($post_type_counts)) . '</div><div class="lbl">Post Types</div></div>';
+        echo '<div class="dbo-card"><div class="num">' . esc_html(count($taxonomy_counts)) . '</div><div class="lbl">Taxonomies</div></div>';
+        echo '<div class="dbo-card"><div class="num">' . esc_html(count($meta_rows)) . '</div><div class="lbl">Product Meta Keys</div></div>';
+        echo '<div class="dbo-card"><div class="num">' . esc_html(count($table_info)) . '</div><div class="lbl">Database Tables</div></div>';
+        echo '<div class="dbo-card"><div class="num">' . esc_html(count($wc_attributes)) . '</div><div class="lbl">Product Attributes</div></div>';
+        $active_count = 0;
+        foreach ($plugin_integrations as $pi) { if ($pi['detected']) $active_count++; }
+        echo '<div class="dbo-card"><div class="num">' . esc_html($active_count) . '/' . esc_html(count($plugin_integrations)) . '</div><div class="lbl">Plugin Integrations</div></div>';
+        echo '</div>';
+
+        // Quick breakdown tables in the overview
+        echo '<div class="dbo-grid-2">';
+        // Post type summary
+        echo '<div class="dbo-section"><h3 style="margin:0 0 0.5rem;">Post Types by Content</h3><div class="dbo-scroll" style="max-height:260px;"><table class="dbo-table"><thead><tr><th>Type</th><th>Published</th><th>Draft</th><th>Total</th></tr></thead><tbody>';
+        foreach ($post_type_counts as $slug => $d) {
+            if ($d['total'] === 0) continue;
+            echo '<tr><td><code>' . esc_html($slug) . '</code></td><td>' . esc_html($d['publish']) . '</td><td>' . esc_html($d['draft']) . '</td><td><strong>' . esc_html($d['total']) . '</strong></td></tr>';
+        }
+        echo '</tbody></table></div></div>';
+
+        // DMS tables summary
+        echo '<div class="dbo-section"><h3 style="margin:0 0 0.5rem;">DMS Custom Tables</h3><div class="dbo-scroll" style="max-height:260px;"><table class="dbo-table"><thead><tr><th>Table</th><th>Rows</th><th>Size</th></tr></thead><tbody>';
+        foreach ($dms_tables as $t) {
+            echo '<tr><td><code>' . esc_html($t['name']) . '</code></td><td>' . esc_html(number_format($t['rows'])) . '</td><td class="dbo-size">' . esc_html(size_format($t['size'])) . '</td></tr>';
+        }
+        if (empty($dms_tables)) echo '<tr><td colspan="3" class="dbo-empty">No DMS tables found</td></tr>';
+        echo '</tbody></table></div></div>';
+        echo '</div>'; // end grid-2
+        echo '</div>'; // end overview panel
+
+        // ── TAB 2: Post Types ───────────────────────────────────────────
+        echo '<div class="dbo-panel" data-panel="posttypes">';
+        echo '<h2 style="margin-top:0;">Registered Post Types</h2>';
+        echo '<input type="text" class="dbo-search" data-filter="posttypes-table" placeholder="Search post types...">';
+        echo '<div class="dbo-scroll"><table class="dbo-table" id="posttypes-table"><thead><tr><th>Slug</th><th>Label</th><th>Visibility</th><th>Published</th><th>Draft</th><th>Trash</th><th>Total</th></tr></thead><tbody>';
+        foreach ($post_type_counts as $slug => $d) {
+            $vis = $d['public'] ? '<span class="dbo-badge green">Public</span>' : '<span class="dbo-badge gray">Private</span>';
+            if ($d['builtin']) $vis .= ' <span class="dbo-badge blue">Built-in</span>';
+            echo '<tr><td><code>' . esc_html($slug) . '</code></td><td>' . esc_html($d['label']) . '</td><td>' . $vis . '</td><td>' . esc_html($d['publish']) . '</td><td>' . esc_html($d['draft']) . '</td><td>' . esc_html($d['trash']) . '</td><td><strong>' . esc_html($d['total']) . '</strong></td></tr>';
+        }
+        echo '</tbody></table></div></div>';
+
+        // ── TAB 3: WooCommerce ──────────────────────────────────────────
+        echo '<div class="dbo-panel" data-panel="woocommerce">';
+        echo '<h2 style="margin-top:0;">WooCommerce Objects</h2>';
+
+        // Product stats
+        echo '<div class="dbo-cards" style="margin-bottom:1.5rem;">';
+        $pub = isset($post_type_counts['product']) ? $post_type_counts['product']['publish'] : 0;
+        $dra = isset($post_type_counts['product']) ? $post_type_counts['product']['draft'] : 0;
+        echo '<div class="dbo-card"><div class="num">' . esc_html($pub) . '</div><div class="lbl">Published Products</div></div>';
+        echo '<div class="dbo-card"><div class="num">' . esc_html($dra) . '</div><div class="lbl">Draft Products</div></div>';
+        echo '<div class="dbo-card"><div class="num">' . esc_html($dms_product_count) . '</div><div class="lbl">DMS-Synced Products</div></div>';
+        $order_count = isset($post_type_counts['shop_order']) ? $post_type_counts['shop_order']['total'] : 0;
+        echo '<div class="dbo-card"><div class="num">' . esc_html($order_count) . '</div><div class="lbl">Orders</div></div>';
+        echo '</div>';
+
+        // Product Attributes
+        echo '<div class="dbo-section"><div class="dbo-section-hd open" onclick="this.classList.toggle(\'open\')"><span class="arrow">&#9654;</span><h3>Product Attributes (' . count($wc_attributes) . ')</h3></div><div class="dbo-section-bd">';
+        echo '<input type="text" class="dbo-search" data-filter="wc-attr-table" placeholder="Search attributes...">';
+        echo '<div class="dbo-scroll" style="max-height:350px;"><table class="dbo-table" id="wc-attr-table"><thead><tr><th>ID</th><th>Name</th><th>Slug</th><th>Type</th><th>Terms</th></tr></thead><tbody>';
+        foreach ($wc_attributes as $attr) {
+            $tax_name = 'pa_' . $attr->attribute_name;
+            $term_count = isset($taxonomy_counts[$tax_name]) ? $taxonomy_counts[$tax_name]['count'] : 0;
+            echo '<tr><td>' . esc_html($attr->attribute_id) . '</td><td>' . esc_html($attr->attribute_label) . '</td><td><code>pa_' . esc_html($attr->attribute_name) . '</code></td><td>' . esc_html($attr->attribute_type) . '</td><td>' . esc_html($term_count) . '</td></tr>';
+        }
+        if (empty($wc_attributes)) echo '<tr><td colspan="5" class="dbo-empty">No product attributes found</td></tr>';
+        echo '</tbody></table></div></div></div>';
+
+        // WC Meta Keys
+        $wc_metas = $meta_groups['WooCommerce Core'];
+        echo '<div class="dbo-section"><div class="dbo-section-hd" onclick="this.classList.toggle(\'open\')"><span class="arrow">&#9654;</span><h3>WooCommerce Product Meta Keys (' . count($wc_metas) . ')</h3></div><div class="dbo-section-bd">';
+        echo '<div class="dbo-scroll" style="max-height:300px;"><table class="dbo-table"><thead><tr><th>Meta Key</th><th>Products Using</th></tr></thead><tbody>';
+        foreach ($wc_metas as $m) {
+            echo '<tr><td><code>' . esc_html($m['key']) . '</code></td><td>' . esc_html(number_format($m['count'])) . '</td></tr>';
+        }
+        echo '</tbody></table></div></div></div>';
+
+        // WC Database Tables
+        echo '<div class="dbo-section"><div class="dbo-section-hd" onclick="this.classList.toggle(\'open\')"><span class="arrow">&#9654;</span><h3>WooCommerce Tables (' . count($wc_tables) . ')</h3></div><div class="dbo-section-bd">';
+        echo '<div class="dbo-scroll" style="max-height:300px;"><table class="dbo-table"><thead><tr><th>Table</th><th>Rows (approx)</th><th>Size</th></tr></thead><tbody>';
+        foreach ($wc_tables as $t) {
+            echo '<tr><td><code>' . esc_html($t['name']) . '</code></td><td>' . esc_html(number_format($t['rows'])) . '</td><td class="dbo-size">' . esc_html(size_format($t['size'])) . '</td></tr>';
+        }
+        if (empty($wc_tables)) echo '<tr><td colspan="3" class="dbo-empty">No WooCommerce tables found</td></tr>';
+        echo '</tbody></table></div></div></div>';
+        echo '</div>'; // end woocommerce panel
+
+        // ── TAB 4: Taxonomies ───────────────────────────────────────────
+        echo '<div class="dbo-panel" data-panel="taxonomies">';
+        echo '<h2 style="margin-top:0;">Registered Taxonomies</h2>';
+
+        // Filter pills
+        echo '<div class="dbo-pill-row" id="tax-filter-pills">';
+        echo '<div class="dbo-pill active" data-filter-val="all">All</div>';
+        echo '<div class="dbo-pill" data-filter-val="product">Product</div>';
+        echo '<div class="dbo-pill" data-filter-val="pa_">Attributes (pa_)</div>';
+        echo '<div class="dbo-pill" data-filter-val="post">Post/Page</div>';
+        echo '</div>';
+
+        echo '<input type="text" class="dbo-search" data-filter="tax-table" placeholder="Search taxonomies...">';
+        echo '<div class="dbo-scroll"><table class="dbo-table" id="tax-table"><thead><tr><th>Slug</th><th>Label</th><th>Type</th><th>Applies To</th><th>Terms</th></tr></thead><tbody>';
+        foreach ($taxonomy_counts as $slug => $d) {
+            $type_badges = '';
+            if ($d['hierarchical']) {
+                $type_badges .= '<span class="dbo-badge blue">Hierarchical</span> ';
+            } else {
+                $type_badges .= '<span class="dbo-badge purple">Flat</span> ';
+            }
+            if ($d['public']) $type_badges .= '<span class="dbo-badge green">Public</span>';
+            else              $type_badges .= '<span class="dbo-badge gray">Private</span>';
+
+            $applies = implode(', ', $d['post_types']);
+            echo '<tr data-post-types="' . esc_attr($applies) . '" data-slug="' . esc_attr($slug) . '"><td><code>' . esc_html($slug) . '</code></td><td>' . esc_html($d['label']) . '</td><td>' . $type_badges . '</td><td><span style="font-size:0.78rem;">' . esc_html($applies) . '</span></td><td>' . esc_html($d['count']) . '</td></tr>';
+        }
+        echo '</tbody></table></div></div>';
+
+        // ── TAB 5: Meta Keys ────────────────────────────────────────────
+        echo '<div class="dbo-panel" data-panel="metakeys">';
+        echo '<h2 style="margin-top:0;">Product Meta Keys <span class="dbo-badge teal" style="font-size:0.7rem;vertical-align:middle;">' . esc_html(count($meta_rows)) . ' total</span></h2>';
+        echo '<input type="text" class="dbo-search" data-filter="meta-all" placeholder="Search all meta keys...">';
+
+        foreach ($meta_groups as $group_name => $items) {
+            if (empty($items)) continue;
+            $badge_class = 'gray';
+            if ($group_name === 'WooCommerce Core')          $badge_class = 'purple';
+            elseif ($group_name === 'DMS Bridge')            $badge_class = 'teal';
+            elseif ($group_name === 'Yoast SEO')             $badge_class = 'green';
+            elseif ($group_name === 'Google for WooCommerce') $badge_class = 'blue';
+            elseif ($group_name === 'Facebook for WooCommerce') $badge_class = 'blue';
+            elseif ($group_name === 'Pinterest for WooCommerce') $badge_class = 'orange';
+            elseif ($group_name === 'WCPA Product Addons')   $badge_class = 'orange';
+
+            $open_class = ($group_name === 'DMS Bridge' || $group_name === 'WooCommerce Core') ? ' open' : '';
+            echo '<div class="dbo-section" data-meta-group="' . esc_attr($group_name) . '"><div class="dbo-section-hd' . $open_class . '" onclick="this.classList.toggle(\'open\')">';
+            echo '<span class="arrow">&#9654;</span>';
+            echo '<h3>' . esc_html($group_name) . '</h3>';
+            echo '<span class="dbo-badge ' . $badge_class . '">' . esc_html(count($items)) . ' keys</span>';
+            echo '</div><div class="dbo-section-bd">';
+            echo '<div class="dbo-scroll" style="max-height:300px;"><table class="dbo-table"><thead><tr><th>Meta Key</th><th>Products Using</th></tr></thead><tbody>';
+            foreach ($items as $m) {
+                echo '<tr class="meta-row"><td><code>' . esc_html($m['key']) . '</code></td><td>' . esc_html(number_format($m['count'])) . '</td></tr>';
+            }
+            echo '</tbody></table></div></div></div>';
+        }
+        echo '</div>'; // end metakeys panel
+
+        // ── TAB 6: Database Tables ──────────────────────────────────────
+        echo '<div class="dbo-panel" data-panel="tables">';
+        echo '<h2 style="margin-top:0;">Database Tables <span class="dbo-badge teal" style="font-size:0.7rem;vertical-align:middle;">' . esc_html(count($table_info)) . ' total</span></h2>';
+        echo '<input type="text" class="dbo-search" data-filter="tables-all" placeholder="Search tables...">';
+
+        // DMS Tables
+        echo '<div class="dbo-section"><div class="dbo-section-hd open" onclick="this.classList.toggle(\'open\')"><span class="arrow">&#9654;</span><h3>DMS Bridge Tables</h3><span class="dbo-badge teal">' . esc_html(count($dms_tables)) . '</span></div><div class="dbo-section-bd">';
+        echo '<div class="dbo-scroll" style="max-height:280px;"><table class="dbo-table"><thead><tr><th>Table Name</th><th>Rows (approx)</th><th>Size</th></tr></thead><tbody>';
+        foreach ($dms_tables as $t) {
+            echo '<tr class="table-row"><td><code>' . esc_html($t['name']) . '</code></td><td>' . esc_html(number_format($t['rows'])) . '</td><td class="dbo-size">' . esc_html(size_format($t['size'])) . '</td></tr>';
+        }
+        if (empty($dms_tables)) echo '<tr><td colspan="3" class="dbo-empty">No DMS tables found</td></tr>';
+        echo '</tbody></table></div></div></div>';
+
+        // WC Tables
+        echo '<div class="dbo-section"><div class="dbo-section-hd" onclick="this.classList.toggle(\'open\')"><span class="arrow">&#9654;</span><h3>WooCommerce Tables</h3><span class="dbo-badge purple">' . esc_html(count($wc_tables)) . '</span></div><div class="dbo-section-bd">';
+        echo '<div class="dbo-scroll" style="max-height:280px;"><table class="dbo-table"><thead><tr><th>Table Name</th><th>Rows (approx)</th><th>Size</th></tr></thead><tbody>';
+        foreach ($wc_tables as $t) {
+            echo '<tr class="table-row"><td><code>' . esc_html($t['name']) . '</code></td><td>' . esc_html(number_format($t['rows'])) . '</td><td class="dbo-size">' . esc_html(size_format($t['size'])) . '</td></tr>';
+        }
+        echo '</tbody></table></div></div></div>';
+
+        // WordPress Core Tables
+        echo '<div class="dbo-section"><div class="dbo-section-hd" onclick="this.classList.toggle(\'open\')"><span class="arrow">&#9654;</span><h3>WordPress Core Tables</h3><span class="dbo-badge blue">' . esc_html(count($wp_tables)) . '</span></div><div class="dbo-section-bd">';
+        echo '<div class="dbo-scroll" style="max-height:280px;"><table class="dbo-table"><thead><tr><th>Table Name</th><th>Rows (approx)</th><th>Size</th></tr></thead><tbody>';
+        foreach ($wp_tables as $t) {
+            echo '<tr class="table-row"><td><code>' . esc_html($t['name']) . '</code></td><td>' . esc_html(number_format($t['rows'])) . '</td><td class="dbo-size">' . esc_html(size_format($t['size'])) . '</td></tr>';
+        }
+        echo '</tbody></table></div></div></div>';
+
+        // Other Tables
+        if (!empty($other_tables)) {
+            echo '<div class="dbo-section"><div class="dbo-section-hd" onclick="this.classList.toggle(\'open\')"><span class="arrow">&#9654;</span><h3>Other Tables</h3><span class="dbo-badge gray">' . esc_html(count($other_tables)) . '</span></div><div class="dbo-section-bd">';
+            echo '<div class="dbo-scroll" style="max-height:280px;"><table class="dbo-table"><thead><tr><th>Table Name</th><th>Rows (approx)</th><th>Size</th></tr></thead><tbody>';
+            foreach ($other_tables as $t) {
+                echo '<tr class="table-row"><td><code>' . esc_html($t['name']) . '</code></td><td>' . esc_html(number_format($t['rows'])) . '</td><td class="dbo-size">' . esc_html(size_format($t['size'])) . '</td></tr>';
+            }
+            echo '</tbody></table></div></div></div>';
+        }
+
+        // DMS Options
+        echo '<div class="dbo-section"><div class="dbo-section-hd" onclick="this.classList.toggle(\'open\')"><span class="arrow">&#9654;</span><h3>DMS wp_options Entries</h3><span class="dbo-badge teal">' . esc_html(count($dms_options)) . '</span></div><div class="dbo-section-bd">';
+        echo '<div class="dbo-scroll" style="max-height:250px;"><table class="dbo-table"><thead><tr><th>Option Name</th><th>Preview</th><th>Size</th></tr></thead><tbody>';
+        foreach ($dms_options as $opt) {
+            $preview = esc_html($opt['val_preview']);
+            if ((int) $opt['val_length'] > 120) $preview .= '...';
+            echo '<tr class="table-row"><td><code>' . esc_html($opt['option_name']) . '</code></td><td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' . $preview . '</td><td class="dbo-size">' . esc_html(size_format((int) $opt['val_length'])) . '</td></tr>';
+        }
+        if (empty($dms_options)) echo '<tr><td colspan="3" class="dbo-empty">No DMS options found</td></tr>';
+        echo '</tbody></table></div></div></div>';
+        echo '</div>'; // end tables panel
+
+        // ── TAB 7: Plugins ──────────────────────────────────────────────
+        echo '<div class="dbo-panel" data-panel="plugins">';
+        echo '<h2 style="margin-top:0;">Plugin Integrations</h2>';
+        echo '<p style="color:#666;font-size:0.85rem;">Shows the status of known plugin integrations used by DMS Bridge for product data mapping.</p>';
+
+        echo '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem;margin-bottom:1.5rem;">';
+        foreach ($plugin_integrations as $key => $info) {
+            $status = $info['detected']
+                ? '<span class="dbo-badge green">Active</span>'
+                : '<span class="dbo-badge red">Not Detected</span>';
+            $border_color = $info['detected'] ? '#39c939' : '#ddd';
+            echo '<div style="background:#fff;border:1px solid ' . $border_color . ';border-left:4px solid ' . $border_color . ';border-radius:0.4rem;padding:1rem;">';
+            echo '<div style="display:flex;justify-content:space-between;align-items:center;">';
+            echo '<strong style="font-size:0.9rem;">' . esc_html($info['name']) . '</strong> ' . $status;
+            echo '</div>';
+
+            // Show meta key count for active plugins
+            $related_group = null;
+            if ($key === 'yoast')        $related_group = 'Yoast SEO';
+            elseif ($key === 'google-wc') $related_group = 'Google for WooCommerce';
+            elseif ($key === 'facebook-wc') $related_group = 'Facebook for WooCommerce';
+            elseif ($key === 'pinterest-wc') $related_group = 'Pinterest for WooCommerce';
+            elseif ($key === 'wcpa')      $related_group = 'WCPA Product Addons';
+            elseif ($key === 'dms-bridge') $related_group = 'DMS Bridge';
+            elseif ($key === 'woocommerce') $related_group = 'WooCommerce Core';
+
+            if ($related_group && !empty($meta_groups[$related_group])) {
+                echo '<div style="margin-top:0.5rem;font-size:0.78rem;color:#666;">' . esc_html(count($meta_groups[$related_group])) . ' meta keys in use</div>';
+            }
+            echo '</div>';
+        }
+        echo '</div>';
+
+        // All active plugins list
+        echo '<div class="dbo-section"><div class="dbo-section-hd" onclick="this.classList.toggle(\'open\')"><span class="arrow">&#9654;</span><h3>All Active Plugins (' . count($active_plugins) . ')</h3></div><div class="dbo-section-bd">';
+        echo '<div class="dbo-scroll" style="max-height:300px;"><table class="dbo-table"><thead><tr><th>#</th><th>Plugin Path</th></tr></thead><tbody>';
+        $i = 1;
+        foreach ($active_plugins as $p) {
+            echo '<tr><td>' . $i++ . '</td><td><code>' . esc_html($p) . '</code></td></tr>';
+        }
+        echo '</tbody></table></div></div></div>';
+        echo '</div>'; // end plugins panel
+
+        // ── TAB 8: Product Inspector ────────────────────────────────────
+        echo '<div class="dbo-panel" data-panel="inspector">';
+        echo '<h2 style="margin-top:0;">Product Inspector</h2>';
+        echo '<p style="color:#666;font-size:0.85rem;">Select a DMS-synced product to inspect its raw API payload and WordPress database representation.</p>';
+
+        echo '<form method="get" style="display:flex;gap:0.5rem;align-items:center;margin-bottom:1rem;">';
+        echo '<input type="hidden" name="page" value="database-objects" />';
+        echo '<label for="product_id"><strong>Product ID:</strong></label>';
+        echo '<input type="number" id="product_id" name="product_id" value="' . ($selected_id ? esc_attr($selected_id) : '') . '" style="width:120px;padding:0.35rem 0.5rem;border:1px solid #ccc;border-radius:0.3rem;" />';
+        echo '<button class="button button-primary" type="submit" style="height:auto;padding:0.4rem 1rem;">Load</button>';
+        echo '</form>';
+
+        // DMS product list
+        $insp_query = new \WP_Query([
             'post_type'      => 'product',
             'posts_per_page' => 50,
             'post_status'    => ['publish', 'draft', 'pending'],
-            'meta_query'     => [
-                [
-                    'key'     => '_dms_cart_id',
-                    'compare' => 'EXISTS',
-                ],
-            ],
+            'meta_query'     => [['key' => '_dms_cart_id', 'compare' => 'EXISTS']],
         ]);
 
-        $selected_id = isset($_GET['product_id']) ? intval($_GET['product_id']) : 0;
+        echo '<input type="text" class="dbo-search" data-filter="insp-table" placeholder="Search products...">';
+        echo '<div class="dbo-scroll" style="max-height:300px;"><table class="dbo-table" id="insp-table"><thead><tr><th>ID</th><th>Title</th><th>Status</th><th>DMS Cart ID</th><th>Action</th></tr></thead><tbody>';
+        if ($insp_query->have_posts()) {
+            while ($insp_query->have_posts()) {
+                $insp_query->the_post();
+                $pid     = get_the_ID();
+                $cart_id = get_post_meta($pid, '_dms_cart_id', true);
+                $status  = get_post_status($pid);
+                $is_sel  = ($pid === $selected_id);
+                $status_badge = $status === 'publish' ? '<span class="dbo-badge green">Published</span>' : '<span class="dbo-badge orange">' . esc_html(ucfirst($status)) . '</span>';
 
-        echo '
-        <div class="body" style="display:flex; flex-direction:column;">
-            <div class="action-box-group">
-                <div class="action-box primary" style="flex-direction:column; gap:1rem;">
-                    <h2>DMS Products on this Site</h2>
-                    <p>Select a product to inspect its DMS payload and WordPress database object.</p>
-                    <form method="get" style="margin-bottom:1rem;">
-                        <input type="hidden" name="page" value="database-objects" />
-                        <label for="product_id"><strong>Product ID:</strong></label>
-                        <input type="number" id="product_id" name="product_id" value="' . ($selected_id ? esc_attr($selected_id) : '') . '" style="width:120px; margin-left:0.5rem;" />
-                        <button class="button button-primary" type="submit">Load</button>
-                    </form>
-                    <div class="tigon-dms-table-wrapper">
-                        <table class="widefat striped">
-                            <thead>
-                                <tr>
-                                    <th>Product ID</th>
-                                    <th>Title</th>
-                                    <th>DMS Cart ID</th>
-                                    <th>View</th>
-                                </tr>
-                            </thead>
-                            <tbody>';
-
-        if ($query->have_posts()) {
-            while ($query->have_posts()) {
-                $query->the_post();
-                $pid        = get_the_ID();
-                $cart_id    = get_post_meta($pid, '_dms_cart_id', true);
-                $is_current = ($pid === $selected_id);
-
-                echo '
-                                <tr' . ($is_current ? ' style="background:#f0f6ff;"' : '') . '>
-                                    <td>' . esc_html($pid) . '</td>
-                                    <td>' . esc_html(get_the_title()) . '</td>
-                                    <td>' . esc_html($cart_id) . '</td>
-                                    <td><a href="' . esc_url(add_query_arg(['page' => 'database-objects', 'product_id' => $pid], admin_url('admin.php'))) . '">Inspect</a></td>
-                                </tr>';
+                echo '<tr' . ($is_sel ? ' style="background:rgba(156,52,52,0.06);"' : '') . '>';
+                echo '<td>' . esc_html($pid) . '</td>';
+                echo '<td>' . esc_html(get_the_title()) . '</td>';
+                echo '<td>' . $status_badge . '</td>';
+                echo '<td><code style="font-size:0.72rem;">' . esc_html($cart_id) . '</code></td>';
+                echo '<td><a href="' . esc_url(add_query_arg(['page' => 'database-objects', 'product_id' => $pid], admin_url('admin.php'))) . '#inspector" style="font-weight:600;">Inspect</a></td>';
+                echo '</tr>';
             }
             wp_reset_postdata();
         } else {
-            echo '
-                                <tr>
-                                    <td colspan="4">No DMS-backed products found (products with <code>_dms_cart_id</code> meta).</td>
-                                </tr>';
+            echo '<tr><td colspan="5" class="dbo-empty">No DMS-backed products found.</td></tr>';
         }
+        echo '</tbody></table></div>';
 
-        echo '
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>';
-
-        // Detail view for a selected product
+        // Detail view for selected product
         if ($selected_id) {
             $dms_payload_raw = get_post_meta($selected_id, '_dms_payload', true);
             $dms_payload     = $dms_payload_raw ? json_decode($dms_payload_raw, true) : null;
 
-            // Safely build Database_Object representation if possible
             $database_data = [];
             if (class_exists('Tigon\DmsConnect\Admin\Database_Object')) {
                 try {
@@ -1289,27 +1779,125 @@ class Admin_Page
                 }
             }
 
-            $dms_json = $dms_payload ? wp_json_encode($dms_payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : 'No stored DMS payload found for this product.';
-            $db_json  = !empty($database_data) ? wp_json_encode($database_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : 'Unable to build Database_Object for this product.';
+            $dms_json = $dms_payload
+                ? wp_json_encode($dms_payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+                : 'No stored DMS payload found for this product.';
+            $db_json = !empty($database_data)
+                ? wp_json_encode($database_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+                : 'Unable to build Database_Object for this product.';
 
-            echo '
-            <div class="action-box-group" style="margin-top:1.5rem;">
-                <div class="action-box primary" style="flex:1; min-width:0;">
-                    <h2>API Payload (Stored DMS Data)</h2>
-                    <p>This is the raw DMS payload stored in <code>_dms_payload</code> for product ID ' . esc_html($selected_id) . '.</p>
-                    <pre style="max-height:400px; overflow:auto; background:#111827; color:#e5e7eb; padding:1rem; border-radius:4px;">' . esc_html($dms_json) . '</pre>
-                </div>
-                <div class="action-box primary" style="flex:1; min-width:0;">
-                    <h2>WordPress Database Object</h2>
-                    <p>This is the normalized database object representation used by the DMS Connect engine.</p>
-                    <pre style="max-height:400px; overflow:auto; background:#111827; color:#e5e7eb; padding:1rem; border-radius:4px;">' . esc_html($db_json) . '</pre>
-                </div>
-            </div>';
+            echo '<div style="margin-top:1.5rem;padding:1rem;background:#fff;border:1px solid var(--main-color);border-radius:0.4rem;">';
+            echo '<h3 style="margin:0 0 0.5rem;">Inspecting Product #' . esc_html($selected_id) . ': ' . esc_html(get_the_title($selected_id)) . '</h3>';
+
+            // All meta for this product
+            $all_meta = get_post_meta($selected_id);
+            echo '<div class="dbo-section" style="margin-top:0.75rem;"><div class="dbo-section-hd open" onclick="this.classList.toggle(\'open\')"><span class="arrow">&#9654;</span><h3>All Post Meta (' . count($all_meta) . ' keys)</h3></div><div class="dbo-section-bd">';
+            echo '<div class="dbo-scroll" style="max-height:250px;"><table class="dbo-table"><thead><tr><th>Meta Key</th><th>Value</th></tr></thead><tbody>';
+            ksort($all_meta);
+            foreach ($all_meta as $mk => $mv) {
+                $val = is_array($mv) ? implode(', ', array_map(function($v) { $s = maybe_unserialize($v); return is_scalar($s) ? (string)$s : '[complex]'; }, $mv)) : (string)$mv;
+                if (strlen($val) > 200) $val = substr($val, 0, 200) . '...';
+                echo '<tr><td><code>' . esc_html($mk) . '</code></td><td style="max-width:500px;overflow:hidden;text-overflow:ellipsis;word-break:break-all;font-size:0.78rem;">' . esc_html($val) . '</td></tr>';
+            }
+            echo '</tbody></table></div></div></div>';
+
+            // Side-by-side payloads
+            echo '<div class="dbo-grid-2" style="margin-top:1rem;">';
+            echo '<div><h4 style="margin:0 0 0.5rem;">DMS API Payload</h4><pre class="dbo-pre">' . esc_html($dms_json) . '</pre></div>';
+            echo '<div><h4 style="margin:0 0 0.5rem;">WordPress Database Object</h4><pre class="dbo-pre">' . esc_html($db_json) . '</pre></div>';
+            echo '</div>';
+            echo '</div>';
         }
+        echo '</div>'; // end inspector panel
 
-        echo '
-        </div>
-        ';
+        echo '</div>'; // end dbo-wrap
+
+        // ── JavaScript ──────────────────────────────────────────────────
+        echo '<script>
+        (function(){
+            // Tab switching
+            var tabs = document.querySelectorAll(".dbo-tab");
+            var panels = document.querySelectorAll(".dbo-panel");
+            tabs.forEach(function(tab){
+                tab.addEventListener("click", function(){
+                    tabs.forEach(function(t){ t.classList.remove("active"); });
+                    panels.forEach(function(p){ p.classList.remove("active"); });
+                    tab.classList.add("active");
+                    var panel = document.querySelector("[data-panel=\""+tab.dataset.tab+"\"]");
+                    if(panel) panel.classList.add("active");
+                });
+            });
+
+            // Auto-switch to inspector tab if product_id is in URL
+            var url = new URL(window.location);
+            if(url.searchParams.get("product_id")){
+                tabs.forEach(function(t){ t.classList.remove("active"); });
+                panels.forEach(function(p){ p.classList.remove("active"); });
+                var inspTab = document.querySelector("[data-tab=\"inspector\"]");
+                var inspPanel = document.querySelector("[data-panel=\"inspector\"]");
+                if(inspTab) inspTab.classList.add("active");
+                if(inspPanel) inspPanel.classList.add("active");
+            }
+
+            // Search/filter for tables
+            document.querySelectorAll(".dbo-search").forEach(function(input){
+                input.addEventListener("input", function(){
+                    var query = this.value.toLowerCase();
+                    var target = this.dataset.filter;
+
+                    if(target === "meta-all"){
+                        // Search across all meta groups
+                        document.querySelectorAll(".dbo-section[data-meta-group] .meta-row").forEach(function(row){
+                            row.style.display = row.textContent.toLowerCase().indexOf(query) > -1 ? "" : "none";
+                        });
+                        // Show sections that have visible rows
+                        document.querySelectorAll(".dbo-section[data-meta-group]").forEach(function(sec){
+                            var visible = sec.querySelectorAll(".meta-row:not([style*=\"display: none\"])");
+                            sec.style.display = (!query || visible.length > 0) ? "" : "none";
+                            if(query && visible.length > 0){
+                                sec.querySelector(".dbo-section-hd").classList.add("open");
+                            }
+                        });
+                        return;
+                    }
+                    if(target === "tables-all"){
+                        document.querySelectorAll(".dbo-panel[data-panel=\"tables\"] .table-row").forEach(function(row){
+                            row.style.display = row.textContent.toLowerCase().indexOf(query) > -1 ? "" : "none";
+                        });
+                        return;
+                    }
+                    // Standard table filter
+                    var table = document.getElementById(target);
+                    if(!table) return;
+                    table.querySelectorAll("tbody tr").forEach(function(row){
+                        row.style.display = row.textContent.toLowerCase().indexOf(query) > -1 ? "" : "none";
+                    });
+                });
+            });
+
+            // Taxonomy filter pills
+            var taxPills = document.querySelectorAll("#tax-filter-pills .dbo-pill");
+            taxPills.forEach(function(pill){
+                pill.addEventListener("click", function(){
+                    taxPills.forEach(function(p){ p.classList.remove("active"); });
+                    pill.classList.add("active");
+                    var val = pill.dataset.filterVal;
+                    var table = document.getElementById("tax-table");
+                    if(!table) return;
+                    table.querySelectorAll("tbody tr").forEach(function(row){
+                        if(val === "all"){
+                            row.style.display = "";
+                        } else {
+                            var pts = row.dataset.postTypes || "";
+                            var slug = row.dataset.slug || "";
+                            var match = pts.indexOf(val) > -1 || slug.indexOf(val) > -1;
+                            row.style.display = match ? "" : "none";
+                        }
+                    });
+                });
+            });
+        })();
+        </script>';
     }
 
     public static function settings_page()
