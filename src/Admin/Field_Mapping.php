@@ -216,31 +216,91 @@ class Field_Mapping
     public static function get_known_dms_fields(): array
     {
         return [
-            // Top-level identifiers
+            // ── Top-level identifiers ───────────────────────────────
             '_id',
             'pid',
             'serialNo',
             'vinNo',
 
-            // Cart Type
+            // ── Cart Type ───────────────────────────────────────────
             'cartType.make',
             'cartType.model',
             'cartType.year',
 
-            // Attributes
+            // ── Cart Attributes ─────────────────────────────────────
             'cartAttributes.cartColor',
             'cartAttributes.seatColor',
             'cartAttributes.tireRimSize',
             'cartAttributes.tireType',
             'cartAttributes.hasSoundSystem',
             'cartAttributes.isLifted',
+            'cartAttributes.liftKit',
             'cartAttributes.hasHitch',
+            'cartAttributes.hitch',
             'cartAttributes.hasExtendedTop',
             'cartAttributes.passengers',
+            'cartAttributes.hasBed',
+            'cartAttributes.hasBedLift',
+            'cartAttributes.hasFenderFlares',
+            'cartAttributes.cargoRack',
+            'cartAttributes.LEDs',
+            'cartAttributes.returnPolicy',
+            'cartAttributes.shipping',
+            'cartAttributes.sideStep',
+            'cartAttributes.stakeSide',
             'cartAttributes.utilityBed',
             'cartAttributes.driveTrain',
 
-            // Battery
+            // ── Added Features ──────────────────────────────────────
+            'addedFeatures.stockOptions',
+            'addedFeatures.brushGuard',
+            'addedFeatures.clayBasket',
+            'addedFeatures.fenderFlares',
+            'addedFeatures.LEDs',
+            'addedFeatures.lightBar',
+            'addedFeatures.underGlow',
+            'addedFeatures.staticStock',
+
+            // ── Options (cart add-ons) ──────────────────────────────
+            'options.denagoRoverXLaddOns',
+            'options.denagoNomadXLAddOns',
+            'options.denagoNomadAddOns',
+            'options.golfBagEvoD3',
+            'options.golfBagEvo',
+            'options.120voltInverter',
+            'options.D5enclosure',
+            'options.D5hitch',
+            'options.5passengerEnclosure',
+            'options.4passengerEnclosure',
+            'options.4passengerStorageCoverD5',
+            'options.4passengerStorageCoverEpic',
+            'options.6passengerStorageCoverEpic',
+            'options.armrest4fwd',
+            'options.armrest4',
+            'options.armrest6',
+            'options.interiorBasket',
+            'options.lightBar',
+            'options.subWoofer',
+            'options.programmer',
+            'options.cargoCaddie',
+            'options.newCartHitch',
+            'options.newClayBasket',
+            'options.seatBelts',
+            'options.gtwCupHolders',
+            'options.chargerUpgrade',
+            'options.6passengerStorageCover',
+            'options.fanSystem',
+            'options.soundBar',
+            'options.gtwGolfBag',
+            'options.gtwGrabBar',
+            'options.gtwHitch',
+            'options.underBodyLights',
+            'options.sideMirrors',
+            'options.4passengerStorageCover',
+            'options.soundSystem',
+            'options.customCart',
+
+            // ── Battery ─────────────────────────────────────────────
             'battery.type',
             'battery.brand',
             'battery.year',
@@ -251,46 +311,69 @@ class Field_Mapping
             'battery.warrantyLength',
             'battery.isDC',
 
-            // Engine
+            // ── Engine ──────────────────────────────────────────────
             'engine.make',
+            'engine.model',
             'engine.horsepower',
             'engine.stroke',
 
-            // Location
+            // ── Location ────────────────────────────────────────────
             'cartLocation.locationId',
             'cartLocation.locationDescription',
             'cartLocation.latestStoreId',
 
-            // Title / Legal
+            // ── Title / Legal ───────────────────────────────────────
             'title.isStreetLegal',
             'title.isTitleInPossession',
             'title.storeID',
 
-            // Advertising
+            // ── Advertising ─────────────────────────────────────────
             'advertising.websiteUrl',
+            'advertising.onWebsite',
             'advertising.needOnWebsite',
+            'advertising.facebookAccounts',
 
-            // RFS Status
+            // ── RFS Status ──────────────────────────────────────────
             'rfsStatus.isRFS',
             'rfsStatus.notRFSOption',
+            'rfsStatus.notRFSDescription',
 
-            // Pricing & status
+            // ── Floor Plan ──────────────────────────────────────────
+            'floorPlanned.isFloorPlanned',
+            'floorPlanned.floorPlannedTimestamp',
+
+            // ── Pricing & Status ────────────────────────────────────
             'retailPrice',
             'salePrice',
+            'overheadCost',
             'isElectric',
             'isUsed',
             'isInStock',
             'isInBoneyard',
+            'isOnLot',
+            'isDelivered',
+            'isService',
+            'isComplete',
             'odometer',
             'warrantyLength',
             'status',
             'hour',
 
-            // Images
+            // ── Timestamps ──────────────────────────────────────────
+            'lastInteractionTimestamp',
+            'inventoryTimestamp',
+            'serviceTimestamp',
+
+            // ── Misc ────────────────────────────────────────────────
+            'transferLocation',
+            'invoiceNo',
+            'currentOwner',
+            'tradeInInfo',
+            'categories',
+
+            // ── Images ──────────────────────────────────────────────
             'imageUrls',
             'internalCartImageUrls',
-
-            // Window sticker
             'cartWindowStickerUrl',
         ];
     }
@@ -302,16 +385,23 @@ class Field_Mapping
     {
         return [
             'postmeta' => [
+                // WooCommerce Core
                 '_sku',
+                '_global_unique_id',
                 '_regular_price',
                 '_price',
                 '_sale_price',
+                '_sale_price_dates_from',
+                '_sale_price_dates_to',
                 '_stock_status',
+                '_stock',
                 '_manage_stock',
                 '_tax_status',
                 '_tax_class',
                 '_virtual',
                 '_downloadable',
+                '_download_limit',
+                '_download_expiry',
                 '_sold_individually',
                 '_backorders',
                 '_weight',
@@ -321,23 +411,52 @@ class Field_Mapping
                 '_thumbnail_id',
                 '_product_image_gallery',
                 '_product_attributes',
+                '_featured',
+                '_purchase_note',
+                // DMS Bridge
                 '_dms_cart_id',
                 '_dms_payload',
                 '_dms_cart_specs',
+                '_dms_cart_images',
+                '_dms_cart_warranty',
                 'monroney_sticker',
+                // Yoast SEO
                 '_yoast_wpseo_title',
                 '_yoast_wpseo_metadesc',
+                '_yoast_wpseo_focuskw',
+                '_yoast_wpseo_focus_keywords',
+                '_yoast_wpseo_bctitle',
                 '_yoast_wpseo_primary_product_cat',
+                '_yoast_wpseo_primary_added-features',
+                '_yoast_wpseo_opengraph-title',
+                '_yoast_wpseo_opengraph-description',
+                '_yoast_wpseo_opengraph-image',
+                '_yoast_wpseo_twitter-image',
+                // Google for WooCommerce
                 '_wc_gla_brand',
                 '_wc_gla_color',
                 '_wc_gla_pattern',
                 '_wc_gla_condition',
                 '_wc_gla_mpn',
-                '_wc_pinterest_condition',
-                '_wc_pinterest_google_product_category',
+                '_wc_gla_sizeSystem',
+                '_wc_gla_gtin',
+                '_wc_gla_ageGroup',
+                '_wc_gla_gender',
+                '_wc_gla_material',
+                '_wc_gla_productType',
+                // Facebook for WooCommerce
+                '_wc_facebook_sync_enabled',
+                '_wc_fb_visibility',
                 '_wc_facebook_enhanced_catalog_attributes_brand',
                 '_wc_facebook_enhanced_catalog_attributes_color',
-                '_wc_facebook_sync_enabled',
+                '_wc_facebook_enhanced_catalog_attributes_pattern',
+                '_wc_facebook_enhanced_catalog_attributes_size',
+                '_wc_facebook_google_product_category',
+                // Pinterest for WooCommerce
+                '_wc_pinterest_condition',
+                '_wc_pinterest_google_product_category',
+                '_wc_pinterest_brand',
+                '_wc_pinterest_color',
             ],
             'post' => [
                 'post_title',
@@ -351,6 +470,7 @@ class Field_Mapping
                 'product_cat',
                 'product_tag',
                 'product_type',
+                'product_visibility',
                 'manufacturers',
                 'models',
                 'location',
@@ -361,6 +481,18 @@ class Field_Mapping
                 'drivetrain',
                 'inventory-status',
                 'rims',
+                'pa_make',
+                'pa_model',
+                'pa_color',
+                'pa_seats',
+                'pa_year',
+                'pa_battery-type',
+                'pa_passenger-count',
+                'pa_lift-kit',
+                'pa_tire-type',
+                'pa_rim-size',
+                'pa_transmission',
+                'pa_horsepower',
             ],
         ];
     }

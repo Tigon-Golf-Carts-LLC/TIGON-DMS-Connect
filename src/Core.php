@@ -597,7 +597,12 @@ class Core
 
         while (true) {
             $batch = \DMS_API::get_carts($page, $page_size);
-            if ($batch === false || !is_array($batch) || empty($batch)) {
+            if ($batch === false) {
+                $stats['errors']++;
+                $stats['error_details'][] = 'DMS API error on page ' . $page . ' — check API connectivity';
+                break;
+            }
+            if (!is_array($batch) || empty($batch)) {
                 break;
             }
             $all_carts = array_merge($all_carts, $batch);
@@ -606,6 +611,9 @@ class Core
                 break;
             }
         }
+
+        // Deduplication set for new carts (mirrors import.js + Core.php sync)
+        $seen_new = [];
 
         foreach ($all_carts as $cart) {
             $cart_id = $cart['_id'] ?? '';
@@ -623,12 +631,55 @@ class Core
                 continue;
             }
 
+            // ---------------------------------------------------------
+            // Cart eligibility filters (mirrors import.js + Abstract_Cart)
+            // Skip carts that should not be on the website.
+            // ---------------------------------------------------------
+            if (!empty($cart['isInBoneyard'])) {
+                continue;
+            }
+            $is_in_stock = isset($cart['isInStock']) ? $cart['isInStock'] : true;
+            if (!$is_in_stock) {
+                continue;
+            }
+            $need_on_website = $cart['advertising']['needOnWebsite']
+                ?? ($cart['needOnWebsite'] ?? true);
+            if (!$need_on_website) {
+                continue;
+            }
+            $serial = strtoupper($cart['serialNo'] ?? '');
+            $vin    = strtoupper($cart['vinNo'] ?? '');
+            if (str_contains($serial, 'DELETE') || str_contains($vin, 'DELETE')) {
+                continue;
+            }
+
+            // Deduplicate new carts by make/model/color/seat/location
+            if (!$is_used) {
+                $loc_id = $cart['cartLocation']['locationId'] ?? '';
+                $dedup_key = implode('|', [
+                    $cart['cartType']['make'] ?? '',
+                    $cart['cartType']['model'] ?? '',
+                    $cart['cartAttributes']['cartColor'] ?? '',
+                    $cart['cartAttributes']['seatColor'] ?? '',
+                    $loc_id,
+                ]);
+                if (isset($seen_new[$dedup_key])) {
+                    continue;
+                }
+                $seen_new[$dedup_key] = true;
+            }
+
             $stats['total']++;
 
             // Stage in local table
             $store_id   = $cart['cartLocation']['locationId'] ?? '';
             $store_name = \DMS_API::get_city_by_store_id($store_id);
-            \Tigon\DmsConnect\Admin\CartModel::upsert_from_api($cart, $store_name, '', $store_id);
+            try {
+                \Tigon\DmsConnect\Admin\CartModel::upsert_from_api($cart, $store_name, '', $store_id);
+            } catch (\Throwable $e) {
+                // Non-fatal: cart staging failed but product sync can continue
+                error_log('[DMS Selective Sync] CartModel upsert failed for ' . $cart_id . ': ' . $e->getMessage());
+            }
 
             // Check if product already exists
             $existing = function_exists('tigon_dms_get_product_by_cart_id')
@@ -653,10 +704,14 @@ class Core
                     $stats[$was_existing ? 'updated' : 'created']++;
                 } else {
                     $stats['errors']++;
+                    $stats['error_details'][] = $cart_id . ': product creation returned false';
                 }
             } catch (\Exception $e) {
                 $stats['errors']++;
                 $stats['error_details'][] = $cart_id . ': ' . $e->getMessage();
+            } catch (\Error $e) {
+                $stats['errors']++;
+                $stats['error_details'][] = $cart_id . ': [Fatal] ' . $e->getMessage();
             }
         }
 
