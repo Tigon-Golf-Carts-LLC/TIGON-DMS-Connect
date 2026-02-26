@@ -1045,11 +1045,17 @@ class Admin_Page
                 $results.html(html).show();
             }
 
-            function showError($results, msg) {
-                $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Error:</strong> \' + $("<span>").text(msg).html() + "</p></div>").show();
+            function showError($results, msg, xhr) {
+                var detail = msg;
+                if (xhr) {
+                    detail += " [HTTP " + xhr.status + "]";
+                    var body = (xhr.responseText || "").substring(0, 300);
+                    if (body) detail += " " + body;
+                }
+                $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Error:</strong> \' + $("<span>").text(detail).html() + "</p></div>").show();
             }
 
-            /* ── Batched Selective Sync ───────────────────────────── */
+            /* ── Batched Selective Sync (page-by-page) ────────────── */
             $("#dms-sync-btn").on("click", function() {
                 var $btn = $(this);
                 var $spinner = $("#dms-sync-spinner");
@@ -1057,16 +1063,16 @@ class Admin_Page
                 var syncType = $("input[name=sync_type]:checked").val();
                 var labels = {"all": "All Carts", "new": "New Carts", "used": "Used Carts"};
 
-                $btn.prop("disabled", true).text("Fetching inventory...");
+                $btn.prop("disabled", true).text("Connecting to DMS...");
                 $spinner.addClass("is-active");
                 $results.hide();
 
-                // Step 1: Initialize — fetch all carts and get sync_id
+                // Step 1: Init — lightweight, just gets total count
                 $.ajax({
                     url: ajaxurl,
                     type: "POST",
                     data: { action: "tigon_dms_sync_selective_init", nonce: selectiveNonce, sync_type: syncType },
-                    timeout: 300000,
+                    timeout: 60000,
                     success: function(initResp) {
                         if (!initResp.success) {
                             $spinner.removeClass("is-active");
@@ -1077,13 +1083,15 @@ class Admin_Page
 
                         var syncId = initResp.data.sync_id;
                         var total = initResp.data.total;
-                        var batchSize = initResp.data.batch_size;
-                        var offset = 0;
-                        var cumulative = { created: 0, updated: 0, errors: 0, skipped: 0, error_details: [] };
+                        var pageSize = initResp.data.page_size;
+                        var totalPages = initResp.data.total_pages;
+                        var currentPage = 0;
+                        var processed = 0;
+                        var cumulative = { created: 0, updated: 0, skipped: 0, errors: 0, error_details: [] };
 
                         $btn.text("Syncing " + labels[syncType] + "...");
                         showProgress($results, total);
-                        $results.find(".sync-progress-status").text("Found " + total + " carts (from " + initResp.data.fetched + " total). Starting sync...");
+                        $results.find(".sync-progress-status").text("Found " + total + " carts. Starting sync (page 1 of " + totalPages + ")...");
 
                         if (total === 0) {
                             $spinner.removeClass("is-active");
@@ -1092,74 +1100,109 @@ class Admin_Page
                             return;
                         }
 
-                        // Step 2: Process batches recursively
-                        function processBatch() {
+                        // Step 2: Process pages one at a time
+                        function processPage() {
+                            $results.find(".sync-progress-status").text("Processing page " + (currentPage + 1) + " of " + totalPages + "...");
+
                             $.ajax({
                                 url: ajaxurl,
                                 type: "POST",
-                                data: { action: "tigon_dms_sync_selective_batch", nonce: selectiveNonce, sync_id: syncId, offset: offset, batch_size: batchSize },
+                                data: { action: "tigon_dms_sync_selective_batch", nonce: selectiveNonce, sync_id: syncId, page: currentPage },
                                 timeout: 180000,
                                 success: function(batchResp) {
                                     if (!batchResp.success) {
-                                        $spinner.removeClass("is-active");
-                                        $btn.prop("disabled", false).text("Sync Now");
-                                        showError($results, batchResp.data || "Batch failed at offset " + offset);
+                                        // Server returned an error message — show it but allow continuing
+                                        cumulative.errors++;
+                                        cumulative.error_details.push("Page " + currentPage + ": " + (batchResp.data || "unknown error"));
+                                        // Try next page anyway
+                                        currentPage++;
+                                        processed += pageSize;
+                                        updateProgress($results, Math.min(processed, total), total, cumulative);
+                                        if (currentPage >= totalPages) {
+                                            $spinner.removeClass("is-active");
+                                            $btn.prop("disabled", false).text("Sync Now");
+                                            showFinalResults($results, cumulative, processed, "Sync Completed with errors (" + labels[syncType] + ")");
+                                        } else {
+                                            processPage();
+                                        }
                                         return;
                                     }
 
                                     var d = batchResp.data;
-                                    cumulative.created += d.created;
-                                    cumulative.updated += d.updated;
-                                    cumulative.errors += d.errors;
+                                    cumulative.created += (d.created || 0);
+                                    cumulative.updated += (d.updated || 0);
+                                    cumulative.skipped += (d.skipped || 0);
+                                    cumulative.errors += (d.errors || 0);
                                     cumulative.error_details = cumulative.error_details.concat(d.error_details || []);
 
-                                    offset += batchSize;
-                                    updateProgress($results, Math.min(offset, total), total, cumulative);
+                                    currentPage++;
+                                    processed += (d.page_count || pageSize);
+                                    updateProgress($results, Math.min(processed, total), total, cumulative);
 
-                                    if (d.done) {
+                                    if (d.done || currentPage >= totalPages) {
                                         $spinner.removeClass("is-active");
                                         $btn.prop("disabled", false).text("Sync Now");
-                                        showFinalResults($results, cumulative, total, "Sync Completed (" + labels[syncType] + ")");
+                                        showFinalResults($results, cumulative, processed, "Sync Completed (" + labels[syncType] + ")");
                                     } else {
-                                        processBatch();
+                                        processPage();
                                     }
                                 },
                                 error: function(xhr, status, error) {
-                                    // Retry once on network error
-                                    cumulative.errors++;
-                                    cumulative.error_details.push("Batch at offset " + offset + " failed: " + error + " — retrying...");
+                                    // Retry once after 2s
+                                    cumulative.error_details.push("Page " + currentPage + " network error: " + (error || status) + " [HTTP " + (xhr ? xhr.status : "?") + "] — retrying...");
                                     setTimeout(function() {
                                         $.ajax({
                                             url: ajaxurl,
                                             type: "POST",
-                                            data: { action: "tigon_dms_sync_selective_batch", nonce: selectiveNonce, sync_id: syncId, offset: offset, batch_size: batchSize },
+                                            data: { action: "tigon_dms_sync_selective_batch", nonce: selectiveNonce, sync_id: syncId, page: currentPage },
                                             timeout: 180000,
                                             success: function(retryResp) {
                                                 if (retryResp.success) {
                                                     var d = retryResp.data;
-                                                    cumulative.created += d.created;
-                                                    cumulative.updated += d.updated;
-                                                    cumulative.errors += d.errors;
+                                                    cumulative.created += (d.created || 0);
+                                                    cumulative.updated += (d.updated || 0);
+                                                    cumulative.skipped += (d.skipped || 0);
+                                                    cumulative.errors += (d.errors || 0);
                                                     cumulative.error_details = cumulative.error_details.concat(d.error_details || []);
-                                                    offset += batchSize;
-                                                    updateProgress($results, Math.min(offset, total), total, cumulative);
-                                                    if (d.done) {
+                                                    currentPage++;
+                                                    processed += (d.page_count || pageSize);
+                                                    updateProgress($results, Math.min(processed, total), total, cumulative);
+                                                    if (d.done || currentPage >= totalPages) {
                                                         $spinner.removeClass("is-active");
                                                         $btn.prop("disabled", false).text("Sync Now");
-                                                        showFinalResults($results, cumulative, total, "Sync Completed (" + labels[syncType] + ")");
+                                                        showFinalResults($results, cumulative, processed, "Sync Completed (" + labels[syncType] + ")");
                                                     } else {
-                                                        processBatch();
+                                                        processPage();
                                                     }
                                                 } else {
-                                                    $spinner.removeClass("is-active");
-                                                    $btn.prop("disabled", false).text("Sync Now");
-                                                    showFinalResults($results, cumulative, total, "Sync Partially Completed (" + labels[syncType] + ") — stopped at " + offset + "/" + total);
+                                                    // Skip this page and continue
+                                                    cumulative.errors++;
+                                                    currentPage++;
+                                                    processed += pageSize;
+                                                    updateProgress($results, Math.min(processed, total), total, cumulative);
+                                                    if (currentPage >= totalPages) {
+                                                        $spinner.removeClass("is-active");
+                                                        $btn.prop("disabled", false).text("Sync Now");
+                                                        showFinalResults($results, cumulative, processed, "Sync Completed with errors (" + labels[syncType] + ")");
+                                                    } else {
+                                                        processPage();
+                                                    }
                                                 }
                                             },
                                             error: function() {
-                                                $spinner.removeClass("is-active");
-                                                $btn.prop("disabled", false).text("Sync Now");
-                                                showFinalResults($results, cumulative, total, "Sync Partially Completed — network error at " + offset + "/" + total);
+                                                // Skip this page and continue
+                                                cumulative.errors++;
+                                                cumulative.error_details.push("Page " + currentPage + " failed after retry — skipping");
+                                                currentPage++;
+                                                processed += pageSize;
+                                                updateProgress($results, Math.min(processed, total), total, cumulative);
+                                                if (currentPage >= totalPages) {
+                                                    $spinner.removeClass("is-active");
+                                                    $btn.prop("disabled", false).text("Sync Now");
+                                                    showFinalResults($results, cumulative, processed, "Sync Completed with errors (" + labels[syncType] + ")");
+                                                } else {
+                                                    processPage();
+                                                }
                                             }
                                         });
                                     }, 2000);
@@ -1167,12 +1210,12 @@ class Admin_Page
                             });
                         }
 
-                        processBatch();
+                        processPage();
                     },
                     error: function(xhr, status, error) {
                         $spinner.removeClass("is-active");
                         $btn.prop("disabled", false).text("Sync Now");
-                        showError($results, "Failed to initialize sync: " + error);
+                        showError($results, "Failed to initialize sync: " + (error || status || "connection failed"), xhr);
                     }
                 });
             });
@@ -1304,7 +1347,7 @@ class Admin_Page
                     error: function(xhr, status, error) {
                         $spinner.removeClass("is-active");
                         $btn.prop("disabled", false).text("Sync Mapped Inventory");
-                        showError($results, "Failed to initialize mapped sync: " + error);
+                        showError($results, "Failed to initialize mapped sync: " + (error || status || "connection failed"), xhr);
                     }
                 });
             });

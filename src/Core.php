@@ -730,15 +730,16 @@ class Core
     }
 
     // ─────────────────────────────────────────────────────────────────
-    //  Batched Selective Sync (timeout-safe)
+    //  Batched Selective Sync (timeout-safe, page-by-page)
     // ─────────────────────────────────────────────────────────────────
 
     /**
      * AJAX: Initialize a batched selective sync.
      *
-     * Fetches all carts from the public DMS API, applies eligibility filters
-     * and deduplication, stores the filtered set in a transient, and returns
-     * the sync session ID + total count so JavaScript can drive the batch loop.
+     * Makes ONE lightweight API call to get the total cart count and first
+     * page, then stores only sync metadata (type + dedup keys) in a small
+     * transient. Each subsequent batch call fetches and processes one API
+     * page independently — no massive transient, no long-running init.
      */
     public static function ajax_sync_selective_init()
     {
@@ -747,108 +748,48 @@ class Core
             wp_send_json_error('Unauthorized', 403);
         }
 
-        ignore_user_abort(true);
-        set_time_limit(300);
+        try {
+            $sync_type = sanitize_text_field($_POST['sync_type'] ?? 'all');
+            $page_size = 50;
 
-        $sync_type = sanitize_text_field($_POST['sync_type'] ?? 'all');
+            // One API call to discover total carts
+            $page_data = \DMS_API::get_carts_page(0, $page_size);
 
-        // Fetch all carts from public API
-        $all_carts = [];
-        $page = 0;
-        $page_size = 50;
-
-        while (true) {
-            $batch = \DMS_API::get_carts($page, $page_size);
-            if ($batch === false) {
-                wp_send_json_error('DMS API error on page ' . $page . ' — check API connectivity');
+            if ($page_data === false) {
+                wp_send_json_error('DMS API unreachable — check API connectivity and try again.');
                 return;
             }
-            if (!is_array($batch) || empty($batch)) {
-                break;
-            }
-            $all_carts = array_merge($all_carts, $batch);
-            $page++;
-            if (count($batch) < $page_size) {
-                break;
-            }
+
+            $total_carts = $page_data['total'] ?? 0;
+            $total_pages = ($total_carts > 0) ? (int) ceil($total_carts / $page_size) : 0;
+
+            // Store lightweight sync metadata (NOT all cart data)
+            $sync_id = 'dms_sync_' . wp_generate_password(16, false);
+            set_transient($sync_id, [
+                'sync_type'  => $sync_type,
+                'page_size'  => $page_size,
+                'seen_new'   => [],
+                'total_carts' => $total_carts,
+            ], HOUR_IN_SECONDS);
+
+            wp_send_json_success([
+                'sync_id'     => $sync_id,
+                'total'       => $total_carts,
+                'total_pages' => $total_pages,
+                'page_size'   => $page_size,
+                'sync_type'   => $sync_type,
+            ]);
+        } catch (\Throwable $e) {
+            wp_send_json_error('Init error: ' . $e->getMessage());
         }
-
-        // Apply eligibility filters + deduplication (mirrors ajax_sync_selective)
-        $filtered = [];
-        $seen_new = [];
-
-        foreach ($all_carts as $cart) {
-            $cart_id = $cart['_id'] ?? '';
-            if (empty($cart_id)) {
-                continue;
-            }
-
-            $is_used = !empty($cart['isUsed']);
-
-            // Filter by sync type
-            if ($sync_type === 'new' && $is_used) {
-                continue;
-            }
-            if ($sync_type === 'used' && !$is_used) {
-                continue;
-            }
-
-            // Eligibility filters
-            if (!empty($cart['isInBoneyard'])) {
-                continue;
-            }
-            $is_in_stock = isset($cart['isInStock']) ? $cart['isInStock'] : true;
-            if (!$is_in_stock) {
-                continue;
-            }
-            $need_on_website = $cart['advertising']['needOnWebsite']
-                ?? ($cart['needOnWebsite'] ?? true);
-            if (!$need_on_website) {
-                continue;
-            }
-            $serial = strtoupper($cart['serialNo'] ?? '');
-            $vin    = strtoupper($cart['vinNo'] ?? '');
-            if (str_contains($serial, 'DELETE') || str_contains($vin, 'DELETE')) {
-                continue;
-            }
-
-            // Deduplicate new carts
-            if (!$is_used) {
-                $loc_id = $cart['cartLocation']['locationId'] ?? '';
-                $dedup_key = implode('|', [
-                    $cart['cartType']['make'] ?? '',
-                    $cart['cartType']['model'] ?? '',
-                    $cart['cartAttributes']['cartColor'] ?? '',
-                    $cart['cartAttributes']['seatColor'] ?? '',
-                    $loc_id,
-                ]);
-                if (isset($seen_new[$dedup_key])) {
-                    continue;
-                }
-                $seen_new[$dedup_key] = true;
-            }
-
-            $filtered[] = $cart;
-        }
-
-        // Generate sync ID and store in transient (1 hour expiry)
-        $sync_id = 'dms_sync_' . wp_generate_password(16, false);
-        set_transient($sync_id, $filtered, HOUR_IN_SECONDS);
-
-        wp_send_json_success([
-            'sync_id'    => $sync_id,
-            'total'      => count($filtered),
-            'batch_size' => 10,
-            'sync_type'  => $sync_type,
-            'fetched'    => count($all_carts),
-        ]);
     }
 
     /**
-     * AJAX: Process one batch of carts in a batched selective sync.
+     * AJAX: Process one page of carts in a batched selective sync.
      *
-     * Reads the cart array from the transient, processes carts[offset..offset+batch_size],
-     * and returns per-batch stats. JavaScript accumulates totals and drives the loop.
+     * Fetches ONE page from the DMS API, applies filters and deduplication,
+     * then creates/updates WooCommerce products. Each request is bounded to
+     * ~50 carts so it cannot time out.
      */
     public static function ajax_sync_selective_batch()
     {
@@ -860,85 +801,161 @@ class Core
         ignore_user_abort(true);
         set_time_limit(120);
 
-        $sync_id    = sanitize_text_field($_POST['sync_id'] ?? '');
-        $offset     = intval($_POST['offset'] ?? 0);
-        $batch_size = intval($_POST['batch_size'] ?? 10);
+        try {
+            $sync_id = sanitize_text_field($_POST['sync_id'] ?? '');
+            $page    = intval($_POST['page'] ?? 0);
 
-        $carts = get_transient($sync_id);
-        if (!is_array($carts)) {
-            wp_send_json_error('Sync session expired or invalid. Please start a new sync.');
-            return;
-        }
-
-        $batch = array_slice($carts, $offset, $batch_size);
-        $stats = [
-            'created'       => 0,
-            'updated'       => 0,
-            'errors'        => 0,
-            'error_details' => [],
-        ];
-
-        foreach ($batch as $cart) {
-            $cart_id = $cart['_id'] ?? '';
-
-            // Stage in local table
-            $store_id   = $cart['cartLocation']['locationId'] ?? '';
-            $store_name = \DMS_API::get_city_by_store_id($store_id);
-            try {
-                \Tigon\DmsConnect\Admin\CartModel::upsert_from_api($cart, $store_name, '', $store_id);
-            } catch (\Throwable $e) {
-                error_log('[DMS Batched Sync] CartModel upsert failed for ' . $cart_id . ': ' . $e->getMessage());
+            $meta = get_transient($sync_id);
+            if (!is_array($meta)) {
+                wp_send_json_error('Sync session expired or invalid. Please start a new sync.');
+                return;
             }
 
-            // Check if product already exists
-            $existing = function_exists('tigon_dms_get_product_by_cart_id')
-                ? tigon_dms_get_product_by_cart_id($cart_id)
-                : false;
-            $was_existing = (bool) $existing;
+            $sync_type = $meta['sync_type'] ?? 'all';
+            $page_size = $meta['page_size'] ?? 50;
+            $seen_new  = $meta['seen_new'] ?? [];
 
-            try {
-                if (function_exists('tigon_dms_ensure_woo_product')) {
-                    $product_id = tigon_dms_ensure_woo_product($cart, $cart_id);
-                } else {
-                    $stats['errors']++;
-                    $stats['error_details'][] = $cart_id . ': tigon_dms_ensure_woo_product not found';
+            // Fetch ONE page from the API
+            $carts = \DMS_API::get_carts($page, $page_size);
+            if ($carts === false) {
+                wp_send_json_error('DMS API error fetching page ' . $page . ' — retrying may help.');
+                return;
+            }
+            if (!is_array($carts)) {
+                $carts = [];
+            }
+
+            $stats = [
+                'created'       => 0,
+                'updated'       => 0,
+                'skipped'       => 0,
+                'errors'        => 0,
+                'error_details' => [],
+            ];
+
+            foreach ($carts as $cart) {
+                $cart_id = $cart['_id'] ?? '';
+                if (empty($cart_id)) {
                     continue;
                 }
 
-                if ($product_id) {
-                    if (class_exists('\DMS_Sync')) {
-                        \DMS_Sync::sync_product_images_public($product_id, $cart);
-                    }
-                    $stats[$was_existing ? 'updated' : 'created']++;
-                } else {
-                    $stats['errors']++;
-                    $stats['error_details'][] = $cart_id . ': product creation returned false';
+                $is_used = !empty($cart['isUsed']);
+
+                // Filter by sync type
+                if ($sync_type === 'new' && $is_used) {
+                    $stats['skipped']++;
+                    continue;
                 }
-            } catch (\Exception $e) {
-                $stats['errors']++;
-                $stats['error_details'][] = $cart_id . ': ' . $e->getMessage();
-            } catch (\Error $e) {
-                $stats['errors']++;
-                $stats['error_details'][] = $cart_id . ': [Fatal] ' . $e->getMessage();
+                if ($sync_type === 'used' && !$is_used) {
+                    $stats['skipped']++;
+                    continue;
+                }
+
+                // Eligibility filters
+                if (!empty($cart['isInBoneyard'])) {
+                    $stats['skipped']++;
+                    continue;
+                }
+                $is_in_stock = isset($cart['isInStock']) ? $cart['isInStock'] : true;
+                if (!$is_in_stock) {
+                    $stats['skipped']++;
+                    continue;
+                }
+                $need_on_website = $cart['advertising']['needOnWebsite']
+                    ?? ($cart['needOnWebsite'] ?? true);
+                if (!$need_on_website) {
+                    $stats['skipped']++;
+                    continue;
+                }
+                $serial = strtoupper($cart['serialNo'] ?? '');
+                $vin    = strtoupper($cart['vinNo'] ?? '');
+                if (str_contains($serial, 'DELETE') || str_contains($vin, 'DELETE')) {
+                    $stats['skipped']++;
+                    continue;
+                }
+
+                // Deduplicate new carts (persisted across pages via meta)
+                if (!$is_used) {
+                    $loc_id = $cart['cartLocation']['locationId'] ?? '';
+                    $dedup_key = implode('|', [
+                        $cart['cartType']['make'] ?? '',
+                        $cart['cartType']['model'] ?? '',
+                        $cart['cartAttributes']['cartColor'] ?? '',
+                        $cart['cartAttributes']['seatColor'] ?? '',
+                        $loc_id,
+                    ]);
+                    if (isset($seen_new[$dedup_key])) {
+                        $stats['skipped']++;
+                        continue;
+                    }
+                    $seen_new[$dedup_key] = true;
+                }
+
+                // Stage in local table
+                $store_id   = $cart['cartLocation']['locationId'] ?? '';
+                $store_name = \DMS_API::get_city_by_store_id($store_id);
+                try {
+                    \Tigon\DmsConnect\Admin\CartModel::upsert_from_api($cart, $store_name, '', $store_id);
+                } catch (\Throwable $e) {
+                    error_log('[DMS Batched Sync] CartModel upsert failed for ' . $cart_id . ': ' . $e->getMessage());
+                }
+
+                // Check if product already exists
+                $existing = function_exists('tigon_dms_get_product_by_cart_id')
+                    ? tigon_dms_get_product_by_cart_id($cart_id)
+                    : false;
+                $was_existing = (bool) $existing;
+
+                try {
+                    if (function_exists('tigon_dms_ensure_woo_product')) {
+                        $product_id = tigon_dms_ensure_woo_product($cart, $cart_id);
+                    } else {
+                        $stats['errors']++;
+                        $stats['error_details'][] = $cart_id . ': tigon_dms_ensure_woo_product not found';
+                        continue;
+                    }
+
+                    if ($product_id) {
+                        if (class_exists('\DMS_Sync')) {
+                            \DMS_Sync::sync_product_images_public($product_id, $cart);
+                        }
+                        $stats[$was_existing ? 'updated' : 'created']++;
+                    } else {
+                        $stats['errors']++;
+                        $stats['error_details'][] = $cart_id . ': product creation returned false';
+                    }
+                } catch (\Exception $e) {
+                    $stats['errors']++;
+                    $stats['error_details'][] = $cart_id . ': ' . $e->getMessage();
+                } catch (\Error $e) {
+                    $stats['errors']++;
+                    $stats['error_details'][] = $cart_id . ': [Fatal] ' . $e->getMessage();
+                }
             }
-        }
 
-        $done = ($offset + $batch_size) >= count($carts);
+            // Determine if this was the last page
+            $done = (count($carts) < $page_size);
 
-        // Clean up and finalize on last batch
-        if ($done) {
-            delete_transient($sync_id);
-            if (function_exists('wc_update_product_lookup_tables')) {
-                wc_update_product_lookup_tables();
+            // Persist updated dedup keys for next page
+            $meta['seen_new'] = $seen_new;
+            set_transient($sync_id, $meta, HOUR_IN_SECONDS);
+
+            // Clean up and finalize on last page
+            if ($done) {
+                delete_transient($sync_id);
+                if (function_exists('wc_update_product_lookup_tables')) {
+                    wc_update_product_lookup_tables();
+                }
             }
-        }
 
-        wp_send_json_success(array_merge($stats, [
-            'offset'    => $offset,
-            'processed' => count($batch),
-            'total'     => count($carts),
-            'done'      => $done,
-        ]));
+            wp_send_json_success(array_merge($stats, [
+                'page'        => $page,
+                'page_count'  => count($carts),
+                'done'        => $done,
+            ]));
+        } catch (\Throwable $e) {
+            wp_send_json_error('Batch error on page ' . ($page ?? '?') . ': ' . $e->getMessage());
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -958,6 +975,7 @@ class Core
             wp_send_json_error('Unauthorized', 403);
         }
 
+        try {
         ignore_user_abort(true);
         set_time_limit(300);
 
@@ -1052,6 +1070,9 @@ class Core
             'new_count'  => count($filtered_new),
             'errors'     => $errors,
         ]);
+        } catch (\Throwable $e) {
+            wp_send_json_error('Mapped sync init error: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -1064,6 +1085,7 @@ class Core
             wp_send_json_error('Unauthorized', 403);
         }
 
+        try {
         ignore_user_abort(true);
         set_time_limit(120);
 
@@ -1170,6 +1192,9 @@ class Core
             'total'     => count($carts),
             'done'      => $done,
         ]));
+        } catch (\Throwable $e) {
+            wp_send_json_error('Mapped batch error at offset ' . ($offset ?? '?') . ': ' . $e->getMessage());
+        }
     }
 
     /**
