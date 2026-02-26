@@ -53,6 +53,10 @@ class DMS_Sync
         // Collect all active DMS cart IDs so we can detect sold products afterwards
         $active_cart_ids = array();
 
+        // Deduplication set for new carts (mirrors import.js + Core.php)
+        // Key: make|model|cartColor|seatColor|locationId
+        $seen_new = array();
+
         $page_number = 0;
         $page_size = 20;
 
@@ -91,6 +95,66 @@ class DMS_Sync
                 }
 
                 $cart_id = $cart_data['_id'];
+
+                // ---------------------------------------------------------
+                // Cart eligibility filters (mirrors import.js + Core.php)
+                //
+                // The DMS API may return ALL carts without pre-filtering.
+                // Apply the same three-state condition from Abstract_Cart:
+                //   if (isInStock && !isInBoneyard && needOnWebsite) → create/update
+                //   else → delete/skip
+                // ---------------------------------------------------------
+
+                // Skip boneyard carts
+                $is_in_boneyard = !empty($cart_data['isInBoneyard']);
+                if ($is_in_boneyard) {
+                    $stats['skipped']++;
+                    continue;
+                }
+
+                // Skip carts not in stock
+                $is_in_stock = isset($cart_data['isInStock']) ? $cart_data['isInStock'] : true;
+                if (!$is_in_stock) {
+                    $stats['skipped']++;
+                    continue;
+                }
+
+                // Skip carts not flagged for website (advertising.needOnWebsite)
+                $need_on_website = $cart_data['advertising']['needOnWebsite']
+                    ?? ($cart_data['needOnWebsite'] ?? true);
+                if (!$need_on_website) {
+                    $stats['skipped']++;
+                    continue;
+                }
+
+                // Skip carts with DELETE in serialNo or vinNo (mirrors Core.php:506-512)
+                $serial = strtoupper($cart_data['serialNo'] ?? '');
+                $vin    = strtoupper($cart_data['vinNo'] ?? '');
+                if (str_contains($serial, 'DELETE') || str_contains($vin, 'DELETE')) {
+                    $stats['skipped']++;
+                    continue;
+                }
+
+                // Deduplicate new carts by make/model/color/seat/location
+                // (mirrors import.js dedup + Core.php:521-533)
+                $is_used = !empty($cart_data['isUsed']);
+                if (!$is_used) {
+                    $location_id = $cart_data['cartLocation']['locationId'] ?? '';
+                    $dedup_key = implode('|', array(
+                        $cart_data['cartType']['make'] ?? '',
+                        $cart_data['cartType']['model'] ?? '',
+                        $cart_data['cartAttributes']['cartColor'] ?? '',
+                        $cart_data['cartAttributes']['seatColor'] ?? '',
+                        $location_id,
+                    ));
+                    if (isset($seen_new[$dedup_key])) {
+                        $stats['skipped']++;
+                        continue;
+                    }
+                    $seen_new[$dedup_key] = true;
+                }
+
+                // Cart passed all filters — track as active
                 $active_cart_ids[] = $cart_id;
 
                 // Stage cart data in local tigon_dms_carts table
@@ -117,6 +181,9 @@ class DMS_Sync
                         } else {
                             $stats['created']++;
                         }
+
+                        // Report PID and URL back to DMS (mirrors Core.php:478-488)
+                        self::report_pid_to_dms($cart_id, $product_id);
                     } else {
                         $stats['errors']++;
                     }
@@ -151,6 +218,15 @@ class DMS_Sync
                     }
                 }
             }
+        }
+
+        // -----------------------------------------------------------------
+        // Post-import: global WC lookup table refresh
+        // (mirrors Abstract_Import_Controller::process_post_import and
+        //  Core.php:557 — called once after ALL products are processed)
+        // -----------------------------------------------------------------
+        if (function_exists('wc_update_product_lookup_tables')) {
+            wc_update_product_lookup_tables();
         }
 
         return array(
@@ -196,6 +272,51 @@ class DMS_Sync
         }
 
         return $sold_ids;
+    }
+
+    /**
+     * Report product ID and URL back to DMS after successful create/update.
+     *
+     * Mirrors Core.php:478-488 — tells DMS that this cart is now on the
+     * website with its permalink, so the DMS dashboard shows accurate status.
+     *
+     * @param string $cart_id    DMS cart _id
+     * @param int    $product_id WooCommerce product ID
+     */
+    private static function report_pid_to_dms($cart_id, $product_id)
+    {
+        if (empty($cart_id) || empty($product_id)) {
+            return;
+        }
+
+        // Use DMS_Connector if available (class-based API path)
+        if (class_exists('\Tigon\DmsConnect\Includes\DMS_Connector')) {
+            try {
+                $pid_request = wp_json_encode(array(array(
+                    '_id' => $cart_id,
+                    'pid' => $product_id,
+                    'advertising' => array(
+                        'onWebsite'  => true,
+                        'websiteUrl' => get_permalink($product_id),
+                    ),
+                )));
+                \Tigon\DmsConnect\Includes\DMS_Connector::request($pid_request, '/chimera/carts', 'PUT');
+            } catch (\Exception $e) {
+                error_log('DMS Sync: Failed to report PID ' . $product_id . ' for cart ' . $cart_id . ': ' . $e->getMessage());
+            }
+            return;
+        }
+
+        // Fallback: use DMS_API if it has an update method
+        if (method_exists('DMS_API', 'update_cart')) {
+            DMS_API::update_cart($cart_id, array(
+                'pid' => $product_id,
+                'advertising' => array(
+                    'onWebsite'  => true,
+                    'websiteUrl' => get_permalink($product_id),
+                ),
+            ));
+        }
     }
 
     /**
