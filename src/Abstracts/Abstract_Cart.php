@@ -821,33 +821,18 @@ abstract class Abstract_Cart
         }
 
         // make
-        if (strtoupper($this->make_with_symbol) == 'SWIFT EV®') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->categories['SWIFT®'],
-                $this->generated_attributes->tags['SWIFT®']
-            );
-        } else if (strtoupper($this->make_with_symbol) == 'EZGO®') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->categories['EZ-GO®'],
-                $this->generated_attributes->tags['EZGO®']
-            );
-        } else {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->categories[strtoupper($this->make_with_symbol)],
-                $this->generated_attributes->tags[strtoupper($this->make_with_symbol)]
-            );
+        $make_category_key = $this->resolve_make_category_key();
+        if (isset($this->generated_attributes->categories[$make_category_key])) {
+            array_push($this->taxonomy_terms, $this->generated_attributes->categories[$make_category_key]);
+        }
+        if (isset($this->generated_attributes->tags[strtoupper($this->make_with_symbol)])) {
+            array_push($this->taxonomy_terms, $this->generated_attributes->tags[strtoupper($this->make_with_symbol)]);
         }
 
         // make and model
-        if (isset($this->generated_attributes->categories[strtoupper($cat_make_model)])) {
-            if ($this->make_with_symbol === 'EZGO®') {
-                array_push($this->taxonomy_terms, $this->generated_attributes->categories[strtoupper('EZ-GO® ' . $this->cart['cartType']['model'])]);
-            } else {
-                array_push($this->taxonomy_terms, $this->generated_attributes->categories[strtoupper($cat_make_model)]);
-            }
+        $make_model_category_key = $this->resolve_make_model_category_key();
+        if (isset($this->generated_attributes->categories[$make_model_category_key])) {
+            array_push($this->taxonomy_terms, $this->generated_attributes->categories[$make_model_category_key]);
         }
 
 
@@ -1023,7 +1008,11 @@ abstract class Abstract_Cart
         /*
          * Primary Category ID
          */
-        $this->primary_category = $this->generated_attributes->categories[strtoupper($this->make_with_symbol)];
+        if (isset($this->generated_attributes->categories[$make_model_category_key])) {
+            $this->primary_category = $this->generated_attributes->categories[$make_model_category_key];
+        } else {
+            $this->primary_category = $this->generated_attributes->categories[$make_category_key] ?? null;
+        }
     }
 
 
@@ -1315,64 +1304,22 @@ abstract class Abstract_Cart
         $this->primary_location = Attributes::$locations[$this->location_id]['city_id'];
 
         // Manufacturers
-        if (strtoupper($this->make_with_symbol) == 'SWIFT EV®') {
+        $manufacturer_taxonomy_key = $this->resolve_manufacturer_taxonomy_key();
+        if (isset($this->generated_attributes->manufacturers_taxonomy[$manufacturer_taxonomy_key])) {
             array_push(
                 $this->taxonomy_terms,
-                $this->generated_attributes->manufacturers_taxonomy['SWIFT®']
-            );
-        } else if (strtoupper($this->make_with_symbol) == 'STAR®') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->manufacturers_taxonomy['STAR EV®']
-            );
-        } else {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->manufacturers_taxonomy[strtoupper($this->make_with_symbol)]
+                $this->generated_attributes->manufacturers_taxonomy[$manufacturer_taxonomy_key]
             );
         }
 
         // Models
-        if ($this->cart['cartType']['model'] == 'DS') {
+        $model_taxonomy_key = $this->resolve_model_taxonomy_key();
+        if (isset($this->generated_attributes->models_taxonomy[$model_taxonomy_key])) {
             array_push(
                 $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' DS ELECTRIC']
+                $this->generated_attributes->models_taxonomy[$model_taxonomy_key]
             );
-        } else if ($this->cart['cartType']['model'] == 'Precedent') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' PRECEDENT ELECTRIC']
-            );
-        } else if ($this->cart['cartType']['model'] == '4L') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' CROWN 4 LIFTED']
-            );
-        } else if ($this->cart['cartType']['model'] == '6L') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' CROWN 6 LIFTED']
-            );
-        } else if ($this->cart['cartType']['model'] == 'Drive 2') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' DRIVE2']
-            );
-        } else if (strtoupper($this->make_with_symbol) == 'STAR®') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy['STAR EV®' . ' ' . strtoupper($this->cart['cartType']['model'])]
-            );
-        } else if (strtoupper($this->make_with_symbol) == 'EZGO®') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy['EZ-GO®' . ' ' . strtoupper($this->cart['cartType']['model'])]
-            );
-        } else {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol . ' ' . $this->cart['cartType']['model'])]
-            );
+            $this->primary_model = $this->generated_attributes->models_taxonomy[$model_taxonomy_key];
         }
 
         // Sound Systems
@@ -1492,6 +1439,53 @@ abstract class Abstract_Cart
                 $this->cart['cartAttributes']['driveTrain'] ?? '2X4'
             ]
         );
+    }
+
+    protected function resolve_make_category_key()
+    {
+        $make = strtoupper($this->make_with_symbol);
+        if ($make === 'SWIFT EV®') return 'SWIFT®';
+        if ($make === 'EZGO®') return 'EZ-GO®';
+        if ($make === 'STAR®') return 'STAR EV®';
+
+        return $make;
+    }
+
+    protected function resolve_make_model_category_key()
+    {
+        $model = strtoupper($this->cart['cartType']['model']);
+
+        if ($model === 'DS') {
+            return strtoupper($this->make_with_symbol) . ' DS ELECTRIC';
+        }
+
+        if ($model === 'PRECEDENT') {
+            return strtoupper($this->make_with_symbol) . ' PRECEDENT ELECTRIC';
+        }
+
+        if ($model === '4L') {
+            return strtoupper($this->make_with_symbol) . ' CROWN 4 LIFTED';
+        }
+
+        if ($model === '6L') {
+            return strtoupper($this->make_with_symbol) . ' CROWN 6 LIFTED';
+        }
+
+        if ($model === 'DRIVE 2') {
+            return strtoupper($this->make_with_symbol) . ' DRIVE2';
+        }
+
+        return $this->resolve_make_category_key() . ' ' . $model;
+    }
+
+    protected function resolve_manufacturer_taxonomy_key()
+    {
+        return $this->resolve_make_category_key();
+    }
+
+    protected function resolve_model_taxonomy_key()
+    {
+        return $this->resolve_make_model_category_key();
     }
 
     protected function attach_custom_options()
