@@ -1004,6 +1004,9 @@ function tigon_dms_create_woo_product($cart_id, $title, $price, $cart_data, $spe
     // Apply user-configured field mappings (overrides from admin Field Mapping page)
     tigon_dms_apply_custom_mappings($product_id, $cart_data);
 
+    // Apply rich mapping (tags, descriptions, attributes, taxonomies, SEO)
+    tigon_dms_apply_rich_mapping($product_id, $cart_data);
+
     return $product_id;
 }
 
@@ -1304,7 +1307,796 @@ function tigon_dms_update_woo_product($product_id, $title, $price, $cart_data, $
     // Apply user-configured field mappings (overrides from admin Field Mapping page)
     tigon_dms_apply_custom_mappings($product_id, $cart_data);
 
+    // Apply rich mapping (tags, descriptions, attributes, taxonomies, SEO)
+    tigon_dms_apply_rich_mapping($product_id, $cart_data);
+
     return $product_id;
+}
+
+/**
+ * ============================================================================
+ * Rich Product Mapping (inspired by Abstract_Cart)
+ * ============================================================================
+ *
+ * Enhances WooCommerce products with tags, descriptions, product attributes,
+ * custom taxonomies, and SEO meta. Mirrors the mapping logic from the
+ * class-based import path (Abstract_Cart) for the simpler sync path.
+ */
+
+/**
+ * Get make name with trademark symbol
+ *
+ * @param string $make DMS make name
+ * @return string Make name with registered symbol
+ */
+function tigon_dms_get_make_with_symbol($make) {
+    $make = trim($make);
+    if (empty($make)) {
+        return '';
+    }
+    $upper = strtoupper($make);
+    if ($upper === 'SWIFT' || $upper === 'SWIFT EV') {
+        return 'Swift EV®';
+    }
+    if ($upper === 'STAR' || $upper === 'STAR EV') {
+        return 'Star EV®';
+    }
+    return $make . '®';
+}
+
+/**
+ * Apply rich product mapping from Abstract_Cart logic
+ *
+ * @param int   $product_id WooCommerce product ID
+ * @param array $cart_data  Full DMS cart payload
+ */
+function tigon_dms_apply_rich_mapping($product_id, $cart_data) {
+    tigon_dms_assign_product_tags($product_id, $cart_data);
+    tigon_dms_set_product_descriptions($product_id, $cart_data);
+    tigon_dms_assign_product_attributes($product_id, $cart_data);
+    tigon_dms_assign_custom_taxonomies($product_id, $cart_data);
+    tigon_dms_set_seo_meta($product_id, $cart_data);
+}
+
+/**
+ * Assign product tags mirroring Abstract_Cart::attach_categories_tags()
+ *
+ * @param int   $product_id WooCommerce product ID
+ * @param array $cart_data  Full DMS cart payload
+ */
+function tigon_dms_assign_product_tags($product_id, $cart_data) {
+    $tags = array();
+    $make  = $cart_data['cartType']['make'] ?? '';
+    $model = $cart_data['cartType']['model'] ?? '';
+    $color = $cart_data['cartAttributes']['cartColor'] ?? '';
+    $passengers    = $cart_data['cartAttributes']['passengers'] ?? '';
+    $is_used       = !empty($cart_data['isUsed']);
+    $is_electric   = !empty($cart_data['isElectric']);
+    $is_street_legal = !empty($cart_data['title']['isStreetLegal']);
+    $is_lifted     = !empty($cart_data['cartAttributes']['isLifted']);
+    $store_id      = $cart_data['cartLocation']['locationId'] ?? '';
+    $battery_type  = $cart_data['battery']['type'] ?? '';
+
+    $make_symbol = tigon_dms_get_make_with_symbol($make);
+
+    // Make tag
+    if (!empty($make_symbol)) {
+        $tags[] = strtoupper($make_symbol);
+    }
+
+    // Make + Model tag
+    if (!empty($make_symbol) && !empty($model)) {
+        $tags[] = strtoupper($make_symbol . ' ' . $model);
+    }
+
+    // Color tag
+    if (!empty($color)) {
+        $tags[] = strtoupper($color);
+    }
+
+    // Seats tag
+    if (!empty($passengers)) {
+        if ($passengers === 'Utility') {
+            $tags[] = '2 SEATS';
+        } else {
+            $num = explode(' ', $passengers)[0];
+            if (is_numeric($num)) {
+                $tags[] = $num . ' SEATS';
+            }
+        }
+    }
+
+    // Lifted / Non-lifted
+    $tags[] = $is_lifted ? 'LIFTED' : 'NON LIFTED';
+
+    // Condition
+    $tags[] = $is_used ? 'USED' : 'NEW';
+
+    // Location tags
+    if (!empty($store_id)) {
+        $store_data = DMS_API::get_city_and_state_by_store_id($store_id);
+        $city  = $store_data['city'] ?? '';
+        $state = $store_data['state'] ?? '';
+        if (!empty($city)) {
+            $tags[] = strtoupper($city);
+            $tags[] = strtoupper($city) . ' GOLF CART DEALERSHIP';
+        }
+        if (!empty($state)) {
+            $tags[] = strtoupper($state);
+            $tags[] = strtoupper($state) . ' GOLF CART DEALERSHIP';
+        }
+        if (!empty($city) && !empty($state)) {
+            $tags[] = strtoupper($city . ' ' . $state) . ' STREET LEGAL DEALERSHIP';
+        }
+    }
+
+    // Power type tags
+    if ($is_electric) {
+        $tags[] = 'ELECTRIC';
+        if ($battery_type === 'Lead') {
+            $tags[] = 'LEAD-ACID';
+        } elseif ($battery_type === 'Lithium') {
+            $tags[] = 'LITHIUM';
+        }
+        if ($is_street_legal) {
+            $tags[] = 'NEV';
+            $tags[] = 'LSV';
+            $tags[] = 'MSV';
+            $tags[] = 'STREET LEGAL';
+        }
+    } else {
+        $tags[] = 'GAS';
+        $tags[] = 'PTV';
+    }
+
+    // General tags
+    $tags[] = 'GOLF CART';
+    $tags[] = 'TIGON';
+    $tags[] = 'TIGON GOLF CARTS';
+
+    $tags = array_unique(array_filter($tags));
+    if (!empty($tags)) {
+        wp_set_object_terms($product_id, $tags, 'product_tag', true);
+    }
+}
+
+/**
+ * Set product descriptions mirroring Abstract_Cart::generate_descriptions()
+ *
+ * Only sets description/short_description if not already populated,
+ * so manual edits are preserved on subsequent syncs.
+ *
+ * @param int   $product_id WooCommerce product ID
+ * @param array $cart_data  Full DMS cart payload
+ */
+function tigon_dms_set_product_descriptions($product_id, $cart_data) {
+    $update = array('ID' => $product_id);
+
+    $current_content = get_post_field('post_content', $product_id);
+    if (empty(trim($current_content))) {
+        $description = tigon_dms_generate_description_html($cart_data);
+        if (!empty($description)) {
+            $update['post_content'] = $description;
+        }
+    }
+
+    $current_excerpt = get_post_field('post_excerpt', $product_id);
+    if (empty(trim($current_excerpt))) {
+        $short_desc = tigon_dms_generate_short_description_html($cart_data);
+        if (!empty($short_desc)) {
+            $update['post_excerpt'] = $short_desc;
+        }
+    }
+
+    if (count($update) > 1) {
+        wp_update_post($update);
+    }
+}
+
+/**
+ * Generate rich HTML product description with feature table
+ *
+ * @param array $cart_data Full DMS cart payload
+ * @return string HTML description
+ */
+function tigon_dms_generate_description_html($cart_data) {
+    $make  = $cart_data['cartType']['make'] ?? '';
+    $model = $cart_data['cartType']['model'] ?? '';
+    $year  = $cart_data['cartType']['year'] ?? '';
+    $color = $cart_data['cartAttributes']['cartColor'] ?? '';
+    $seat_color    = $cart_data['cartAttributes']['seatColor'] ?? '';
+    $tire_type     = $cart_data['cartAttributes']['tireType'] ?? '';
+    $rim_size      = $cart_data['cartAttributes']['tireRimSize'] ?? '';
+    $is_electric   = !empty($cart_data['isElectric']);
+    $is_street_legal = !empty($cart_data['title']['isStreetLegal']);
+    $is_lifted     = !empty($cart_data['cartAttributes']['isLifted']);
+
+    $make_symbol = tigon_dms_get_make_with_symbol($make);
+
+    // Build make/model hyperlinks (mirrors Abstract_Cart)
+    $make_slug = sanitize_title($make);
+    if (strtoupper($make) === 'DENAGO') {
+        $make_slug = sanitize_title($make) . '-ev';
+    }
+    $model_slug = sanitize_title($model);
+    $make_link  = '<a href="https://tigongolfcarts.com/' . esc_attr($make_slug) . '">' . esc_html($make_symbol) . '</a>';
+    $model_link = '<a href="https://tigongolfcarts.com/' . esc_attr($make_slug) . '/' . esc_attr($model_slug) . '">' . esc_html($model) . '</a>';
+
+    $name = trim($make_symbol . ' ' . $model . ' ' . $color);
+
+    // Build feature table
+    $html = '<h2 style="text-align: center;"><strong>' . esc_html($name) . '</strong></h2>';
+    $html .= '<table style="text-align: center;"><thead><tr><th>Feature</th><th>Description</th></tr></thead><tbody>';
+
+    $html .= '<tr><td>Make</td><td>' . $make_link . '</td></tr>';
+    $html .= '<tr><td>Model</td><td>' . $model_link . '</td></tr>';
+    if (!empty($year)) {
+        $html .= '<tr><td>Year</td><td>' . esc_html($year) . '</td></tr>';
+    }
+    if ($is_street_legal) {
+        $html .= '<tr><td>Street Legal</td><td>Fully Street Legal</td></tr>';
+    }
+    $html .= '<tr><td>Color</td><td>' . esc_html($color) . '</td></tr>';
+    if (!empty($seat_color)) {
+        $html .= '<tr><td>Seat Color</td><td>' . esc_html($seat_color) . '</td></tr>';
+    }
+    if (!empty($tire_type)) {
+        $html .= '<tr><td>Tires</td><td>' . esc_html($tire_type) . '</td></tr>';
+    }
+    if (!empty($rim_size)) {
+        $html .= '<tr><td>Rims</td><td>' . esc_html($rim_size) . '"</td></tr>';
+    }
+
+    // Additional features
+    $features = array();
+    if ($is_lifted) {
+        $features[] = '3 Inch Lift Kit';
+    }
+    if (!empty($cart_data['cartAttributes']['hasSoundSystem']) && $cart_data['cartAttributes']['hasSoundSystem']) {
+        $features[] = $make_symbol . ' Sound System';
+    }
+    foreach (($cart_data['advertising']['cartAddOns'] ?? array()) as $addon) {
+        $parts = explode(' ', $addon);
+        array_pop($parts); // Remove price suffix
+        $features[] = implode(' ', $parts);
+    }
+    if (!empty($features)) {
+        $html .= '<tr><td>Additional Features</td><td>' . esc_html(implode(', ', $features)) . '</td></tr>';
+    }
+
+    // Power/Battery/Engine rows
+    if ($is_electric) {
+        $battery_type = $cart_data['battery']['type'] ?? '';
+        $is_dc = !empty($cart_data['battery']['isDC']);
+        $acdc = $is_dc ? 'DC' : 'AC';
+        $html .= '<tr><td>Battery</td><td>' . esc_html($battery_type . ' ' . $acdc) . ' Battery</td></tr>';
+
+        $battery_brand = $cart_data['battery']['brand'] ?? '';
+        if (!empty($battery_brand)) {
+            $html .= '<tr><td>Battery Brand</td><td>' . esc_html($battery_brand) . '</td></tr>';
+        }
+        $battery_year = $cart_data['battery']['year'] ?? '';
+        if (!empty($battery_year)) {
+            $html .= '<tr><td>Battery Year</td><td>' . esc_html($battery_year) . '</td></tr>';
+        }
+        $amp_hours = $cart_data['battery']['ampHours'] ?? '';
+        if (!empty($amp_hours)) {
+            $html .= '<tr><td>Capacity</td><td>' . esc_html($amp_hours) . ' Amp Hours</td></tr>';
+        }
+        $warranty_len = $cart_data['warrantyLength'] ?? '';
+        $batt_warranty = $cart_data['battery']['warrantyLength'] ?? '';
+        if (!empty($warranty_len) || !empty($batt_warranty)) {
+            $html .= '<tr><td>Warranty</td><td>' . esc_html($warranty_len . ' parts, ' . $batt_warranty . ' battery warranty') . '</td></tr>';
+        }
+    } else {
+        $engine_make = $cart_data['engine']['make'] ?? '';
+        if (!empty($engine_make)) {
+            $html .= '<tr><td>Engine</td><td>' . esc_html($year . ' ' . $engine_make) . '</td></tr>';
+        }
+        $stroke = $cart_data['engine']['stroke'] ?? '';
+        $hp = $cart_data['engine']['horsepower'] ?? '';
+        if (!empty($stroke) && !empty($hp)) {
+            $html .= '<tr><td>Specs</td><td>' . esc_html($stroke . ' Stroke, ' . $hp . ' HP') . '</td></tr>';
+        }
+        $warranty_len = $cart_data['warrantyLength'] ?? '';
+        if (!empty($warranty_len)) {
+            $html .= '<tr><td>Warranty</td><td>' . esc_html($warranty_len . ' parts and engine warranty') . '</td></tr>';
+        }
+    }
+
+    $html .= '</tbody></table>';
+
+    return $html;
+}
+
+/**
+ * Generate short description marketing copy
+ *
+ * Uses deterministic selection based on cart ID so re-syncs produce
+ * consistent copy (unlike Abstract_Cart which uses random_int).
+ *
+ * @param array $cart_data Full DMS cart payload
+ * @return string HTML short description
+ */
+function tigon_dms_generate_short_description_html($cart_data) {
+    $make  = $cart_data['cartType']['make'] ?? '';
+    $model = $cart_data['cartType']['model'] ?? '';
+    $color = $cart_data['cartAttributes']['cartColor'] ?? '';
+    $is_electric   = !empty($cart_data['isElectric']);
+    $has_utility   = ($cart_data['cartAttributes']['passengers'] ?? '') === 'Utility';
+    $pack_voltage  = $cart_data['battery']['packVoltage'] ?? '';
+    $passengers    = $cart_data['cartAttributes']['passengers'] ?? '';
+
+    $make_symbol = tigon_dms_get_make_with_symbol($make);
+    $name = trim($make_symbol . ' ' . $model . ' ' . $color);
+
+    // Build hyperlinks
+    $make_slug = sanitize_title($make);
+    if (strtoupper($make) === 'DENAGO') {
+        $make_slug .= '-ev';
+    }
+    $model_slug = sanitize_title($model);
+    $make_link  = '<a href="https://tigongolfcarts.com/' . esc_attr($make_slug) . '">' . esc_html($make_symbol) . '</a>';
+    $model_link = '<a href="https://tigongolfcarts.com/' . esc_attr($make_slug) . '/' . esc_attr($model_slug) . '">' . esc_html($model) . '</a>';
+
+    // Deterministic selection based on cart ID
+    $cart_id = $cart_data['_id'] ?? '';
+    $seed = crc32($cart_id);
+
+    $adjectives = array('elegant', 'unbeatable', 'exceptional', 'versatile', 'dependable', 'stylish', 'eye-catching', 'proven and reliable', 'sleek');
+    $adj = $adjectives[abs($seed) % count($adjectives)];
+
+    $intros = array(
+        "Introducing the $make_link $model_link from Tigon Golf Carts,",
+        "Experience the freedom to explore with this " . esc_html($color) . " $make_link $model_link,",
+        "The $make_link $model_link is taking the industry by storm as",
+        "Conquer the terrain with the $make_link $model_link in " . esc_html($color) . ",",
+        "Take the reigns of the " . esc_html($color) . " $make_link $model_link from Tigon Golf Carts,",
+    );
+    $intro = $intros[abs($seed >> 4) % count($intros)];
+
+    $outros = array(
+        'this ' . $adj . ' cart is perfect for both on and off-course adventures.',
+        'the ' . $adj . ' ' . esc_html($make_symbol . ' ' . $model) . ' is the perfect companion for all your journeys.',
+        'this ' . $adj . ' machine is a cart you don\'t want to miss!',
+        'this ' . $adj . ' vehicle sets a new standard for luxury and efficiency.',
+    );
+    $outro = $outros[abs($seed >> 8) % count($outros)];
+
+    $html = '<h2 style="text-align: center;">' . esc_html($name) . '</h2>';
+    $html .= '<p style="text-align: center;">' . $intro;
+
+    if ($has_utility) {
+        $html .= ' a sturdy workhorse ready to help you get the job done.</p>';
+        $html .= '<p style="text-align: center;">Featuring a built-in utility bed, the ' . esc_html($model) . ' is highly capable and versatile.';
+    } elseif ($is_electric) {
+        $html .= ' an elegant powerhouse designed for adventure seekers.</p>';
+        $html .= '<p style="text-align: center;">Equipped with a powerful ' . esc_html($pack_voltage) . ' volt electric motor, the ' . esc_html($model) . ' provides a clean, reliable ride without sacrificing performance. ';
+    } else {
+        $hp = $cart_data['engine']['horsepower'] ?? '';
+        $engine_desc = !empty($hp) ? ($hp . ' horsepower') : 'high quality';
+        $html .= ' a rugged beast ready to help you take on the world.</p>';
+        $html .= '<p style="text-align: center;">With a ' . esc_html($engine_desc) . ' gas engine, the ' . esc_html($model) . ' is a powerhouse of performance. ';
+    }
+
+    if (!$has_utility && !empty($passengers)) {
+        $num = explode(' ', $passengers)[0];
+        if ($num === '6') {
+            $html .= 'Capable of carting 6 passengers, ';
+        } else {
+            $html .= 'Combining rugged durability with sophisticated technology, ';
+        }
+    } else {
+        $html .= 'Combining rugged durability with sophisticated technology, ';
+    }
+
+    $html .= $outro . '</p>';
+
+    return $html;
+}
+
+/**
+ * Assign WooCommerce product attributes mirroring Abstract_Cart::attach_attributes()
+ *
+ * Only assigns attributes whose taxonomy terms already exist in WooCommerce.
+ *
+ * @param int   $product_id WooCommerce product ID
+ * @param array $cart_data  Full DMS cart payload
+ */
+function tigon_dms_assign_product_attributes($product_id, $cart_data) {
+    $make  = $cart_data['cartType']['make'] ?? '';
+    $color = $cart_data['cartAttributes']['cartColor'] ?? '';
+    $seat_color    = $cart_data['cartAttributes']['seatColor'] ?? '';
+    $passengers    = $cart_data['cartAttributes']['passengers'] ?? '';
+    $is_electric   = !empty($cart_data['isElectric']);
+    $is_street_legal = !empty($cart_data['title']['isStreetLegal']);
+    $is_lifted     = !empty($cart_data['cartAttributes']['isLifted']);
+    $has_extended_top = !empty($cart_data['cartAttributes']['hasExtendedTop']);
+    $has_sound     = !empty($cart_data['cartAttributes']['hasSoundSystem']);
+    $tire_type     = $cart_data['cartAttributes']['tireType'] ?? '';
+    $rim_size      = $cart_data['cartAttributes']['tireRimSize'] ?? '';
+    $year          = $cart_data['cartType']['year'] ?? '';
+    $drive_train   = $cart_data['cartAttributes']['driveTrain'] ?? '2X4';
+    $has_hitch     = !empty($cart_data['cartAttributes']['hitch']);
+    $battery_type  = $cart_data['battery']['type'] ?? '';
+    $warranty      = $cart_data['warrantyLength'] ?? '';
+    $battery_warranty = $cart_data['battery']['warrantyLength'] ?? '';
+    $store_id      = $cart_data['cartLocation']['locationId'] ?? '';
+    $has_utility   = $passengers === 'Utility';
+
+    $make_symbol = tigon_dms_get_make_with_symbol($make);
+    $make_lower  = sanitize_title(preg_replace('/[®™]/', '', $make_symbol));
+
+    $product_attributes = array();
+    $position = 0;
+
+    // Helper: register attribute and assign terms (only if taxonomy + terms exist)
+    $set_attr = function($attr_slug, $term_values) use ($product_id, &$product_attributes, &$position) {
+        $taxonomy = 'pa_' . $attr_slug;
+        if (!taxonomy_exists($taxonomy)) {
+            return;
+        }
+
+        $term_ids = array();
+        foreach ((array) $term_values as $term_name) {
+            if (empty($term_name)) continue;
+            $term = get_term_by('name', $term_name, $taxonomy);
+            if (!$term) {
+                $term = get_term_by('slug', sanitize_title($term_name), $taxonomy);
+            }
+            if ($term && !is_wp_error($term)) {
+                $term_ids[] = (int) $term->term_id;
+            }
+        }
+
+        if (empty($term_ids)) {
+            return;
+        }
+
+        $product_attributes[$taxonomy] = array(
+            'name'         => $taxonomy,
+            'value'        => '',
+            'position'     => $position++,
+            'is_visible'   => 1,
+            'is_variation' => 0,
+            'is_taxonomy'  => 1,
+        );
+        wp_set_object_terms($product_id, $term_ids, $taxonomy);
+    };
+
+    // Battery Type
+    if ($is_electric && !empty($battery_type)) {
+        $set_attr('battery-type', array(strtoupper($battery_type)));
+    }
+
+    // Battery Warranty
+    if ($is_electric && !empty($battery_warranty)) {
+        $set_attr('battery-warranty', array(strtoupper($battery_warranty)));
+    }
+
+    // Brush Guard (Denago/Evolution = YES, others = NO)
+    $make_upper = strtoupper($make_symbol);
+    $has_brush = ($make_upper === 'DENAGO®' || $make_upper === 'EVOLUTION®') ? 'YES' : 'NO';
+    $set_attr('brush-guard', array($has_brush));
+
+    // Drivetrain
+    $set_attr('drivetrain', array(strtoupper($drive_train)));
+
+    // Extended Top
+    $set_attr('extended-top', array($has_extended_top ? 'YES' : 'NO'));
+
+    // Lift Kit
+    $set_attr('lift-kit', array($is_lifted ? '3 INCH' : 'NO'));
+
+    // Location
+    if (!empty($store_id)) {
+        $store_data = DMS_API::get_city_and_state_by_store_id($store_id);
+        $city  = $store_data['city'] ?? '';
+        $state = $store_data['state'] ?? '';
+        $loc_values = array();
+        if (!empty($city) && !empty($state)) {
+            $loc_values[] = strtoupper($city . ' ' . $state);
+        }
+        if (!empty($state)) {
+            $loc_values[] = strtoupper($state);
+        }
+        if (!empty($loc_values)) {
+            $set_attr('location', $loc_values);
+        }
+    }
+
+    // Make-specific color attributes (or generic fallback)
+    $make_color_attrs = array(
+        'bintelli', 'club-car', 'denago', 'epic', 'evolution',
+        'ezgo', 'icon', 'navitas', 'polaris', 'royal-ev',
+        'star-ev', 'swift', 'tomberlin', 'yamaha',
+    );
+    if (in_array($make_lower, $make_color_attrs)) {
+        if (!empty($color)) {
+            $set_attr($make_lower . '-cart-colors', array(strtoupper($color)));
+        }
+        if (!empty($seat_color)) {
+            $set_attr($make_lower . '-seat-colors', array(strtoupper($seat_color)));
+        }
+    } else {
+        if (!empty($color)) {
+            $set_attr('cart-color', array(strtoupper($color)));
+        }
+        if (!empty($seat_color)) {
+            $set_attr('seat-color', array(strtoupper($seat_color)));
+        }
+    }
+
+    // Sound System
+    if ($has_sound) {
+        $set_attr('sound-system', array(strtoupper($make_symbol) . ' SOUND SYSTEM', 'YES'));
+    }
+
+    // Passengers
+    if (!empty($passengers)) {
+        $num_seats = $has_utility ? '2' : explode(' ', $passengers)[0];
+        $set_attr('passengers', array($num_seats . ' SEATER'));
+    }
+
+    // Receiver Hitch
+    $set_attr('receiver-hitch', array($has_hitch ? 'YES' : 'NO'));
+
+    // Return Policy
+    $set_attr('return-policy', array('90 DAY', 'YES'));
+
+    // Rim Size
+    if (!empty($rim_size)) {
+        $set_attr('rim-size', array($rim_size . ' INCH'));
+    }
+
+    // Shipping
+    $set_attr('shipping', array('1 TO 3 DAYS LOCAL', '3 TO 7 DAYS OTR', '5 TO 9 DAYS NATIONAL'));
+
+    // Street Legal
+    $set_attr('street-legal', array($is_street_legal ? 'YES' : 'NO'));
+
+    // Tire Profile
+    if (!empty($tire_type)) {
+        $tire_profile = strtoupper(str_replace('-', ' ', $tire_type));
+        $set_attr('tire-profile', array($tire_profile));
+    }
+
+    // Vehicle Class
+    $vehicle_classes = array('GOLF CART');
+    if ($is_electric) {
+        $vehicle_classes[] = 'NEIGHBORHOOD ELECTRIC VEHICLES (NEVS)';
+        $vehicle_classes[] = 'ZERO EMISSION VEHICLES (ZEVS)';
+        if ($is_street_legal) {
+            $vehicle_classes[] = 'LOW SPEED VEHICLE (LSVS)';
+            $vehicle_classes[] = 'MEDIUM SPEED VEHICLE (MSVS)';
+        }
+    }
+    if ($is_street_legal) {
+        $vehicle_classes[] = 'PERSONAL TRANSPORTATION VEHICLES (PTVS)';
+    }
+    if ($has_utility) {
+        $vehicle_classes[] = 'UTILITY TASK VEHICLE (UTVS)';
+    }
+    $set_attr('vehicle-class', $vehicle_classes);
+
+    // Vehicle Warranty
+    if (!empty($warranty)) {
+        $set_attr('vehicle-warranty', array(strtoupper($warranty)));
+    }
+
+    // Year of Vehicle
+    if (!empty($year)) {
+        $set_attr('year-of-vehicle', array(strtoupper($year)));
+    }
+
+    // Save product attributes meta
+    if (!empty($product_attributes)) {
+        update_post_meta($product_id, '_product_attributes', $product_attributes);
+    }
+}
+
+/**
+ * Assign custom taxonomies mirroring Abstract_Cart::attach_taxonomies()
+ *
+ * @param int   $product_id WooCommerce product ID
+ * @param array $cart_data  Full DMS cart payload
+ */
+function tigon_dms_assign_custom_taxonomies($product_id, $cart_data) {
+    $make  = $cart_data['cartType']['make'] ?? '';
+    $model = $cart_data['cartType']['model'] ?? '';
+    $is_used       = !empty($cart_data['isUsed']);
+    $is_electric   = !empty($cart_data['isElectric']);
+    $is_street_legal = !empty($cart_data['title']['isStreetLegal']);
+    $is_lifted     = !empty($cart_data['cartAttributes']['isLifted']);
+    $has_utility   = ($cart_data['cartAttributes']['passengers'] ?? '') === 'Utility';
+    $drive_train   = $cart_data['cartAttributes']['driveTrain'] ?? '2X4';
+    $has_hitch     = !empty($cart_data['cartAttributes']['hitch']);
+    $has_sound     = !empty($cart_data['cartAttributes']['hasSoundSystem']);
+    $store_id      = $cart_data['cartLocation']['locationId'] ?? '';
+    $is_rental     = !empty($cart_data['isRental']);
+
+    $make_symbol = tigon_dms_get_make_with_symbol($make);
+
+    // Helper: safely assign terms to a taxonomy (only existing terms)
+    $assign = function($taxonomy, $term_names) use ($product_id) {
+        if (!taxonomy_exists($taxonomy)) {
+            return;
+        }
+        $ids = array();
+        foreach ((array) $term_names as $name) {
+            if (empty($name)) continue;
+            $term = get_term_by('name', $name, $taxonomy);
+            if (!$term) {
+                $term = get_term_by('slug', sanitize_title($name), $taxonomy);
+            }
+            if ($term && !is_wp_error($term)) {
+                $ids[] = (int) $term->term_id;
+            }
+        }
+        if (!empty($ids)) {
+            wp_set_object_terms($product_id, $ids, $taxonomy, true);
+        }
+    };
+
+    // Manufacturers taxonomy (with special case handling)
+    $mfg_name = strtoupper($make_symbol);
+    if ($mfg_name === 'SWIFT EV®') {
+        $mfg_name = 'SWIFT®';
+    } elseif ($mfg_name === 'STAR®') {
+        $mfg_name = 'STAR EV®';
+    }
+    $assign('manufacturers', array($mfg_name));
+
+    // Models taxonomy (with special case handling from Abstract_Cart)
+    $model_upper = strtoupper($model);
+    if ($model_upper === 'DS') {
+        $model_name = strtoupper($make_symbol) . ' DS ELECTRIC';
+    } elseif ($model_upper === 'PRECEDENT') {
+        $model_name = strtoupper($make_symbol) . ' PRECEDENT ELECTRIC';
+    } elseif ($model_upper === '4L') {
+        $model_name = strtoupper($make_symbol) . ' CROWN 4 LIFTED';
+    } elseif ($model_upper === '6L') {
+        $model_name = strtoupper($make_symbol) . ' CROWN 6 LIFTED';
+    } elseif ($model_upper === 'DRIVE 2') {
+        $model_name = strtoupper($make_symbol) . ' DRIVE2';
+    } elseif (strtoupper($make_symbol) === 'STAR EV®') {
+        $model_name = 'STAR EV® ' . $model_upper;
+    } elseif (strtoupper($make_symbol) === 'EZGO®') {
+        $model_name = 'EZ-GO® ' . $model_upper;
+    } else {
+        $model_name = strtoupper($make_symbol . ' ' . $model);
+    }
+    $assign('models', array($model_name));
+
+    // Sound Systems taxonomy
+    if ($has_sound) {
+        $sound_name = strtoupper($make_symbol) . ' SOUND SYSTEM';
+        if (strtoupper($make_symbol) === 'SWIFT®') {
+            $sound_name = 'SWIFT EV® SOUND SYSTEM';
+        }
+        $assign('sound-systems', array($sound_name));
+    }
+
+    // Added Features taxonomy
+    $added_features = array();
+    if (isset($cart_data['addedFeatures'])) {
+        $af = $cart_data['addedFeatures'];
+        if (!empty($af['staticStock']))  $added_features[] = 'STATIC STOCK';
+        if (!empty($af['brushGuard']))   $added_features[] = 'BRUSH GUARD';
+        if (!empty($af['clayBasket']))   $added_features[] = 'CLAY BASKET';
+        if (!empty($af['fenderFlares'])) $added_features[] = 'FENDER FLARES';
+        if (!empty($af['LEDs']))         $added_features[] = 'LEDS';
+        if (!empty($af['lightBar']))     $added_features[] = 'LIGHT BAR';
+        if (!empty($af['underGlow']))    $added_features[] = 'UNDER GLOW';
+        if (!empty($af['stockOptions'])) $added_features[] = 'STOCK OPTIONS';
+    }
+    if ($is_lifted) {
+        $added_features[] = 'LIFT KIT';
+    }
+    if ($has_hitch) {
+        $added_features[] = 'TOW HITCH';
+    }
+    if (!empty($added_features)) {
+        $assign('added-features', $added_features);
+    }
+
+    // Vehicle Class taxonomy
+    $vc = array('GOLF CART');
+    if ($is_electric) {
+        $vc[] = 'ZERO EMISSION VEHICLES (ZEVS)';
+        if ($is_street_legal) {
+            $vc[] = 'LOW SPEED VEHICLE (LSVS)';
+            $vc[] = 'MEDIUM SPEED VEHICLE (MSVS)';
+            $vc[] = 'NEIGHBORHOOD ELECTRIC VEHICLES (NEVS)';
+        }
+    }
+    if ($is_street_legal) {
+        $vc[] = 'PERSONAL TRANSPORTATION VEHICLES (PTVS)';
+    }
+    if ($has_utility) {
+        $vc[] = 'UTILITY TASK VEHICLE (UTVS)';
+    }
+    $assign('vehicle-class', $vc);
+
+    // Inventory Status taxonomy (includes rental support)
+    if ($is_rental) {
+        $inv_status = $is_used ? 'LOCAL USED RENTAL INVENTORY' : 'LOCAL NEW RENTAL INVENTORY';
+    } else {
+        $inv_status = $is_used ? 'LOCAL USED ACTIVE INVENTORY' : 'LOCAL NEW ACTIVE INVENTORY';
+    }
+    $assign('inventory-status', array($inv_status));
+
+    // Drivetrain taxonomy
+    $assign('drivetrain', array(strtoupper($drive_train)));
+
+    // Location taxonomy (city and state term IDs from Attributes)
+    if (!empty($store_id) && class_exists('\Tigon\DmsConnect\Admin\Attributes')) {
+        $loc = \Tigon\DmsConnect\Admin\Attributes::$locations[$store_id] ?? null;
+        if ($loc) {
+            $location_ids = array();
+            if (!empty($loc['city_id'])) {
+                $location_ids[] = (int) $loc['city_id'];
+            }
+            if (!empty($loc['state_id'])) {
+                $location_ids[] = (int) $loc['state_id'];
+            }
+            if (!empty($location_ids) && taxonomy_exists('location')) {
+                wp_set_object_terms($product_id, $location_ids, 'location', true);
+            }
+        }
+    }
+}
+
+/**
+ * Set Yoast SEO meta mirroring Abstract_Cart::generate_descriptions()
+ *
+ * @param int   $product_id WooCommerce product ID
+ * @param array $cart_data  Full DMS cart payload
+ */
+function tigon_dms_set_seo_meta($product_id, $cart_data) {
+    $make  = $cart_data['cartType']['make'] ?? '';
+    $model = $cart_data['cartType']['model'] ?? '';
+    $color = $cart_data['cartAttributes']['cartColor'] ?? '';
+    $store_id = $cart_data['cartLocation']['locationId'] ?? '';
+
+    $make_symbol = tigon_dms_get_make_with_symbol($make);
+    $make_model_color = trim($make_symbol . ' ' . $model . ' ' . $color);
+
+    // Build TIGON location text and phone number
+    $tigon_text = 'TIGON Golf Carts';
+    $phone = '';
+    if (!empty($store_id)) {
+        $store_data = DMS_API::get_city_and_state_by_store_id($store_id);
+        $city  = $store_data['city'] ?? '';
+        $state = $store_data['state'] ?? '';
+        if (!empty($city) && !empty($state)) {
+            $tigon_text = 'TIGON® Golf Carts ' . $city . ', ' . $state;
+        }
+        // Try to get phone from Attributes static locations
+        if (class_exists('\Tigon\DmsConnect\Admin\Attributes')) {
+            $loc = \Tigon\DmsConnect\Admin\Attributes::$locations[$store_id] ?? null;
+            if ($loc && !empty($loc['phone'])) {
+                $phone = $loc['phone'];
+            }
+        }
+    }
+
+    // Meta description (matches Abstract_Cart pattern)
+    $meta_desc = $make_model_color . ' At ' . $tigon_text . '.';
+    if (!empty($phone)) {
+        $meta_desc .= ' Call Now ' . $phone . ' Get 0% Financing, and Shipping Options Today!';
+    } else {
+        $meta_desc .= ' Get 0% Financing, and Shipping Options Today!';
+    }
+
+    // SEO title
+    $seo_title = $make_model_color . ' | ' . $tigon_text;
+
+    // Set Yoast SEO meta (only if Yoast is active)
+    if (defined('WPSEO_VERSION') || class_exists('WPSEO_Meta')) {
+        update_post_meta($product_id, '_yoast_wpseo_title', sanitize_text_field($seo_title));
+        update_post_meta($product_id, '_yoast_wpseo_metadesc', sanitize_text_field($meta_desc));
+    }
 }
 
 /**
