@@ -943,12 +943,18 @@ function tigon_dms_create_woo_product($cart_id, $title, $price, $cart_data, $spe
     } elseif (!empty($cart_data['serialNo'])) {
         $sku = $cart_data['serialNo'];
     } else {
+        // Resolve city for fallback SKU (store_id may have been looked up earlier for categories)
+        $fallback_city = '';
+        if (!empty($store_id)) {
+            $fb_store_data = DMS_API::get_city_and_state_by_store_id($store_id);
+            $fallback_city = $fb_store_data['city'] ?? '';
+        }
         $sku = strtoupper(
             substr(preg_replace('/\s/', '', $make), 0, 3) .
             substr(preg_replace('/\s/', '', $model), 0, 3) .
             substr(preg_replace('/\s/', '', $cart_data['cartAttributes']['cartColor'] ?? ''), 0, 3) .
             substr(preg_replace('/\s/', '', $cart_data['cartAttributes']['seatColor'] ?? ''), 0, 3) .
-            substr(preg_replace('/\s/', '', $city), 0, 3)
+            substr(preg_replace('/\s/', '', $fallback_city), 0, 3)
         );
     }
     if (!empty($sku)) {
@@ -1367,23 +1373,16 @@ function tigon_dms_refresh_wc_product_data($product_id) {
 
     // Update WC product lookup table (used for price filters, stock queries, sorting)
     // This table is not updated by direct update_post_meta() calls
+    // Note: WC_Data_Store uses __call() magic, so method_exists() won't find
+    // update_lookup_table on the wrapper. We call it directly and catch errors.
     if (class_exists('WC_Data_Store')) {
         try {
             $data_store = \WC_Data_Store::load('product');
-            if (method_exists($data_store, 'update_lookup_table')) {
-                $data_store->update_lookup_table($product_id, 'wc_product_meta_lookup');
-            }
+            $data_store->update_lookup_table($product_id, 'wc_product_meta_lookup');
         } catch (\Exception $e) {
-            // Fallback: direct lookup table update via product save
-            $wc_product = wc_get_product($product_id);
-            if ($wc_product) {
-                // Reading + saving forces WC to rebuild its lookup row
-                $wc_product->set_props(array(
-                    'regular_price' => $wc_product->get_regular_price(),
-                    'stock_status'  => $wc_product->get_stock_status(),
-                ));
-                $wc_product->save();
-            }
+            // Swallow — lookup table will be rebuilt by global refresh after sync
+        } catch (\Error $e) {
+            // Catch TypeError/Error from missing method — non-fatal
         }
     }
 }
