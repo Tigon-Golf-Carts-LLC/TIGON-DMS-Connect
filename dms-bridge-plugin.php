@@ -992,17 +992,25 @@ function tigon_dms_create_woo_product($cart_id, $title, $price, $cart_data, $spe
     update_post_meta($product_id, '_wc_gla_brand', strtoupper($make));
     update_post_meta($product_id, '_wc_gla_color', strtoupper($color));
     update_post_meta($product_id, '_wc_gla_pattern', $model);
+    // Global Unique ID (GUI) — algorithmic trade ID from SKU (mirrors Database_Object)
+    $gui = tigon_dms_compute_gui($sku);
+    update_post_meta($product_id, '_global_unique_id', $gui);
     update_post_meta($product_id, '_wc_gla_gtin', '');
-    update_post_meta($product_id, '_wc_gla_mpn', '');
-    update_post_meta($product_id, '_wc_gla_size_system', 'US');
+    update_post_meta($product_id, '_wc_gla_mpn', $gui);
+    update_post_meta($product_id, '_wc_gla_sizeSystem', 'US');
     update_post_meta($product_id, '_wc_facebook_enhanced_catalog_attributes_brand', strtoupper($make));
     update_post_meta($product_id, '_wc_facebook_enhanced_catalog_attributes_color', strtoupper($color));
     update_post_meta($product_id, '_wc_facebook_enhanced_catalog_attributes_condition', $condition);
+    update_post_meta($product_id, '_wc_facebook_enhanced_catalog_attributes_pattern', $model);
     update_post_meta($product_id, '_wc_facebook_product_image_source', 'product');
-    update_post_meta($product_id, 'fb_sync_enabled', 'yes');
-    update_post_meta($product_id, 'fb_visibility', 'yes');
+    update_post_meta($product_id, '_wc_facebook_sync_enabled', 'yes');
+    update_post_meta($product_id, '_wc_fb_visibility', 'yes');
     update_post_meta($product_id, '_wc_pinterest_condition', $condition);
     update_post_meta($product_id, '_wc_pinterest_google_product_category', 'Vehicles & Parts > Vehicles > Motor Vehicles > Golf Carts');
+
+    // Download defaults (mirrors Database_Object)
+    update_post_meta($product_id, '_download_limit', '-1');
+    update_post_meta($product_id, '_download_expiry', '-1');
 
     // Apply user-configured field mappings (overrides from admin Field Mapping page)
     tigon_dms_apply_custom_mappings($product_id, $cart_data);
@@ -1297,13 +1305,14 @@ function tigon_dms_update_woo_product($product_id, $title, $price, $cart_data, $
     update_post_meta($product_id, '_wc_gla_brand', strtoupper($make));
     update_post_meta($product_id, '_wc_gla_color', strtoupper($color));
     update_post_meta($product_id, '_wc_gla_pattern', $model);
-    update_post_meta($product_id, '_wc_gla_size_system', 'US');
+    update_post_meta($product_id, '_wc_gla_sizeSystem', 'US');
     update_post_meta($product_id, '_wc_facebook_enhanced_catalog_attributes_brand', strtoupper($make));
     update_post_meta($product_id, '_wc_facebook_enhanced_catalog_attributes_color', strtoupper($color));
     update_post_meta($product_id, '_wc_facebook_enhanced_catalog_attributes_condition', $condition);
+    update_post_meta($product_id, '_wc_facebook_enhanced_catalog_attributes_pattern', $model);
     update_post_meta($product_id, '_wc_facebook_product_image_source', 'product');
-    update_post_meta($product_id, 'fb_sync_enabled', 'yes');
-    update_post_meta($product_id, 'fb_visibility', 'yes');
+    update_post_meta($product_id, '_wc_facebook_sync_enabled', 'yes');
+    update_post_meta($product_id, '_wc_fb_visibility', 'yes');
     update_post_meta($product_id, '_wc_pinterest_condition', $condition);
     update_post_meta($product_id, '_wc_pinterest_google_product_category', 'Vehicles & Parts > Vehicles > Motor Vehicles > Golf Carts');
 
@@ -1345,6 +1354,28 @@ function tigon_dms_get_make_with_symbol($make) {
         return 'Star EV®';
     }
     return $make . '®';
+}
+
+/**
+ * Compute Global Unique ID from SKU (mirrors Database_Object constructor).
+ *
+ * Converts alphabetic chars to digits via (ord - 65) % 9 + 1, keeps numeric
+ * chars as-is, takes rightmost 14 characters, left-pads with zeros to 14.
+ *
+ * @param string $sku Product SKU (VIN, serial, or generated)
+ * @return string 14-character numeric identifier
+ */
+function tigon_dms_compute_gui($sku) {
+    $chars = str_split((string) $sku);
+    $mapped = array_map(function ($char) {
+        $int = ord($char);
+        if ($int - 65 >= 0) {
+            return (($int - 65) % 9) + 1;
+        }
+        return $char;
+    }, $chars);
+    $gui = substr(implode('', $mapped), -14, 14);
+    return str_pad($gui, 14, '0', STR_PAD_LEFT);
 }
 
 /**
@@ -2190,6 +2221,32 @@ function tigon_dms_set_seo_meta($product_id, $cart_data) {
     if (defined('WPSEO_VERSION') || class_exists('WPSEO_Meta')) {
         update_post_meta($product_id, '_yoast_wpseo_title', sanitize_text_field($seo_title));
         update_post_meta($product_id, '_yoast_wpseo_metadesc', sanitize_text_field($meta_desc));
+
+        // Product name for focus keywords and breadcrumb (mirrors Database_Object)
+        $product_name = get_the_title($product_id);
+        if (!empty($product_name)) {
+            update_post_meta($product_id, '_yoast_wpseo_focus_kw', sanitize_text_field($product_name));
+            update_post_meta($product_id, '_yoast_wpseo_focus_keywords', sanitize_text_field($product_name));
+            update_post_meta($product_id, '_yoast_wpseo_bctitle', sanitize_text_field($product_name));
+        }
+
+        // OpenGraph title + description (mirrors Database_Object)
+        update_post_meta($product_id, '_yoast_wpseo_opengraph-title', sanitize_text_field($product_name ?: $seo_title));
+        update_post_meta($product_id, '_yoast_wpseo_opengraph-description', sanitize_text_field($meta_desc));
+
+        // OpenGraph + Twitter images from featured image (mirrors Database_Object)
+        $featured_id = get_post_thumbnail_id($product_id);
+        if (!empty($featured_id)) {
+            $featured_url = wp_get_attachment_image_url($featured_id, 'full');
+            update_post_meta($product_id, '_yoast_wpseo_opengraph-image-id', $featured_id);
+            if ($featured_url) {
+                update_post_meta($product_id, '_yoast_wpseo_opengraph-image', esc_url_raw($featured_url));
+            }
+            update_post_meta($product_id, '_yoast_wpseo_twitter-image-id', $featured_id);
+            if ($featured_url) {
+                update_post_meta($product_id, '_yoast_wpseo_twitter-image', esc_url_raw($featured_url));
+            }
+        }
     }
 }
 
@@ -2302,6 +2359,31 @@ function tigon_dms_set_product_fields_meta($product_id, $cart_data) {
             }
             if ($model_term_id) {
                 update_post_meta($product_id, '_yoast_wpseo_primary_models', $model_term_id);
+            }
+        }
+
+        // Primary added-feature (mirrors Database_Object primary_added_feature)
+        if (taxonomy_exists('added-features')) {
+            // Use the first added-feature from the cart as primary
+            $added_features = $cart_data['cartAttributes']['addedFeatures'] ?? [];
+            if (!empty($added_features) && is_array($added_features)) {
+                $first_feature = is_string($added_features[0]) ? $added_features[0] : ($added_features[0]['name'] ?? '');
+                if (!empty($first_feature)) {
+                    $feature_upper = strtoupper($first_feature);
+                    $feature_term_id = null;
+                    if ($attrs && !empty($attrs->added_features_taxonomy)) {
+                        $feature_term_id = $attrs->added_features_taxonomy[$feature_upper] ?? null;
+                    }
+                    if (!$feature_term_id) {
+                        $feature_term = get_term_by('name', $first_feature, 'added-features');
+                        if ($feature_term && !is_wp_error($feature_term)) {
+                            $feature_term_id = $feature_term->term_id;
+                        }
+                    }
+                    if ($feature_term_id) {
+                        update_post_meta($product_id, '_yoast_wpseo_primary_added-features', $feature_term_id);
+                    }
+                }
             }
         }
 
