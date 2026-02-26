@@ -690,11 +690,14 @@ function tigon_dms_create_woo_product($cart_id, $title, $price, $cart_data, $spe
     $slug = tigon_dms_evaluate_template($slug_tpl, $vars, true);
 
     $product_id = wp_insert_post(array(
-        'post_title'   => sanitize_text_field($normalized_title),
-        'post_name'    => $slug,
-        'post_status'  => 'publish',
-        'post_type'    => 'product',
-        'post_content' => '', // Content comes from DMS payload via template
+        'post_title'     => sanitize_text_field($normalized_title),
+        'post_name'      => $slug,
+        'post_status'    => 'publish',
+        'post_type'      => 'product',
+        'post_content'   => '', // Content comes from DMS payload via template
+        'comment_status' => 'open',
+        'ping_status'    => 'closed',
+        'post_author'    => 3,
     ));
     
     if (is_wp_error($product_id) || !$product_id) {
@@ -1356,6 +1359,7 @@ function tigon_dms_apply_rich_mapping($product_id, $cart_data) {
     tigon_dms_assign_product_attributes($product_id, $cart_data);
     tigon_dms_assign_custom_taxonomies($product_id, $cart_data);
     tigon_dms_set_seo_meta($product_id, $cart_data);
+    tigon_dms_set_product_fields_meta($product_id, $cart_data);
 }
 
 /**
@@ -2097,6 +2101,436 @@ function tigon_dms_set_seo_meta($product_id, $cart_data) {
         update_post_meta($product_id, '_yoast_wpseo_title', sanitize_text_field($seo_title));
         update_post_meta($product_id, '_yoast_wpseo_metadesc', sanitize_text_field($meta_desc));
     }
+}
+
+/**
+ * Set Product_Fields meta that mirrors Database_Object field writing.
+ *
+ * Covers: stock, tax, Google/Facebook extras, Yoast primary terms,
+ * cornerstone, TIGON watermark, monroney sticker, WCPA, shipping class,
+ * custom tabs, and custom product options.
+ *
+ * @param int   $product_id WooCommerce product ID
+ * @param array $cart_data  Full DMS cart payload
+ */
+function tigon_dms_set_product_fields_meta($product_id, $cart_data) {
+    $make  = $cart_data['cartType']['make'] ?? '';
+    $model = $cart_data['cartType']['model'] ?? '';
+    $color = $cart_data['cartAttributes']['cartColor'] ?? '';
+    $store_id  = $cart_data['cartLocation']['locationId'] ?? '';
+    $is_used   = !empty($cart_data['isUsed']);
+
+    $make_symbol = tigon_dms_get_make_with_symbol($make);
+
+    // ---------------------------------------------------------------
+    // 1. Stock & Tax (from set_simple_fields)
+    // ---------------------------------------------------------------
+    update_post_meta($product_id, '_stock', 10000);
+    update_post_meta($product_id, '_tax_status', 'taxable');
+    update_post_meta($product_id, '_tax_class', 'standard');
+
+    // ---------------------------------------------------------------
+    // 2. Google Shopping extras (gender, adult, age_group)
+    // ---------------------------------------------------------------
+    update_post_meta($product_id, '_wc_gla_gender', 'unisex');
+    update_post_meta($product_id, '_wc_gla_adult', 'no');
+    update_post_meta($product_id, '_wc_gla_age_group', 'all ages');
+
+    // Google category (also set by create function, ensure consistency)
+    update_post_meta($product_id, '_wc_gla_google_product_category', 'Vehicles & Parts > Vehicles > Motor Vehicles > Golf Carts');
+
+    // ---------------------------------------------------------------
+    // 3. Facebook extras (gender, age_group)
+    // ---------------------------------------------------------------
+    update_post_meta($product_id, '_wc_facebook_enhanced_catalog_attributes_gender', 'unisex');
+    update_post_meta($product_id, '_wc_facebook_enhanced_catalog_attributes_age_group', 'all ages');
+
+    // ---------------------------------------------------------------
+    // 4. Yoast primary terms + cornerstone
+    // ---------------------------------------------------------------
+    $yoast_active = defined('WPSEO_VERSION') || class_exists('WPSEO_Meta');
+
+    if ($yoast_active) {
+        // Primary category = make category
+        if (!empty($make)) {
+            $make_cat_id = tigon_dms_get_existing_category($make, 0);
+            if ($make_cat_id) {
+                update_post_meta($product_id, '_yoast_wpseo_primary_product_cat', $make_cat_id);
+            }
+        }
+
+        // Primary location = city term ID from Attributes
+        if (!empty($store_id) && class_exists('\Tigon\DmsConnect\Admin\Attributes')) {
+            $loc = \Tigon\DmsConnect\Admin\Attributes::$locations[$store_id] ?? null;
+            if ($loc && !empty($loc['city_id'])) {
+                update_post_meta($product_id, '_yoast_wpseo_primary_location', $loc['city_id']);
+            }
+        }
+
+        // Primary model = model taxonomy term ID
+        if (!empty($model) && taxonomy_exists('models')) {
+            $model_upper = strtoupper($model);
+            if ($model_upper === 'DS') {
+                $model_term_name = strtoupper($make_symbol) . ' DS ELECTRIC';
+            } elseif ($model_upper === 'PRECEDENT') {
+                $model_term_name = strtoupper($make_symbol) . ' PRECEDENT ELECTRIC';
+            } elseif ($model_upper === '4L') {
+                $model_term_name = strtoupper($make_symbol) . ' CROWN 4 LIFTED';
+            } elseif ($model_upper === '6L') {
+                $model_term_name = strtoupper($make_symbol) . ' CROWN 6 LIFTED';
+            } elseif ($model_upper === 'DRIVE 2') {
+                $model_term_name = strtoupper($make_symbol) . ' DRIVE2';
+            } elseif (strtoupper($make_symbol) === 'STAR EV®') {
+                $model_term_name = 'STAR EV® ' . $model_upper;
+            } elseif (strtoupper($make_symbol) === 'EZGO®') {
+                $model_term_name = 'EZ-GO® ' . $model_upper;
+            } else {
+                $model_term_name = strtoupper($make_symbol . ' ' . $model);
+            }
+
+            $model_term = get_term_by('name', $model_term_name, 'models');
+            if (!$model_term) {
+                $model_term = get_term_by('slug', sanitize_title($model_term_name), 'models');
+            }
+            if ($model_term && !is_wp_error($model_term)) {
+                update_post_meta($product_id, '_yoast_wpseo_primary_models', $model_term->term_id);
+            }
+        }
+
+        // Cornerstone content
+        update_post_meta($product_id, '_yoast_wpseo_is_cornerstone', '1');
+    }
+
+    // ---------------------------------------------------------------
+    // 5. TIGON watermark text
+    // ---------------------------------------------------------------
+    $tigonwm = 'TIGON®';
+    if (!empty($store_id)) {
+        if (class_exists('\Tigon\DmsConnect\Admin\Attributes')) {
+            $loc = \Tigon\DmsConnect\Admin\Attributes::$locations[$store_id] ?? null;
+            if ($loc) {
+                $tigonwm = 'TIGON® Golf Carts ' . ($loc['city'] ?? '') . ', ' . ($loc['state'] ?? '');
+            }
+        } else {
+            $store_data = DMS_API::get_city_and_state_by_store_id($store_id);
+            $city  = $store_data['city'] ?? '';
+            $state = $store_data['state'] ?? '';
+            if (!empty($city) && !empty($state)) {
+                $tigonwm = 'TIGON® Golf Carts ' . $city . ', ' . $state;
+            }
+        }
+    }
+    update_post_meta($product_id, '_tigonwm', sanitize_text_field($tigonwm));
+
+    // ---------------------------------------------------------------
+    // 6. Monroney sticker (window sticker PDF)
+    // ---------------------------------------------------------------
+    $sticker_url = $cart_data['cartWindowStickerUrl'] ?? '';
+    if (!empty($sticker_url)) {
+        update_post_meta($product_id, 'monroney_sticker', esc_url_raw($sticker_url));
+        // ACF field container ID (from Abstract_Cart)
+        update_post_meta($product_id, '_monroney_sticker', 'field_66e3332abf481');
+    }
+
+    // ---------------------------------------------------------------
+    // 7. WCPA - Exclude global addon forms
+    // ---------------------------------------------------------------
+    update_post_meta($product_id, 'wcpa_exclude_global_forms', '1');
+
+    // ---------------------------------------------------------------
+    // 8. Shipping class term
+    // ---------------------------------------------------------------
+    if (taxonomy_exists('product_shipping_class')) {
+        $shipping_term = get_term_by('slug', 'golf-cart', 'product_shipping_class');
+        if (!$shipping_term) {
+            $shipping_term = get_term_by('slug', 'golf-carts', 'product_shipping_class');
+        }
+        if ($shipping_term && !is_wp_error($shipping_term)) {
+            wp_set_object_terms($product_id, array($shipping_term->term_id), 'product_shipping_class');
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // 9. Custom product tabs (Yikes WooCommerce Product Tabs)
+    // ---------------------------------------------------------------
+    $tabs_meta = tigon_dms_build_custom_tabs($cart_data);
+    if (!empty($tabs_meta)) {
+        update_post_meta($product_id, '_yikes_woo_products_tabs', $tabs_meta);
+    }
+
+    // ---------------------------------------------------------------
+    // 10. Custom product options (WCPA addon forms)
+    // ---------------------------------------------------------------
+    $options_meta = tigon_dms_build_custom_options($cart_data);
+    if (!empty($options_meta)) {
+        update_post_meta($product_id, '_wcpa_product_meta', $options_meta);
+    }
+}
+
+/**
+ * Build custom product tabs for the Yikes WooCommerce Product Tabs plugin.
+ *
+ * Mirrors Abstract_Cart::attach_custom_tabs() — assigns warranty, specs,
+ * video, and manual tabs based on make and model.
+ *
+ * @param array $cart_data Full DMS cart payload
+ * @return string|null Serialized tabs array or null
+ */
+function tigon_dms_build_custom_tabs($cart_data) {
+    // Load tabs from Yikes option
+    $saved_tabs = get_option('yikes_woo_reusable_products_tabs');
+    if (empty($saved_tabs) || !is_array($saved_tabs)) {
+        return null;
+    }
+
+    // Index tabs by name
+    $tabs_by_name = array();
+    foreach ($saved_tabs as $tab) {
+        if (!empty($tab['tab_name'])) {
+            $tabs_by_name[$tab['tab_name']] = $tab;
+        }
+    }
+
+    $make   = $cart_data['cartType']['make'] ?? '';
+    $model  = $cart_data['cartType']['model'] ?? '';
+    $year   = $cart_data['cartType']['year'] ?? '';
+    $is_used = !empty($cart_data['isUsed']);
+
+    $make_symbol = tigon_dms_get_make_with_symbol($make);
+    $make_upper  = strtoupper($make_symbol);
+
+    $tab_names = array();
+
+    // Used cart warranty
+    if ($is_used) {
+        $tab_names[] = 'TIGON Warranty (USED GOLF CARTS)';
+    }
+
+    // Make/model-specific tabs (from Abstract_Cart::attach_custom_tabs)
+    switch ($make_upper) {
+        case 'DENAGO®':
+            if (!$is_used) {
+                $tab_names[] = 'DENAGO Warranty';
+            }
+            if ($year === '2024') {
+                $tab_names[] = 'VIDEO DENAGO 2024';
+            }
+            switch (strtoupper($model)) {
+                case 'NOMAD':
+                    $tab_names[] = 'Denago® Nomad Vehicle Specs';
+                    break;
+                case 'NOMAD XL':
+                    $tab_names[] = 'Denago® Nomad XL Vehicle Specs';
+                    $tab_names[] = 'Denago Nomad XL User Manual';
+                    if ($year === '2024') $tab_names[] = 'PICS DENAGO NOMAD XL 2024';
+                    break;
+                case 'ROVER XL':
+                    $tab_names[] = 'Denago® Rover XL Vehicle Specs';
+                    if ($year === '2024') $tab_names[] = 'PICS DENAGO ROVER XL 2024';
+                    break;
+            }
+            break;
+
+        case 'EVOLUTION®':
+            if (!$is_used) {
+                $tab_names[] = 'EVolution Warranty';
+            }
+            switch (strtoupper($model)) {
+                case 'CLASSIC 2 PRO':
+                    $tab_names[] = 'EVolution Classic 2 Pro Images';
+                    $tab_names[] = 'EVolution Classic 2 Pro Specs';
+                    break;
+                case 'CLASSIC 2 PLUS':
+                    $tab_names[] = 'EVolution Classic 2 Plus Images';
+                    $tab_names[] = 'EVolution Classic 2 Plus Specs';
+                    break;
+                case 'CLASSIC 4 PRO':
+                    $tab_names[] = 'EVolution Classic 4 Pro Images';
+                    $tab_names[] = 'EVolution Classic 4 Pro Specs';
+                    break;
+                case 'CLASSIC 4 PLUS':
+                    $tab_names[] = 'EVolution Classic 4 Plus Images';
+                    $tab_names[] = 'EVolution Classic 4 Plus Specs';
+                    break;
+                case 'D5 MAVERICK 2+2':
+                    $tab_names[] = 'EVolution D5-Maverick 2+2';
+                    $tab_names[] = 'EVolution D5-Maverick 2+2 Images';
+                    break;
+                case 'D5 MAVERICK 2+2 PLUS':
+                    $tab_names[] = 'EVolution D5-Maverick 2+2 Plus Images';
+                    break;
+                case 'D5 RANGER 2+2':
+                    $tab_names[] = 'EVOLUTION D5 RANGER 2+2 IMAGES';
+                    $tab_names[] = 'EVOLUTION D5 RANGER 2+2 SPECS';
+                    break;
+                case 'D5 RANGER 2+2 PLUS':
+                    $tab_names[] = 'EVOLUTION D5 RANGER 2+2 PLUS IMAGES';
+                    $tab_names[] = 'EVOLUTION D5 RANGER 2+2 PLUS SPECS';
+                    break;
+                case 'D5 RANGER 4':
+                    $tab_names[] = 'EVOLUTION D5 RANGER 4 IMAGES';
+                    $tab_names[] = 'EVOLUTION D5 RANGER 4 SPEC';
+                    break;
+                case 'D5 RANGER 4 PLUS':
+                    $tab_names[] = 'EVOLUTION D5 RANGER 4 PLUS IMAGES';
+                    $tab_names[] = 'EVOLUTION D5 RANGER 4 PLUS SPECS';
+                    break;
+                case 'D5 RANGER 6':
+                    $tab_names[] = 'EVOLUTION D5 RANGER 6 IMAGES';
+                    $tab_names[] = 'EVOLUTION D5 RANGER 6 SPECS';
+                    break;
+            }
+            break;
+    }
+
+    if (empty($tab_names)) {
+        return null;
+    }
+
+    // Build tab array from saved Yikes tabs
+    $tabs = array();
+    foreach ($tab_names as $name) {
+        if (isset($tabs_by_name[$name])) {
+            $tab = $tabs_by_name[$name];
+            $tabs[] = array(
+                'name'    => $name,
+                'id'      => $tab['tab_id'] ?? '',
+                'title'   => $tab['tab_title'] ?? $name,
+                'content' => preg_replace('/\\\*(&quot;)*/', '', $tab['tab_content'] ?? ''),
+            );
+        }
+    }
+
+    return !empty($tabs) ? serialize($tabs) : null;
+}
+
+/**
+ * Build custom product options (WCPA addon forms) per make/model.
+ *
+ * Mirrors Abstract_Cart::attach_custom_options() — assigns make/model-specific
+ * addon forms for new carts, or individual addon matching for used carts.
+ *
+ * @param array $cart_data Full DMS cart payload
+ * @return string|null Serialized options array or null
+ */
+function tigon_dms_build_custom_options($cart_data) {
+    // Load WCPA forms
+    $forms = get_posts(array(
+        'post_type'   => 'wcpa_pt_forms',
+        'numberposts' => -1,
+    ));
+    if (empty($forms)) {
+        return null;
+    }
+
+    // Index by title
+    $forms_by_title = array();
+    foreach ($forms as $form) {
+        $forms_by_title[$form->post_title] = $form->ID;
+    }
+
+    $make   = $cart_data['cartType']['make'] ?? '';
+    $model  = $cart_data['cartType']['model'] ?? '';
+    $is_used = !empty($cart_data['isUsed']);
+    $passengers = $cart_data['cartAttributes']['passengers'] ?? '';
+    $num_seats  = ($passengers === 'Utility') ? '2' : (explode(' ', $passengers)[0] ?? '');
+
+    $make_symbol = tigon_dms_get_make_with_symbol($make);
+    $make_upper  = strtoupper($make_symbol);
+
+    $option_ids = array();
+
+    if (!$is_used) {
+        // New carts: find the make/model-specific addon list
+        if ($make_upper === 'DENAGO®') {
+            $addon_list = 'Denago® EV ' . $model . ' Add Ons';
+        } elseif ($make_upper === 'EPIC®') {
+            $addon_list = 'EPIC® ' . $model . ' Add Ons';
+        } elseif ($make_upper === 'EVOLUTION®') {
+            $addon_list = 'EVolution® ' . $model . ' Add Ons';
+            if (substr($model, 0, 3) === 'D5 ') {
+                $m = $model;
+                $pos = strpos($m, ' ');
+                if ($pos !== false) {
+                    $m = substr_replace($m, '-', $pos, 1);
+                }
+                $addon_list = 'EVolution® ' . $m . ' Add Ons';
+            }
+        } elseif ($make_upper === 'ICON®') {
+            $addon_list = 'ICON® ' . $model . ' Add Ons';
+        } elseif ($make_upper === 'SWIFT EV®') {
+            $addon_list = 'SWIFT EV® ' . $model . ' Add Ons';
+        } else {
+            $addon_list = $make_symbol . ' ' . $model . ' Add Ons';
+        }
+
+        if (isset($forms_by_title[$addon_list])) {
+            $option_ids[] = $forms_by_title[$addon_list];
+        }
+    } else {
+        // Used carts: match individual addons from cart data
+        $addons = array_flip($cart_data['advertising']['cartAddOns'] ?? array());
+        $addon_map = array(
+            'Golf cart enclosure 2 passenger 600' => array('form' => '2 Passenger Golf Cart Enclosure', 'seats' => '2'),
+            'Golf cart enclosure 4 Passenger 800'  => array('form' => '4 Passenger Golf Cart Enclosure', 'seats' => '4'),
+            'Golf cart enclosure 6 passenger 1200'  => array('form' => '6 Passenger Golf Cart Enclosure', 'seats' => '6'),
+            '120 Volt inverter 500'                 => array('form' => '120 Volt Inverter'),
+            '32 inch light bar 220'                 => array('form' => '32in LED Light Bar'),
+            'Cargo caddie 250'                      => array('form' => 'Cargo Caddie'),
+            'Rear seat cupholders 80'               => array('form' => 'Rear Seat Cupholders'),
+            'Upgraded charger 210'                  => array('form' => 'Upgraded Charger'),
+            'Breezeasy Fan System 400'              => array('form' => 'Breezeasy 3 Fan System'),
+            'Golf bag attachment 120'               => array('form' => 'Golf Bag Attachment'),
+            'Led light kit 350'                     => array('form' => 'LED Cart Light Kit'),
+            'Led light kit with signals and horn 495' => array('form' => 'LED Cart Light Kit With Signals & Horn'),
+            'Led under glow 400'                    => array('form' => 'LED Under Glow Lights'),
+            'Led roof lights 400'                   => array('form' => 'LED Roof Lights'),
+            'Rear seat kit 385'                     => array('form' => 'Rear Seat Kit'),
+            'Basic 4 Passenger storage cover 150'   => array('form' => 'Basic 4 Passenger Storage Cover', 'seats' => '4'),
+            'Premium 4 Passenger storage cover 300' => array('form' => 'Premium 4 Passenger Storage Cover', 'seats' => '4'),
+            'Premium 6 Passenger storage cover 385' => array('form' => 'Premium 6 Passenger Storage Cover', 'seats' => '6'),
+            '26 in sound bar 500'                   => array('form' => '26" Sound Bar'),
+            '32 in Sound bar 600'                   => array('form' => '32" Sound Bar'),
+            'EcoXGear subwoofer 745'                => array('form' => 'EcoXGear Subwoofer'),
+            'New tinted windshield 210'             => array('form' => 'Tinted Windshield'),
+            'Grab bar 85'                           => array('form' => 'Grab Bar'),
+            'Deluxe Grab Bar 150'                   => array('form' => 'Deluxe Grab Bar'),
+            'Side mirrors 65'                       => array('form' => 'Side Mirrors'),
+            'Extended roof 500'                     => array('form' => 'Extended Roof 84"'),
+        );
+
+        // Hitch special case (3 tiers)
+        if (isset($addons['Hitch 80']) && isset($addons['Hitch 300']) && isset($addons['Hitch 500'])) {
+            foreach (array('Hitch Bolt On', 'Basic Hitch Weld On', 'Premium Hitch Weld On') as $hitch) {
+                if (isset($forms_by_title[$hitch])) {
+                    $option_ids[] = $forms_by_title[$hitch];
+                }
+            }
+        }
+
+        // Seat belt special case
+        if (isset($addons['Seat belts 4 Passenger 160']) && $num_seats === '4') {
+            if (isset($forms_by_title['Seat Belts 4 Passenger'])) {
+                $option_ids[] = $forms_by_title['Seat Belts 4 Passenger'];
+            }
+        }
+        if (isset($addons['Seat belts 6 Passenger 240']) && $num_seats === '6') {
+            if (isset($forms_by_title['Seat Belts 6 Passenger'])) {
+                $option_ids[] = $forms_by_title['Seat Belts 6 Passenger'];
+            }
+        }
+
+        foreach ($addon_map as $addon_key => $config) {
+            if (!isset($addons[$addon_key])) continue;
+            // Check seat count restriction
+            if (isset($config['seats']) && $config['seats'] !== $num_seats) continue;
+            if (isset($forms_by_title[$config['form']])) {
+                $option_ids[] = $forms_by_title[$config['form']];
+            }
+        }
+    }
+
+    return !empty($option_ids) ? serialize(array_unique($option_ids)) : null;
 }
 
 /**
