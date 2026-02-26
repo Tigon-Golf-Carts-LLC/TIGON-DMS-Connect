@@ -46,8 +46,12 @@ class DMS_Sync
             'updated'   => 0,
             'skipped'   => 0,
             'errors'    => 0,
+            'sold'      => 0,
             'total'     => 0,
         );
+
+        // Collect all active DMS cart IDs so we can detect sold products afterwards
+        $active_cart_ids = array();
 
         $page_number = 0;
         $page_size = 20;
@@ -87,6 +91,7 @@ class DMS_Sync
                 }
 
                 $cart_id = $cart_data['_id'];
+                $active_cart_ids[] = $cart_id;
 
                 // Stage cart data in local tigon_dms_carts table
                 // This preserves ALL DMS fields locally for debugging/querying
@@ -130,12 +135,68 @@ class DMS_Sync
             }
         }
 
+        // -----------------------------------------------------------------
+        // Sold product detection (mirrors Database_Write_Controller cleanup)
+        //
+        // Find WooCommerce products with _dms_cart_id that are no longer
+        // in the active DMS inventory and mark them as sold/out-of-stock.
+        // -----------------------------------------------------------------
+        if (!empty($active_cart_ids)) {
+            $sold_products = self::detect_sold_products($active_cart_ids);
+            foreach ($sold_products as $sold_product_id) {
+                if (function_exists('tigon_dms_handle_sold_product')) {
+                    $handled = tigon_dms_handle_sold_product($sold_product_id);
+                    if ($handled) {
+                        $stats['sold']++;
+                    }
+                }
+            }
+        }
+
         return array(
             'success' => true,
             'stats'   => $stats,
         );
     }
 
+
+    /**
+     * Detect WooCommerce products whose DMS cart IDs are no longer active.
+     *
+     * Queries all published products with a _dms_cart_id meta and returns
+     * the product IDs whose cart ID is NOT in the active set.
+     *
+     * @param array $active_cart_ids Array of DMS cart IDs still in inventory
+     * @return array Product IDs that are no longer in DMS
+     */
+    private static function detect_sold_products($active_cart_ids)
+    {
+        global $wpdb;
+
+        // Get all published products that have a DMS cart ID
+        $results = $wpdb->get_results(
+            "SELECT p.ID, pm.meta_value AS cart_id
+             FROM {$wpdb->posts} p
+             INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_dms_cart_id'
+             WHERE p.post_type = 'product' AND p.post_status = 'publish'",
+            ARRAY_A
+        );
+
+        if (empty($results)) {
+            return array();
+        }
+
+        $sold_ids = array();
+        $active_set = array_flip($active_cart_ids); // O(1) lookups
+
+        foreach ($results as $row) {
+            if (!isset($active_set[$row['cart_id']])) {
+                $sold_ids[] = (int) $row['ID'];
+            }
+        }
+
+        return $sold_ids;
+    }
 
     /**
      * Sync product images from DMS cart data

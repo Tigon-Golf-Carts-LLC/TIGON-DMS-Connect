@@ -1018,6 +1018,9 @@ function tigon_dms_create_woo_product($cart_id, $title, $price, $cart_data, $spe
     // Apply rich mapping (tags, descriptions, attributes, taxonomies, SEO)
     tigon_dms_apply_rich_mapping($product_id, $cart_data);
 
+    // Refresh WC product lookup table and caches (mirrors Database_Write_Controller write path)
+    tigon_dms_refresh_wc_product_data($product_id);
+
     return $product_id;
 }
 
@@ -1322,7 +1325,144 @@ function tigon_dms_update_woo_product($product_id, $title, $price, $cart_data, $
     // Apply rich mapping (tags, descriptions, attributes, taxonomies, SEO)
     tigon_dms_apply_rich_mapping($product_id, $cart_data);
 
+    // Refresh WC product lookup table and caches (mirrors Database_Write_Controller write path)
+    tigon_dms_refresh_wc_product_data($product_id);
+
     return $product_id;
+}
+
+/**
+ * ============================================================================
+ * Post-Write WooCommerce Refresh (inspired by Database_Write_Controller)
+ * ============================================================================
+ *
+ * After creating/updating a product via direct meta writes, WooCommerce's
+ * wc_product_meta_lookup table and object caches may be stale. These helpers
+ * ensure WC product queries (price filters, sorting, stock status) work
+ * correctly after sync writes.
+ */
+
+/**
+ * Refresh WooCommerce product lookup table and caches after sync writes.
+ *
+ * Our sync path uses wp_insert_post/update_post_meta directly rather than
+ * the WC Product API, so wc_product_meta_lookup doesn't get updated
+ * automatically. This mirrors what Database_Write_Controller should do
+ * after write_database_object().
+ *
+ * @param int $product_id WooCommerce product ID
+ */
+function tigon_dms_refresh_wc_product_data($product_id) {
+    if (!class_exists('WooCommerce')) {
+        return;
+    }
+
+    // Clear WordPress post cache so fresh meta is read
+    clean_post_cache($product_id);
+
+    // Clear WooCommerce product transients (price ranges, counts, etc.)
+    if (function_exists('wc_delete_product_transients')) {
+        wc_delete_product_transients($product_id);
+    }
+
+    // Update WC product lookup table (used for price filters, stock queries, sorting)
+    // This table is not updated by direct update_post_meta() calls
+    if (class_exists('WC_Data_Store')) {
+        try {
+            $data_store = \WC_Data_Store::load('product');
+            if (method_exists($data_store, 'update_lookup_table')) {
+                $data_store->update_lookup_table($product_id, 'wc_product_meta_lookup');
+            }
+        } catch (\Exception $e) {
+            // Fallback: direct lookup table update via product save
+            $wc_product = wc_get_product($product_id);
+            if ($wc_product) {
+                // Reading + saving forces WC to rebuild its lookup row
+                $wc_product->set_props(array(
+                    'regular_price' => $wc_product->get_regular_price(),
+                    'stock_status'  => $wc_product->get_stock_status(),
+                ));
+                $wc_product->save();
+            }
+        }
+    }
+}
+
+/**
+ * Handle a product whose DMS cart is no longer in the active inventory.
+ *
+ * Mirrors Database_Write_Controller::delete_by_id() cleanup but uses a soft
+ * approach: sets stock to out-of-stock and moves to draft instead of hard
+ * deleting. Optionally removes attachments (images, monroney PDF).
+ *
+ * @param int  $product_id      WooCommerce product ID
+ * @param bool $delete_images   Whether to also delete attached images (default false)
+ * @return bool True if product was handled, false on error
+ */
+function tigon_dms_handle_sold_product($product_id, $delete_images = false) {
+    if (!get_post($product_id)) {
+        return false;
+    }
+
+    // Mark out of stock
+    update_post_meta($product_id, '_stock_status', 'outofstock');
+    update_post_meta($product_id, '_stock', 0);
+
+    // Move to draft so it no longer appears on frontend
+    wp_update_post(array(
+        'ID'          => $product_id,
+        'post_status' => 'draft',
+    ));
+
+    // Remove from catalog visibility
+    wp_set_object_terms($product_id, array('exclude-from-catalog', 'exclude-from-search'), 'product_visibility');
+
+    // Optionally clean up attachments (mirrors REST_Routes delete path)
+    if ($delete_images) {
+        // Delete featured image
+        $featured_id = get_post_thumbnail_id($product_id);
+        if ($featured_id) {
+            wp_delete_post($featured_id, true);
+        }
+
+        // Delete gallery images
+        $gallery_ids = get_post_meta($product_id, '_product_image_gallery', true);
+        if (!empty($gallery_ids)) {
+            foreach (explode(',', $gallery_ids) as $img_id) {
+                if (!empty($img_id)) {
+                    wp_delete_post((int) $img_id, true);
+                }
+            }
+            delete_post_meta($product_id, '_product_image_gallery');
+        }
+
+        // Delete monroney sticker attachment
+        $monroney_url = get_post_meta($product_id, 'monroney_sticker', true);
+        if (!empty($monroney_url)) {
+            global $wpdb;
+            $monroney_id = $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT ID FROM {$wpdb->posts} WHERE guid = %s AND post_type = 'attachment' LIMIT 1",
+                    $monroney_url
+                )
+            );
+            if ($monroney_id) {
+                wp_delete_post((int) $monroney_id, true);
+            }
+        }
+    }
+
+    // Clean WC lookup table for this product (mirrors Database_Write_Controller)
+    global $wpdb;
+    $wpdb->delete($wpdb->prefix . 'wc_product_meta_lookup', array('product_id' => $product_id));
+
+    // Refresh caches
+    clean_post_cache($product_id);
+    if (function_exists('wc_delete_product_transients')) {
+        wc_delete_product_transients($product_id);
+    }
+
+    return true;
 }
 
 /**
