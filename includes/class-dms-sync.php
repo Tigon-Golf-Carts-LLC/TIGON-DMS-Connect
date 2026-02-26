@@ -33,6 +33,10 @@ class DMS_Sync
      */
     public static function sync_inventory()
     {
+        // Extend execution time for large inventories (30 minutes)
+        @set_time_limit(1800);
+        ignore_user_abort(true);
+
         // Check if WooCommerce is active
         if (!class_exists('WooCommerce')) {
             return array(
@@ -58,7 +62,7 @@ class DMS_Sync
         $seen_new = array();
 
         $page_number = 0;
-        $page_size = 20;
+        $page_size = 50;
 
         // Paginate through all carts
         // The /get-carts API returns a raw JSON array: [{...}, {...}, {...}]
@@ -453,10 +457,11 @@ class DMS_Sync
         require_once ABSPATH . 'wp-admin/includes/media.php';
         require_once ABSPATH . 'wp-admin/includes/image.php';
 
-        // Download image to temp file
-        $temp_file = download_url($image_url);
+        // Download image to temp file (30 second timeout per image)
+        $temp_file = download_url($image_url, 30);
 
         if (is_wp_error($temp_file)) {
+            error_log('[DMS Sync] Image download failed for ' . $image_url . ': ' . $temp_file->get_error_message());
             return false;
         }
 

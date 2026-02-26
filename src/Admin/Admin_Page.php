@@ -974,15 +974,82 @@ class Admin_Page
             </div>
         </div>
 
+        <style>
+        .sync-progress{display:none;width:100%;margin-top:0.5rem;}
+        .sync-progress-bar-wrap{background:#e0e0e0;border-radius:6px;height:24px;overflow:hidden;position:relative;}
+        .sync-progress-bar{height:100%;background:linear-gradient(90deg,var(--accent-color),var(--main-color));border-radius:6px;transition:width 0.3s ease;min-width:0;}
+        .sync-progress-text{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;font-size:0.78rem;font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.3);}
+        .sync-progress-status{font-size:0.82rem;color:#555;margin-top:0.4rem;}
+        .sync-live-stats{display:flex;gap:1.5rem;flex-wrap:wrap;margin-top:0.5rem;font-size:0.82rem;}
+        .sync-live-stats span{font-weight:600;}
+        .sync-live-stats .created{color:#28a745;} .sync-live-stats .updated{color:#007bff;}
+        .sync-live-stats .errors{color:#dc3545;} .sync-live-stats .total{color:#333;}
+        </style>
         <script>
         jQuery(document).ready(function($) {
+            var selectiveNonce = ' . wp_json_encode($selective_nonce) . ';
+            var mappedNonce = ' . wp_json_encode($mapped_nonce) . ';
+
             // Highlight selected radio option
             $("input[name=sync_type]").on("change", function() {
                 $("input[name=sync_type]").closest("label").css("border-color", "var(--nav-color)").css("background", "transparent");
                 $(this).closest("label").css("border-color", "var(--main-color)").css("background", "#f9ecec");
             }).filter(":checked").trigger("change");
 
-            // Selective sync (New / Used / All)
+            /* ── Progress bar helpers ─────────────────────────────── */
+            function showProgress($results, total) {
+                $results.html(
+                    \'<div class="sync-progress" style="display:block;">\' +
+                    \'<div class="sync-progress-bar-wrap"><div class="sync-progress-bar" style="width:0%;"></div>\' +
+                    \'<div class="sync-progress-text">Initializing...</div></div>\' +
+                    \'<div class="sync-progress-status"></div>\' +
+                    \'<div class="sync-live-stats">\' +
+                    \'<span class="total">Processed: <em>0</em></span>\' +
+                    \'<span class="created">Created: <em>0</em></span>\' +
+                    \'<span class="updated">Updated: <em>0</em></span>\' +
+                    \'<span class="errors">Errors: <em>0</em></span>\' +
+                    \'</div></div>\'
+                ).show();
+            }
+
+            function updateProgress($results, offset, total, stats) {
+                var pct = total > 0 ? Math.min(Math.round((offset / total) * 100), 100) : 0;
+                $results.find(".sync-progress-bar").css("width", pct + "%");
+                $results.find(".sync-progress-text").text(offset + " / " + total + " (" + pct + "%)");
+                $results.find(".sync-progress-status").text("Processing batch... " + offset + " of " + total + " carts");
+                $results.find(".total em").text(offset);
+                $results.find(".created em").text(stats.created);
+                $results.find(".updated em").text(stats.updated);
+                $results.find(".errors em").text(stats.errors);
+            }
+
+            function showFinalResults($results, stats, total, title) {
+                var html = \'<div style="background:#d4edda;border:1px solid #c3e6cb;padding:1rem;border-radius:4px;">\';
+                html += "<h3 style=\'margin-top:0;\'>" + title + "</h3>";
+                html += "<ul style=\'list-style:disc;padding-left:1.5rem;\'>";
+                html += "<li><strong>Total processed:</strong> " + total + "</li>";
+                html += "<li><strong>Created:</strong> " + stats.created + "</li>";
+                html += "<li><strong>Updated:</strong> " + stats.updated + "</li>";
+                if (stats.skipped !== undefined) html += "<li><strong>Skipped:</strong> " + stats.skipped + "</li>";
+                html += "<li><strong>Errors:</strong> " + stats.errors + "</li>";
+                html += "</ul>";
+                if (stats.error_details && stats.error_details.length > 0) {
+                    html += "<details><summary>Error details (" + stats.error_details.length + ")</summary><ul style=\'list-style:disc;padding-left:1.5rem;\'>";
+                    stats.error_details.slice(0, 50).forEach(function(e) {
+                        html += "<li>" + $("<span>").text(e).html() + "</li>";
+                    });
+                    if (stats.error_details.length > 50) html += "<li>...and " + (stats.error_details.length - 50) + " more</li>";
+                    html += "</ul></details>";
+                }
+                html += "</div>";
+                $results.html(html).show();
+            }
+
+            function showError($results, msg) {
+                $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Error:</strong> \' + $("<span>").text(msg).html() + "</p></div>").show();
+            }
+
+            /* ── Batched Selective Sync ───────────────────────────── */
             $("#dms-sync-btn").on("click", function() {
                 var $btn = $(this);
                 var $spinner = $("#dms-sync-spinner");
@@ -990,101 +1057,254 @@ class Admin_Page
                 var syncType = $("input[name=sync_type]:checked").val();
                 var labels = {"all": "All Carts", "new": "New Carts", "used": "Used Carts"};
 
-                $btn.prop("disabled", true).text("Syncing " + labels[syncType] + "...");
+                $btn.prop("disabled", true).text("Fetching inventory...");
                 $spinner.addClass("is-active");
                 $results.hide();
 
+                // Step 1: Initialize — fetch all carts and get sync_id
                 $.ajax({
                     url: ajaxurl,
                     type: "POST",
-                    data: {
-                        action: "tigon_dms_sync_selective",
-                        nonce: ' . wp_json_encode($selective_nonce) . ',
-                        sync_type: syncType
-                    },
-                    timeout: 600000,
-                    success: function(response) {
-                        $spinner.removeClass("is-active");
-                        $btn.prop("disabled", false).text("Sync Now");
-                        if (response.success && response.data) {
-                            var s = response.data;
-                            var html = \'<div style="background:#d4edda;border:1px solid #c3e6cb;padding:1rem;border-radius:4px;">\';
-                            html += "<h3 style=\'margin-top:0;\'>Sync Completed (" + labels[s.sync_type] + ")</h3>";
-                            html += "<ul style=\'list-style:disc;padding-left:1.5rem;\'>";
-                            html += "<li><strong>Total processed:</strong> " + s.total + "</li>";
-                            html += "<li><strong>Created:</strong> " + s.created + "</li>";
-                            html += "<li><strong>Updated:</strong> " + s.updated + "</li>";
-                            html += "<li><strong>Errors:</strong> " + s.errors + "</li>";
-                            html += "</ul>";
-                            if (s.error_details && s.error_details.length > 0) {
-                                html += "<details><summary>Error details (" + s.error_details.length + ")</summary><ul style=\'list-style:disc;padding-left:1.5rem;\'>";
-                                s.error_details.slice(0, 50).forEach(function(e) {
-                                    html += "<li>" + $("<span>").text(e).html() + "</li>";
-                                });
-                                if (s.error_details.length > 50) html += "<li>...and " + (s.error_details.length - 50) + " more</li>";
-                                html += "</ul></details>";
-                            }
-                            html += "</div>";
-                            $results.html(html).show();
-                        } else {
-                            $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Sync failed:</strong> \' + (response.data || "Unknown error") + "</p></div>").show();
+                    data: { action: "tigon_dms_sync_selective_init", nonce: selectiveNonce, sync_type: syncType },
+                    timeout: 300000,
+                    success: function(initResp) {
+                        if (!initResp.success) {
+                            $spinner.removeClass("is-active");
+                            $btn.prop("disabled", false).text("Sync Now");
+                            showError($results, initResp.data || "Failed to initialize sync");
+                            return;
                         }
+
+                        var syncId = initResp.data.sync_id;
+                        var total = initResp.data.total;
+                        var batchSize = initResp.data.batch_size;
+                        var offset = 0;
+                        var cumulative = { created: 0, updated: 0, errors: 0, skipped: 0, error_details: [] };
+
+                        $btn.text("Syncing " + labels[syncType] + "...");
+                        showProgress($results, total);
+                        $results.find(".sync-progress-status").text("Found " + total + " carts (from " + initResp.data.fetched + " total). Starting sync...");
+
+                        if (total === 0) {
+                            $spinner.removeClass("is-active");
+                            $btn.prop("disabled", false).text("Sync Now");
+                            showFinalResults($results, cumulative, 0, "Sync Completed (" + labels[syncType] + ")");
+                            return;
+                        }
+
+                        // Step 2: Process batches recursively
+                        function processBatch() {
+                            $.ajax({
+                                url: ajaxurl,
+                                type: "POST",
+                                data: { action: "tigon_dms_sync_selective_batch", nonce: selectiveNonce, sync_id: syncId, offset: offset, batch_size: batchSize },
+                                timeout: 180000,
+                                success: function(batchResp) {
+                                    if (!batchResp.success) {
+                                        $spinner.removeClass("is-active");
+                                        $btn.prop("disabled", false).text("Sync Now");
+                                        showError($results, batchResp.data || "Batch failed at offset " + offset);
+                                        return;
+                                    }
+
+                                    var d = batchResp.data;
+                                    cumulative.created += d.created;
+                                    cumulative.updated += d.updated;
+                                    cumulative.errors += d.errors;
+                                    cumulative.error_details = cumulative.error_details.concat(d.error_details || []);
+
+                                    offset += batchSize;
+                                    updateProgress($results, Math.min(offset, total), total, cumulative);
+
+                                    if (d.done) {
+                                        $spinner.removeClass("is-active");
+                                        $btn.prop("disabled", false).text("Sync Now");
+                                        showFinalResults($results, cumulative, total, "Sync Completed (" + labels[syncType] + ")");
+                                    } else {
+                                        processBatch();
+                                    }
+                                },
+                                error: function(xhr, status, error) {
+                                    // Retry once on network error
+                                    cumulative.errors++;
+                                    cumulative.error_details.push("Batch at offset " + offset + " failed: " + error + " — retrying...");
+                                    setTimeout(function() {
+                                        $.ajax({
+                                            url: ajaxurl,
+                                            type: "POST",
+                                            data: { action: "tigon_dms_sync_selective_batch", nonce: selectiveNonce, sync_id: syncId, offset: offset, batch_size: batchSize },
+                                            timeout: 180000,
+                                            success: function(retryResp) {
+                                                if (retryResp.success) {
+                                                    var d = retryResp.data;
+                                                    cumulative.created += d.created;
+                                                    cumulative.updated += d.updated;
+                                                    cumulative.errors += d.errors;
+                                                    cumulative.error_details = cumulative.error_details.concat(d.error_details || []);
+                                                    offset += batchSize;
+                                                    updateProgress($results, Math.min(offset, total), total, cumulative);
+                                                    if (d.done) {
+                                                        $spinner.removeClass("is-active");
+                                                        $btn.prop("disabled", false).text("Sync Now");
+                                                        showFinalResults($results, cumulative, total, "Sync Completed (" + labels[syncType] + ")");
+                                                    } else {
+                                                        processBatch();
+                                                    }
+                                                } else {
+                                                    $spinner.removeClass("is-active");
+                                                    $btn.prop("disabled", false).text("Sync Now");
+                                                    showFinalResults($results, cumulative, total, "Sync Partially Completed (" + labels[syncType] + ") — stopped at " + offset + "/" + total);
+                                                }
+                                            },
+                                            error: function() {
+                                                $spinner.removeClass("is-active");
+                                                $btn.prop("disabled", false).text("Sync Now");
+                                                showFinalResults($results, cumulative, total, "Sync Partially Completed — network error at " + offset + "/" + total);
+                                            }
+                                        });
+                                    }, 2000);
+                                }
+                            });
+                        }
+
+                        processBatch();
                     },
                     error: function(xhr, status, error) {
                         $spinner.removeClass("is-active");
                         $btn.prop("disabled", false).text("Sync Now");
-                        $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Request failed:</strong> \' + error + "</p></div>").show();
+                        showError($results, "Failed to initialize sync: " + error);
                     }
                 });
             });
 
-            // Mapped sync
+            /* ── Batched Mapped Sync ─────────────────────────────── */
             $("#dms-mapped-sync-btn").on("click", function() {
                 var $btn = $(this);
                 var $spinner = $("#dms-mapped-sync-spinner");
                 var $results = $("#dms-mapped-sync-results");
 
-                $btn.prop("disabled", true).text("Syncing...");
+                $btn.prop("disabled", true).text("Fetching inventory...");
                 $spinner.addClass("is-active");
                 $results.hide();
 
+                // Step 1: Initialize
                 $.ajax({
                     url: ajaxurl,
                     type: "POST",
-                    data: {
-                        action: "tigon_dms_sync_mapped",
-                        nonce: ' . wp_json_encode($mapped_nonce) . '
-                    },
-                    timeout: 600000,
-                    success: function(response) {
-                        $spinner.removeClass("is-active");
-                        $btn.prop("disabled", false).text("Sync Mapped Inventory");
-                        if (response.success && response.data) {
-                            var s = response.data;
-                            var html = \'<div style="background:#d4edda;border:1px solid #c3e6cb;padding:1rem;border-radius:4px;"><h3 style="margin-top:0;">Mapped Sync Completed</h3><ul style="list-style:disc;padding-left:1.5rem;">\';
-                            html += "<li><strong>Total:</strong> " + s.total + "</li>";
-                            html += "<li><strong>Updated:</strong> " + s.updated + "</li>";
-                            html += "<li><strong>Created:</strong> " + s.created + "</li>";
-                            html += "<li><strong>Skipped:</strong> " + s.skipped + "</li>";
-                            html += "<li><strong>Errors:</strong> " + s.errors + "</li>";
-                            html += "</ul>";
-                            if (s.error_details && s.error_details.length > 0) {
-                                html += "<details><summary>Error details</summary><ul style=\'list-style:disc;padding-left:1.5rem;\'>";
-                                s.error_details.forEach(function(e) {
-                                    html += "<li>" + $("<span>").text(e).html() + "</li>";
-                                });
-                                html += "</ul></details>";
-                            }
-                            html += "</div>";
-                            $results.html(html).show();
-                        } else {
-                            $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Sync failed:</strong> \' + (response.data || "Unknown error") + "</p></div>").show();
+                    data: { action: "tigon_dms_sync_mapped_init", nonce: mappedNonce },
+                    timeout: 300000,
+                    success: function(initResp) {
+                        if (!initResp.success) {
+                            $spinner.removeClass("is-active");
+                            $btn.prop("disabled", false).text("Sync Mapped Inventory");
+                            showError($results, initResp.data || "Failed to initialize mapped sync");
+                            return;
                         }
+
+                        var syncId = initResp.data.sync_id;
+                        var total = initResp.data.total;
+                        var batchSize = initResp.data.batch_size;
+                        var offset = 0;
+                        var cumulative = { created: 0, updated: 0, skipped: 0, errors: 0, error_details: [] };
+
+                        // Append init-phase errors
+                        if (initResp.data.errors && initResp.data.errors.length > 0) {
+                            cumulative.error_details = cumulative.error_details.concat(initResp.data.errors);
+                        }
+
+                        $btn.text("Syncing mapped inventory...");
+                        showProgress($results, total);
+                        $results.find(".sync-progress-status").text("Found " + total + " carts (" + initResp.data.used_count + " used, " + initResp.data.new_count + " new). Starting sync...");
+
+                        if (total === 0) {
+                            $spinner.removeClass("is-active");
+                            $btn.prop("disabled", false).text("Sync Mapped Inventory");
+                            showFinalResults($results, cumulative, 0, "Mapped Sync Completed");
+                            return;
+                        }
+
+                        // Step 2: Process batches
+                        function processBatch() {
+                            $.ajax({
+                                url: ajaxurl,
+                                type: "POST",
+                                data: { action: "tigon_dms_sync_mapped_batch", nonce: mappedNonce, sync_id: syncId, offset: offset, batch_size: batchSize },
+                                timeout: 180000,
+                                success: function(batchResp) {
+                                    if (!batchResp.success) {
+                                        $spinner.removeClass("is-active");
+                                        $btn.prop("disabled", false).text("Sync Mapped Inventory");
+                                        showError($results, batchResp.data || "Batch failed at offset " + offset);
+                                        return;
+                                    }
+
+                                    var d = batchResp.data;
+                                    cumulative.created += d.created;
+                                    cumulative.updated += d.updated;
+                                    cumulative.skipped += (d.skipped || 0);
+                                    cumulative.errors += d.errors;
+                                    cumulative.error_details = cumulative.error_details.concat(d.error_details || []);
+
+                                    offset += batchSize;
+                                    updateProgress($results, Math.min(offset, total), total, cumulative);
+
+                                    if (d.done) {
+                                        $spinner.removeClass("is-active");
+                                        $btn.prop("disabled", false).text("Sync Mapped Inventory");
+                                        showFinalResults($results, cumulative, total, "Mapped Sync Completed");
+                                    } else {
+                                        processBatch();
+                                    }
+                                },
+                                error: function(xhr, status, error) {
+                                    cumulative.errors++;
+                                    cumulative.error_details.push("Batch at offset " + offset + " failed: " + error + " — retrying...");
+                                    setTimeout(function() {
+                                        $.ajax({
+                                            url: ajaxurl,
+                                            type: "POST",
+                                            data: { action: "tigon_dms_sync_mapped_batch", nonce: mappedNonce, sync_id: syncId, offset: offset, batch_size: batchSize },
+                                            timeout: 180000,
+                                            success: function(retryResp) {
+                                                if (retryResp.success) {
+                                                    var d = retryResp.data;
+                                                    cumulative.created += d.created;
+                                                    cumulative.updated += d.updated;
+                                                    cumulative.skipped += (d.skipped || 0);
+                                                    cumulative.errors += d.errors;
+                                                    cumulative.error_details = cumulative.error_details.concat(d.error_details || []);
+                                                    offset += batchSize;
+                                                    updateProgress($results, Math.min(offset, total), total, cumulative);
+                                                    if (d.done) {
+                                                        $spinner.removeClass("is-active");
+                                                        $btn.prop("disabled", false).text("Sync Mapped Inventory");
+                                                        showFinalResults($results, cumulative, total, "Mapped Sync Completed");
+                                                    } else {
+                                                        processBatch();
+                                                    }
+                                                } else {
+                                                    $spinner.removeClass("is-active");
+                                                    $btn.prop("disabled", false).text("Sync Mapped Inventory");
+                                                    showFinalResults($results, cumulative, total, "Mapped Sync Partially Completed — stopped at " + offset + "/" + total);
+                                                }
+                                            },
+                                            error: function() {
+                                                $spinner.removeClass("is-active");
+                                                $btn.prop("disabled", false).text("Sync Mapped Inventory");
+                                                showFinalResults($results, cumulative, total, "Mapped Sync Partially Completed — network error at " + offset + "/" + total);
+                                            }
+                                        });
+                                    }, 2000);
+                                }
+                            });
+                        }
+
+                        processBatch();
                     },
                     error: function(xhr, status, error) {
                         $spinner.removeClass("is-active");
                         $btn.prop("disabled", false).text("Sync Mapped Inventory");
-                        $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Request failed:</strong> \' + error + "</p></div>").show();
+                        showError($results, "Failed to initialize mapped sync: " + error);
                     }
                 });
             });
