@@ -804,23 +804,80 @@ class Admin_Page
         $missing_used_skus = array_values(array_diff($dms_used_skus, $used_carts));
 
     ### Data Parsing ###
-        
+
         $new_cart_pages = count($new_carts);
         $new_not_on_site = count($missing_new_skus);
         $new_not_on_dms = count($extra_new_pids);
         $new_cart_dms = count($dms_new_unique);
 
-        $new_accurate = ($new_cart_pages - $new_not_on_dms) / ($new_cart_pages + $new_not_on_site) * 100;
-        $new_extra = ($new_cart_pages / ($new_cart_pages + $new_not_on_site)) * 100;
-
+        $new_total = $new_cart_pages + $new_not_on_site;
+        $new_accurate = $new_total > 0 ? ($new_cart_pages - $new_not_on_dms) / $new_total * 100 : 0;
+        $new_extra = $new_total > 0 ? ($new_cart_pages / $new_total) * 100 : 0;
 
         $used_cart_pages = count($used_carts);
         $used_not_on_site = count($missing_used_skus);
         $used_not_on_dms = count($extra_used_pids);
         $used_cart_dms = count($dms_used);
 
-        $used_accurate = ($used_cart_pages - $used_not_on_dms) / ($used_cart_pages + $used_not_on_site) * 100;
-        $used_extra = ($used_cart_pages / ($used_cart_pages + $used_not_on_site)) * 100;
+        $used_total = $used_cart_pages + $used_not_on_site;
+        $used_accurate = $used_total > 0 ? ($used_cart_pages - $used_not_on_dms) / $used_total * 100 : 0;
+        $used_extra = $used_total > 0 ? ($used_cart_pages / $used_total) * 100 : 0;
+
+    ### Inventory Breakdown ###
+
+        // Build breakdowns from raw DMS data (new + used combined)
+        $all_dms = array_merge($dms_new, $dms_used);
+        $total_dms = count($all_dms);
+        $total_new_dms = count($dms_new);
+        $total_used_dms = count($dms_used);
+
+        // By location
+        $by_location_new = [];
+        $by_location_used = [];
+        foreach ($dms_new as $c) {
+            $loc = $c['cartLocation']['locationId'] ?? 'Unknown';
+            $city = \DMS_API::get_city_by_store_id($loc);
+            $by_location_new[$city] = ($by_location_new[$city] ?? 0) + 1;
+        }
+        foreach ($dms_used as $c) {
+            $loc = $c['cartLocation']['locationId'] ?? 'Unknown';
+            $city = \DMS_API::get_city_by_store_id($loc);
+            $by_location_used[$city] = ($by_location_used[$city] ?? 0) + 1;
+        }
+        arsort($by_location_new);
+        arsort($by_location_used);
+
+        // By manufacturer (make)
+        $by_make_new = [];
+        $by_make_used = [];
+        foreach ($dms_new as $c) {
+            $make = $c['cartType']['make'] ?? 'Unknown';
+            $by_make_new[$make] = ($by_make_new[$make] ?? 0) + 1;
+        }
+        foreach ($dms_used as $c) {
+            $make = $c['cartType']['make'] ?? 'Unknown';
+            $by_make_used[$make] = ($by_make_used[$make] ?? 0) + 1;
+        }
+        arsort($by_make_new);
+        arsort($by_make_used);
+
+        // By model
+        $by_model_new = [];
+        $by_model_used = [];
+        foreach ($dms_new as $c) {
+            $make = $c['cartType']['make'] ?? '';
+            $model = $c['cartType']['model'] ?? 'Unknown';
+            $key = trim($make . ' ' . $model);
+            $by_model_new[$key] = ($by_model_new[$key] ?? 0) + 1;
+        }
+        foreach ($dms_used as $c) {
+            $make = $c['cartType']['make'] ?? '';
+            $model = $c['cartType']['model'] ?? 'Unknown';
+            $key = trim($make . ' ' . $model);
+            $by_model_used[$key] = ($by_model_used[$key] ?? 0) + 1;
+        }
+        arsort($by_model_new);
+        arsort($by_model_used);
 
     ### HTML Element Formatting ###
 
@@ -850,6 +907,111 @@ class Admin_Page
 
         echo '
         <div class="body" style="display:flex; flex-direction: column;">
+
+            <!-- ====== DMS INVENTORY DASHBOARD ====== -->
+            <div class="action-box" style="flex-direction:column; gap:1rem; width:100%; margin-bottom:1rem;">
+                <h2 style="margin:0;">DMS Inventory Dashboard</h2>
+                <p style="margin:0; color:#666;">Live inventory counts from the DMS system</p>
+
+                <div class="dms-dashboard">
+
+                    <!-- Overview card -->
+                    <div class="dash-card">
+                        <h3>Inventory Overview</h3>
+                        <div class="stat-row total-row">
+                            <span>Total DMS Carts</span>
+                            <span class="stat-value">' . number_format($total_dms) . '</span>
+                        </div>
+                        <div class="stat-row">
+                            <span>New Carts</span>
+                            <span class="stat-value">' . number_format($total_new_dms) . '</span>
+                        </div>
+                        <div class="stat-row">
+                            <span>Used Carts</span>
+                            <span class="stat-value">' . number_format($total_used_dms) . '</span>
+                        </div>
+                        <div class="stat-row">
+                            <span>WooCommerce New Products</span>
+                            <span class="stat-value">' . number_format($new_cart_pages) . '</span>
+                        </div>
+                        <div class="stat-row">
+                            <span>WooCommerce Used Products</span>
+                            <span class="stat-value">' . number_format($used_cart_pages) . '</span>
+                        </div>
+                    </div>
+
+                    <!-- By Location card -->
+                    <div class="dash-card">
+                        <h3>By Location</h3>
+                        <div class="dash-scrollable">';
+
+        // Location breakdown — New
+        if (!empty($by_location_new)) {
+            echo '<div style="font-weight:600; padding:0.35rem 0; color:var(--accent-color);">New</div>';
+            foreach ($by_location_new as $city => $count) {
+                echo '<div class="stat-row"><span>' . esc_html($city) . '</span><span class="stat-value">' . $count . '</span></div>';
+            }
+        }
+        // Location breakdown — Used
+        if (!empty($by_location_used)) {
+            echo '<div style="font-weight:600; padding:0.35rem 0; color:var(--accent-color); margin-top:0.5rem;">Used</div>';
+            foreach ($by_location_used as $city => $count) {
+                echo '<div class="stat-row"><span>' . esc_html($city) . '</span><span class="stat-value">' . $count . '</span></div>';
+            }
+        }
+
+        echo '
+                        </div>
+                    </div>
+
+                    <!-- By Manufacturer card -->
+                    <div class="dash-card">
+                        <h3>By Manufacturer</h3>
+                        <div class="dash-scrollable">';
+
+        if (!empty($by_make_new)) {
+            echo '<div style="font-weight:600; padding:0.35rem 0; color:var(--accent-color);">New</div>';
+            foreach ($by_make_new as $make => $count) {
+                echo '<div class="stat-row"><span>' . esc_html($make) . '</span><span class="stat-value">' . $count . '</span></div>';
+            }
+        }
+        if (!empty($by_make_used)) {
+            echo '<div style="font-weight:600; padding:0.35rem 0; color:var(--accent-color); margin-top:0.5rem;">Used</div>';
+            foreach ($by_make_used as $make => $count) {
+                echo '<div class="stat-row"><span>' . esc_html($make) . '</span><span class="stat-value">' . $count . '</span></div>';
+            }
+        }
+
+        echo '
+                        </div>
+                    </div>
+
+                    <!-- By Model card -->
+                    <div class="dash-card">
+                        <h3>By Model</h3>
+                        <div class="dash-scrollable">';
+
+        if (!empty($by_model_new)) {
+            echo '<div style="font-weight:600; padding:0.35rem 0; color:var(--accent-color);">New</div>';
+            foreach ($by_model_new as $model => $count) {
+                echo '<div class="stat-row"><span>' . esc_html($model) . '</span><span class="stat-value">' . $count . '</span></div>';
+            }
+        }
+        if (!empty($by_model_used)) {
+            echo '<div style="font-weight:600; padding:0.35rem 0; color:var(--accent-color); margin-top:0.5rem;">Used</div>';
+            foreach ($by_model_used as $model => $count) {
+                echo '<div class="stat-row"><span>' . esc_html($model) . '</span><span class="stat-value">' . $count . '</span></div>';
+            }
+        }
+
+        echo '
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- ====== SITE vs DMS COMPARISON ====== -->
             <div class="action-box-group">
                 <div class="action-box primary" id="new-status">
                     <h2>New Carts</h2>
@@ -858,7 +1020,7 @@ class Admin_Page
                     <p>Missing site pages: '.$new_not_on_site.'</p>
                     <p>Extra site pages: '.$new_not_on_dms.'</p>
                 </div>
-                <div class="action-box secondary" id="used-status">
+                <div class="action-box secondary">
                     '.$missing_new_string.'
                     '.$extra_new_string.'
                 </div>
@@ -876,14 +1038,14 @@ class Admin_Page
                 </div>
             </div>
             <div class="action-box-group">
-                <div class="action-box primary" id="used-status">
+                <div class="action-box primary">
                     <h2>Used Carts</h2>
                     <p>Pages on site: '.$used_cart_pages.'</p>
                     <p>Carts on DMS: '.$used_cart_dms.'</p>
                     <p>Missing site pages: '.$used_not_on_site.'</p>
                     <p>Extra site pages: '.$used_not_on_dms.'</p>
                 </div>
-                <div class="action-box secondary" id="used-status">
+                <div class="action-box secondary">
                     '.$missing_used_string.'
                     '.$extra_used_string.'
                 </div>
@@ -1148,7 +1310,7 @@ class Admin_Page
         <div class="body" style="display:flex; flex-direction:column;">
             <div class="tabbed-panel">
                 <div class="tigon-dms-nav" style="flex-direction:row;">
-                    <button class="tigon-dms-tab" id="general-tab">General</button>
+                    <button class="tigon-dms-tab active" id="general-tab">General</button>
                     <button class="tigon-dms-tab" id="schema-tab">Schema</button>
                 </div>
 
