@@ -292,6 +292,56 @@ class DMS_API
     }
 
     /**
+     * Fetch one page of carts AND the total count.
+     *
+     * Same endpoint as get_carts() but returns the full envelope so callers
+     * can paginate without fetching everything up front.
+     *
+     * @param int $page_number Page number (starting at 0)
+     * @param int $page_size   Carts per page (clamped 1-100)
+     * @return array{carts: array, total: int}|false  False on error.
+     */
+    public static function get_carts_page($page_number = 0, $page_size = 50)
+    {
+        $response = wp_remote_post(
+            self::$get_carts_url,
+            array(
+                'headers' => array('Content-Type' => 'application/json'),
+                'body'    => wp_json_encode(array(
+                    'pageNumber' => max(0, (int) $page_number),
+                    'pageSize'   => max(1, min(100, (int) $page_size)),
+                )),
+                'timeout' => 30,
+            )
+        );
+
+        if (is_wp_error($response)) {
+            return false;
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $decoded = json_decode($body, true);
+
+        if (!is_array($decoded)) {
+            return false;
+        }
+
+        // Envelope format: { carts: [...], totalCarts: N }
+        if (isset($decoded['carts']) && is_array($decoded['carts'])) {
+            return array(
+                'carts' => $decoded['carts'],
+                'total' => isset($decoded['totalCarts']) ? (int) $decoded['totalCarts'] : count($decoded['carts']),
+            );
+        }
+
+        // Flat array fallback (old API format)
+        return array(
+            'carts' => $decoded,
+            'total' => count($decoded),
+        );
+    }
+
+    /**
      * Get S3 carts bucket URL
      *
      * @return string S3 carts bucket URL
