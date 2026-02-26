@@ -479,20 +479,8 @@ class Admin_Page
             wp_die('Unauthorized access');
         }
 
-        $sync_running = false;
-        $sync_results = null;
         $interval_updated = false;
         $sync_interval = class_exists('\DMS_Sync') ? \DMS_Sync::get_sync_interval() : 6;
-
-        // Handle manual sync request
-        if (isset($_POST['dms_manual_sync']) && check_admin_referer('dms_manual_sync', 'dms_sync_nonce')) {
-            $sync_running = true;
-            if (class_exists('\DMS_Sync')) {
-                $sync_results = \DMS_Sync::sync_inventory();
-            } else {
-                $sync_results = ['success' => false, 'message' => 'DMS_Sync class not found'];
-            }
-        }
 
         // Handle interval update
         if (isset($_POST['dms_update_interval']) && check_admin_referer('dms_update_interval', 'dms_interval_nonce')) {
@@ -505,50 +493,48 @@ class Admin_Page
         }
 
         $next_sync = wp_next_scheduled('tigon_dms_sync_inventory');
+        $selective_nonce = wp_create_nonce('tigon_dms_sync_selective_nonce');
         $mapped_nonce = wp_create_nonce('tigon_dms_sync_mapped_nonce');
 
         self::page_header();
 
         echo '
         <div class="body" style="display:flex; flex-direction:column;">
-            <div class="action-box-group" style="grid-template-rows:auto;">
-                <div class="action-box primary" style="flex-direction:column; gap:1rem;">';
 
-        // Show sync results inline (admin.css hides .notice)
-        if ($sync_running && $sync_results) {
-            if (!empty($sync_results['success'])) {
-                $stats = $sync_results['stats'];
-                echo '
-                    <div style="background:#d4edda; border:1px solid #c3e6cb; padding:1rem; border-radius:4px; width:100%;">
-                        <h3 style="margin-top:0;">Sync Completed</h3>
-                        <ul style="list-style:disc; padding-left:1.5rem;">
-                            <li><strong>Total carts processed:</strong> ' . esc_html($stats['total']) . '</li>
-                            <li><strong>Products created:</strong> ' . esc_html($stats['created']) . '</li>
-                            <li><strong>Products updated:</strong> ' . esc_html($stats['updated']) . '</li>
-                            <li><strong>Skipped:</strong> ' . esc_html($stats['skipped']) . '</li>
-                            <li><strong>Errors:</strong> ' . esc_html($stats['errors']) . '</li>
-                        </ul>
-                    </div>';
-            } else {
-                echo '
-                    <div style="background:#f8d7da; border:1px solid #f5c6cb; padding:1rem; border-radius:4px; width:100%;">
-                        <p><strong>Sync Failed:</strong> ' . esc_html($sync_results['message'] ?? 'Unknown error') . '</p>
-                    </div>';
-            }
-        }
+            <!-- ====== SYNC INVENTORY ====== -->
+            <div class="action-box-group" style="grid-template-columns:1fr; grid-template-rows:auto;">
+                <div class="action-box primary" style="flex-direction:column; gap:1rem; align-items:flex-start;">
+                    <h2 style="margin:0;">Sync Inventory</h2>
+                    <p>Sync carts from the DMS API into WooCommerce products. Choose which inventory type to sync.</p>
 
-        echo '
-                    <h2>Manual Sync</h2>
-                    <p>Manually trigger a full inventory sync from the DMS API. This may take several minutes depending on the number of carts.</p>
-                    <form method="post" action="">
-                        ' . wp_nonce_field('dms_manual_sync', 'dms_sync_nonce', true, false) . '
-                        <button type="submit" name="dms_manual_sync" class="button button-primary" style="height:auto; min-width:auto; background-color:var(--accent-color); color:var(--font-light); padding:0.5rem 1.5rem;">
-                            Sync Inventory Now
+                    <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:center;">
+                        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-weight:600; padding:0.5rem 1rem; border:2px solid var(--nav-color); border-radius:0.5rem;">
+                            <input type="radio" name="sync_type" value="all" checked style="width:18px; height:18px;" />
+                            All Carts
+                        </label>
+                        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-weight:600; padding:0.5rem 1rem; border:2px solid var(--nav-color); border-radius:0.5rem;">
+                            <input type="radio" name="sync_type" value="new" style="width:18px; height:18px;" />
+                            New Only
+                        </label>
+                        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-weight:600; padding:0.5rem 1rem; border:2px solid var(--nav-color); border-radius:0.5rem;">
+                            <input type="radio" name="sync_type" value="used" style="width:18px; height:18px;" />
+                            Used Only
+                        </label>
+                    </div>
+
+                    <div style="display:flex; align-items:center; gap:0.75rem;">
+                        <button type="button" id="dms-sync-btn" class="button button-primary" style="height:auto; min-width:auto; background-color:var(--accent-color); color:var(--font-light); padding:0.6rem 2rem; font-size:14px;">
+                            Sync Now
                         </button>
-                    </form>
+                        <span id="dms-sync-spinner" class="spinner" style="float:none; margin-top:0;"></span>
+                    </div>
+                    <div id="dms-sync-results" style="display:none; width:100%;"></div>
                 </div>
+            </div>
 
-                <div class="action-box primary" style="flex-direction:column; gap:1rem;">';
+            <!-- ====== SCHEDULED SYNC ====== -->
+            <div class="action-box-group" style="grid-template-columns:1fr; grid-template-rows:auto;">
+                <div class="action-box primary" style="flex-direction:column; gap:1rem; align-items:flex-start;">';
 
         if ($interval_updated) {
             echo '
@@ -558,7 +544,7 @@ class Admin_Page
         }
 
         echo '
-                    <h2>Scheduled Sync</h2>
+                    <h2 style="margin:0;">Scheduled Sync</h2>
                     <form method="post" action="" style="display:flex; flex-direction:column; gap:0.75rem; align-items:flex-start;">
                         ' . wp_nonce_field('dms_update_interval', 'dms_interval_nonce', true, false) . '
                         <div style="display:flex; align-items:center; gap:0.5rem;">
@@ -580,13 +566,14 @@ class Admin_Page
                 </div>
             </div>
 
+            <!-- ====== SYNC MAPPED INVENTORY ====== -->
             <div class="action-box-group" style="grid-template-columns:1fr; grid-template-rows:auto;">
-                <div class="action-box primary" style="flex-direction:column; gap:1rem;">
-                    <h2>Sync Mapped Inventory (DMS Connect)</h2>
-                    <p>Re-sync all DMS carts using the DMS Connect mapping engine. This updates existing WooCommerce products with the latest DMS data using mapped database objects (attributes, taxonomies, images, SEO, etc).</p>
-                    <div style="display:flex; align-items:center; gap:0.5rem;">
-                        <button type="button" id="dms-mapped-sync-btn" class="button button-primary" style="height:auto; min-width:auto; background-color:var(--accent-color); color:var(--font-light); padding:0.5rem 1.5rem;">
-                            Sync Mapped Inventory Now
+                <div class="action-box primary" style="flex-direction:column; gap:1rem; align-items:flex-start;">
+                    <h2 style="margin:0;">Sync Mapped Inventory (DMS Connect)</h2>
+                    <p>Re-sync all DMS carts using the DMS Connect mapping engine. This uses the authenticated API and applies database object mapping (attributes, taxonomies, images, SEO, etc).</p>
+                    <div style="display:flex; align-items:center; gap:0.75rem;">
+                        <button type="button" id="dms-mapped-sync-btn" class="button button-primary" style="height:auto; min-width:auto; background-color:var(--accent-color); color:var(--font-light); padding:0.6rem 2rem; font-size:14px;">
+                            Sync Mapped Inventory
                         </button>
                         <span id="dms-mapped-sync-spinner" class="spinner" style="float:none; margin-top:0;"></span>
                     </div>
@@ -597,6 +584,69 @@ class Admin_Page
 
         <script>
         jQuery(document).ready(function($) {
+            // Highlight selected radio option
+            $("input[name=sync_type]").on("change", function() {
+                $("input[name=sync_type]").closest("label").css("border-color", "var(--nav-color)").css("background", "transparent");
+                $(this).closest("label").css("border-color", "var(--main-color)").css("background", "#f9ecec");
+            }).filter(":checked").trigger("change");
+
+            // Selective sync (New / Used / All)
+            $("#dms-sync-btn").on("click", function() {
+                var $btn = $(this);
+                var $spinner = $("#dms-sync-spinner");
+                var $results = $("#dms-sync-results");
+                var syncType = $("input[name=sync_type]:checked").val();
+                var labels = {"all": "All Carts", "new": "New Carts", "used": "Used Carts"};
+
+                $btn.prop("disabled", true).text("Syncing " + labels[syncType] + "...");
+                $spinner.addClass("is-active");
+                $results.hide();
+
+                $.ajax({
+                    url: ajaxurl,
+                    type: "POST",
+                    data: {
+                        action: "tigon_dms_sync_selective",
+                        nonce: ' . wp_json_encode($selective_nonce) . ',
+                        sync_type: syncType
+                    },
+                    timeout: 600000,
+                    success: function(response) {
+                        $spinner.removeClass("is-active");
+                        $btn.prop("disabled", false).text("Sync Now");
+                        if (response.success && response.data) {
+                            var s = response.data;
+                            var html = \'<div style="background:#d4edda;border:1px solid #c3e6cb;padding:1rem;border-radius:4px;">\';
+                            html += "<h3 style=\'margin-top:0;\'>Sync Completed (" + labels[s.sync_type] + ")</h3>";
+                            html += "<ul style=\'list-style:disc;padding-left:1.5rem;\'>";
+                            html += "<li><strong>Total processed:</strong> " + s.total + "</li>";
+                            html += "<li><strong>Created:</strong> " + s.created + "</li>";
+                            html += "<li><strong>Updated:</strong> " + s.updated + "</li>";
+                            html += "<li><strong>Errors:</strong> " + s.errors + "</li>";
+                            html += "</ul>";
+                            if (s.error_details && s.error_details.length > 0) {
+                                html += "<details><summary>Error details (" + s.error_details.length + ")</summary><ul style=\'list-style:disc;padding-left:1.5rem;\'>";
+                                s.error_details.slice(0, 50).forEach(function(e) {
+                                    html += "<li>" + $("<span>").text(e).html() + "</li>";
+                                });
+                                if (s.error_details.length > 50) html += "<li>...and " + (s.error_details.length - 50) + " more</li>";
+                                html += "</ul></details>";
+                            }
+                            html += "</div>";
+                            $results.html(html).show();
+                        } else {
+                            $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Sync failed:</strong> \' + (response.data || "Unknown error") + "</p></div>").show();
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        $spinner.removeClass("is-active");
+                        $btn.prop("disabled", false).text("Sync Now");
+                        $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Request failed:</strong> \' + error + "</p></div>").show();
+                    }
+                });
+            });
+
+            // Mapped sync
             $("#dms-mapped-sync-btn").on("click", function() {
                 var $btn = $(this);
                 var $spinner = $("#dms-mapped-sync-spinner");
@@ -616,8 +666,7 @@ class Admin_Page
                     timeout: 600000,
                     success: function(response) {
                         $spinner.removeClass("is-active");
-                        $btn.prop("disabled", false).text("Sync Mapped Inventory Now");
-
+                        $btn.prop("disabled", false).text("Sync Mapped Inventory");
                         if (response.success && response.data) {
                             var s = response.data;
                             var html = \'<div style="background:#d4edda;border:1px solid #c3e6cb;padding:1rem;border-radius:4px;"><h3 style="margin-top:0;">Mapped Sync Completed</h3><ul style="list-style:disc;padding-left:1.5rem;">\';
@@ -642,7 +691,7 @@ class Admin_Page
                     },
                     error: function(xhr, status, error) {
                         $spinner.removeClass("is-active");
-                        $btn.prop("disabled", false).text("Sync Mapped Inventory Now");
+                        $btn.prop("disabled", false).text("Sync Mapped Inventory");
                         $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Request failed:</strong> \' + error + "</p></div>").show();
                     }
                 });

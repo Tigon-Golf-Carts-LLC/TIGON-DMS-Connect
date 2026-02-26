@@ -147,6 +147,14 @@ class DMS_Sync
      * @param array $cart_data  Full DMS cart payload
      * @return void
      */
+    /**
+     * Public wrapper for sync_product_images (used by selective sync AJAX handler).
+     */
+    public static function sync_product_images_public($product_id, $cart_data)
+    {
+        self::sync_product_images($product_id, $cart_data);
+    }
+
     private static function sync_product_images($product_id, $cart_data)
     {
         // Use centralized image resolver (handles coming-soon placeholder)
