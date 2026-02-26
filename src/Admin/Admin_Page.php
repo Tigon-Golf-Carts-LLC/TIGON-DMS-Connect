@@ -479,20 +479,8 @@ class Admin_Page
             wp_die('Unauthorized access');
         }
 
-        $sync_running = false;
-        $sync_results = null;
         $interval_updated = false;
         $sync_interval = class_exists('\DMS_Sync') ? \DMS_Sync::get_sync_interval() : 6;
-
-        // Handle manual sync request
-        if (isset($_POST['dms_manual_sync']) && check_admin_referer('dms_manual_sync', 'dms_sync_nonce')) {
-            $sync_running = true;
-            if (class_exists('\DMS_Sync')) {
-                $sync_results = \DMS_Sync::sync_inventory();
-            } else {
-                $sync_results = ['success' => false, 'message' => 'DMS_Sync class not found'];
-            }
-        }
 
         // Handle interval update
         if (isset($_POST['dms_update_interval']) && check_admin_referer('dms_update_interval', 'dms_interval_nonce')) {
@@ -505,50 +493,48 @@ class Admin_Page
         }
 
         $next_sync = wp_next_scheduled('tigon_dms_sync_inventory');
+        $selective_nonce = wp_create_nonce('tigon_dms_sync_selective_nonce');
         $mapped_nonce = wp_create_nonce('tigon_dms_sync_mapped_nonce');
 
         self::page_header();
 
         echo '
         <div class="body" style="display:flex; flex-direction:column;">
-            <div class="action-box-group" style="grid-template-rows:auto;">
-                <div class="action-box primary" style="flex-direction:column; gap:1rem;">';
 
-        // Show sync results inline (admin.css hides .notice)
-        if ($sync_running && $sync_results) {
-            if (!empty($sync_results['success'])) {
-                $stats = $sync_results['stats'];
-                echo '
-                    <div style="background:#d4edda; border:1px solid #c3e6cb; padding:1rem; border-radius:4px; width:100%;">
-                        <h3 style="margin-top:0;">Sync Completed</h3>
-                        <ul style="list-style:disc; padding-left:1.5rem;">
-                            <li><strong>Total carts processed:</strong> ' . esc_html($stats['total']) . '</li>
-                            <li><strong>Products created:</strong> ' . esc_html($stats['created']) . '</li>
-                            <li><strong>Products updated:</strong> ' . esc_html($stats['updated']) . '</li>
-                            <li><strong>Skipped:</strong> ' . esc_html($stats['skipped']) . '</li>
-                            <li><strong>Errors:</strong> ' . esc_html($stats['errors']) . '</li>
-                        </ul>
-                    </div>';
-            } else {
-                echo '
-                    <div style="background:#f8d7da; border:1px solid #f5c6cb; padding:1rem; border-radius:4px; width:100%;">
-                        <p><strong>Sync Failed:</strong> ' . esc_html($sync_results['message'] ?? 'Unknown error') . '</p>
-                    </div>';
-            }
-        }
+            <!-- ====== SYNC INVENTORY ====== -->
+            <div class="action-box-group" style="grid-template-columns:1fr; grid-template-rows:auto;">
+                <div class="action-box primary" style="flex-direction:column; gap:1rem; align-items:flex-start;">
+                    <h2 style="margin:0;">Sync Inventory</h2>
+                    <p>Sync carts from the DMS API into WooCommerce products. Choose which inventory type to sync.</p>
 
-        echo '
-                    <h2>Manual Sync</h2>
-                    <p>Manually trigger a full inventory sync from the DMS API. This may take several minutes depending on the number of carts.</p>
-                    <form method="post" action="">
-                        ' . wp_nonce_field('dms_manual_sync', 'dms_sync_nonce', true, false) . '
-                        <button type="submit" name="dms_manual_sync" class="button button-primary" style="height:auto; min-width:auto; background-color:var(--accent-color); color:var(--font-light); padding:0.5rem 1.5rem;">
-                            Sync Inventory Now
+                    <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:center;">
+                        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-weight:600; padding:0.5rem 1rem; border:2px solid var(--nav-color); border-radius:0.5rem;">
+                            <input type="radio" name="sync_type" value="all" checked style="width:18px; height:18px;" />
+                            All Carts
+                        </label>
+                        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-weight:600; padding:0.5rem 1rem; border:2px solid var(--nav-color); border-radius:0.5rem;">
+                            <input type="radio" name="sync_type" value="new" style="width:18px; height:18px;" />
+                            New Only
+                        </label>
+                        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-weight:600; padding:0.5rem 1rem; border:2px solid var(--nav-color); border-radius:0.5rem;">
+                            <input type="radio" name="sync_type" value="used" style="width:18px; height:18px;" />
+                            Used Only
+                        </label>
+                    </div>
+
+                    <div style="display:flex; align-items:center; gap:0.75rem;">
+                        <button type="button" id="dms-sync-btn" class="button button-primary" style="height:auto; min-width:auto; background-color:var(--accent-color); color:var(--font-light); padding:0.6rem 2rem; font-size:14px;">
+                            Sync Now
                         </button>
-                    </form>
+                        <span id="dms-sync-spinner" class="spinner" style="float:none; margin-top:0;"></span>
+                    </div>
+                    <div id="dms-sync-results" style="display:none; width:100%;"></div>
                 </div>
+            </div>
 
-                <div class="action-box primary" style="flex-direction:column; gap:1rem;">';
+            <!-- ====== SCHEDULED SYNC ====== -->
+            <div class="action-box-group" style="grid-template-columns:1fr; grid-template-rows:auto;">
+                <div class="action-box primary" style="flex-direction:column; gap:1rem; align-items:flex-start;">';
 
         if ($interval_updated) {
             echo '
@@ -558,7 +544,7 @@ class Admin_Page
         }
 
         echo '
-                    <h2>Scheduled Sync</h2>
+                    <h2 style="margin:0;">Scheduled Sync</h2>
                     <form method="post" action="" style="display:flex; flex-direction:column; gap:0.75rem; align-items:flex-start;">
                         ' . wp_nonce_field('dms_update_interval', 'dms_interval_nonce', true, false) . '
                         <div style="display:flex; align-items:center; gap:0.5rem;">
@@ -580,13 +566,14 @@ class Admin_Page
                 </div>
             </div>
 
+            <!-- ====== SYNC MAPPED INVENTORY ====== -->
             <div class="action-box-group" style="grid-template-columns:1fr; grid-template-rows:auto;">
-                <div class="action-box primary" style="flex-direction:column; gap:1rem;">
-                    <h2>Sync Mapped Inventory (DMS Connect)</h2>
-                    <p>Re-sync all DMS carts using the DMS Connect mapping engine. This updates existing WooCommerce products with the latest DMS data using mapped database objects (attributes, taxonomies, images, SEO, etc).</p>
-                    <div style="display:flex; align-items:center; gap:0.5rem;">
-                        <button type="button" id="dms-mapped-sync-btn" class="button button-primary" style="height:auto; min-width:auto; background-color:var(--accent-color); color:var(--font-light); padding:0.5rem 1.5rem;">
-                            Sync Mapped Inventory Now
+                <div class="action-box primary" style="flex-direction:column; gap:1rem; align-items:flex-start;">
+                    <h2 style="margin:0;">Sync Mapped Inventory (DMS Connect)</h2>
+                    <p>Re-sync all DMS carts using the DMS Connect mapping engine. This uses the authenticated API and applies database object mapping (attributes, taxonomies, images, SEO, etc).</p>
+                    <div style="display:flex; align-items:center; gap:0.75rem;">
+                        <button type="button" id="dms-mapped-sync-btn" class="button button-primary" style="height:auto; min-width:auto; background-color:var(--accent-color); color:var(--font-light); padding:0.6rem 2rem; font-size:14px;">
+                            Sync Mapped Inventory
                         </button>
                         <span id="dms-mapped-sync-spinner" class="spinner" style="float:none; margin-top:0;"></span>
                     </div>
@@ -597,6 +584,69 @@ class Admin_Page
 
         <script>
         jQuery(document).ready(function($) {
+            // Highlight selected radio option
+            $("input[name=sync_type]").on("change", function() {
+                $("input[name=sync_type]").closest("label").css("border-color", "var(--nav-color)").css("background", "transparent");
+                $(this).closest("label").css("border-color", "var(--main-color)").css("background", "#f9ecec");
+            }).filter(":checked").trigger("change");
+
+            // Selective sync (New / Used / All)
+            $("#dms-sync-btn").on("click", function() {
+                var $btn = $(this);
+                var $spinner = $("#dms-sync-spinner");
+                var $results = $("#dms-sync-results");
+                var syncType = $("input[name=sync_type]:checked").val();
+                var labels = {"all": "All Carts", "new": "New Carts", "used": "Used Carts"};
+
+                $btn.prop("disabled", true).text("Syncing " + labels[syncType] + "...");
+                $spinner.addClass("is-active");
+                $results.hide();
+
+                $.ajax({
+                    url: ajaxurl,
+                    type: "POST",
+                    data: {
+                        action: "tigon_dms_sync_selective",
+                        nonce: ' . wp_json_encode($selective_nonce) . ',
+                        sync_type: syncType
+                    },
+                    timeout: 600000,
+                    success: function(response) {
+                        $spinner.removeClass("is-active");
+                        $btn.prop("disabled", false).text("Sync Now");
+                        if (response.success && response.data) {
+                            var s = response.data;
+                            var html = \'<div style="background:#d4edda;border:1px solid #c3e6cb;padding:1rem;border-radius:4px;">\';
+                            html += "<h3 style=\'margin-top:0;\'>Sync Completed (" + labels[s.sync_type] + ")</h3>";
+                            html += "<ul style=\'list-style:disc;padding-left:1.5rem;\'>";
+                            html += "<li><strong>Total processed:</strong> " + s.total + "</li>";
+                            html += "<li><strong>Created:</strong> " + s.created + "</li>";
+                            html += "<li><strong>Updated:</strong> " + s.updated + "</li>";
+                            html += "<li><strong>Errors:</strong> " + s.errors + "</li>";
+                            html += "</ul>";
+                            if (s.error_details && s.error_details.length > 0) {
+                                html += "<details><summary>Error details (" + s.error_details.length + ")</summary><ul style=\'list-style:disc;padding-left:1.5rem;\'>";
+                                s.error_details.slice(0, 50).forEach(function(e) {
+                                    html += "<li>" + $("<span>").text(e).html() + "</li>";
+                                });
+                                if (s.error_details.length > 50) html += "<li>...and " + (s.error_details.length - 50) + " more</li>";
+                                html += "</ul></details>";
+                            }
+                            html += "</div>";
+                            $results.html(html).show();
+                        } else {
+                            $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Sync failed:</strong> \' + (response.data || "Unknown error") + "</p></div>").show();
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        $spinner.removeClass("is-active");
+                        $btn.prop("disabled", false).text("Sync Now");
+                        $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Request failed:</strong> \' + error + "</p></div>").show();
+                    }
+                });
+            });
+
+            // Mapped sync
             $("#dms-mapped-sync-btn").on("click", function() {
                 var $btn = $(this);
                 var $spinner = $("#dms-mapped-sync-spinner");
@@ -616,8 +666,7 @@ class Admin_Page
                     timeout: 600000,
                     success: function(response) {
                         $spinner.removeClass("is-active");
-                        $btn.prop("disabled", false).text("Sync Mapped Inventory Now");
-
+                        $btn.prop("disabled", false).text("Sync Mapped Inventory");
                         if (response.success && response.data) {
                             var s = response.data;
                             var html = \'<div style="background:#d4edda;border:1px solid #c3e6cb;padding:1rem;border-radius:4px;"><h3 style="margin-top:0;">Mapped Sync Completed</h3><ul style="list-style:disc;padding-left:1.5rem;">\';
@@ -642,7 +691,7 @@ class Admin_Page
                     },
                     error: function(xhr, status, error) {
                         $spinner.removeClass("is-active");
-                        $btn.prop("disabled", false).text("Sync Mapped Inventory Now");
+                        $btn.prop("disabled", false).text("Sync Mapped Inventory");
                         $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Request failed:</strong> \' + error + "</p></div>").show();
                     }
                 });
@@ -804,23 +853,80 @@ class Admin_Page
         $missing_used_skus = array_values(array_diff($dms_used_skus, $used_carts));
 
     ### Data Parsing ###
-        
+
         $new_cart_pages = count($new_carts);
         $new_not_on_site = count($missing_new_skus);
         $new_not_on_dms = count($extra_new_pids);
         $new_cart_dms = count($dms_new_unique);
 
-        $new_accurate = ($new_cart_pages - $new_not_on_dms) / ($new_cart_pages + $new_not_on_site) * 100;
-        $new_extra = ($new_cart_pages / ($new_cart_pages + $new_not_on_site)) * 100;
-
+        $new_total = $new_cart_pages + $new_not_on_site;
+        $new_accurate = $new_total > 0 ? ($new_cart_pages - $new_not_on_dms) / $new_total * 100 : 0;
+        $new_extra = $new_total > 0 ? ($new_cart_pages / $new_total) * 100 : 0;
 
         $used_cart_pages = count($used_carts);
         $used_not_on_site = count($missing_used_skus);
         $used_not_on_dms = count($extra_used_pids);
         $used_cart_dms = count($dms_used);
 
-        $used_accurate = ($used_cart_pages - $used_not_on_dms) / ($used_cart_pages + $used_not_on_site) * 100;
-        $used_extra = ($used_cart_pages / ($used_cart_pages + $used_not_on_site)) * 100;
+        $used_total = $used_cart_pages + $used_not_on_site;
+        $used_accurate = $used_total > 0 ? ($used_cart_pages - $used_not_on_dms) / $used_total * 100 : 0;
+        $used_extra = $used_total > 0 ? ($used_cart_pages / $used_total) * 100 : 0;
+
+    ### Inventory Breakdown ###
+
+        // Build breakdowns from raw DMS data (new + used combined)
+        $all_dms = array_merge($dms_new, $dms_used);
+        $total_dms = count($all_dms);
+        $total_new_dms = count($dms_new);
+        $total_used_dms = count($dms_used);
+
+        // By location
+        $by_location_new = [];
+        $by_location_used = [];
+        foreach ($dms_new as $c) {
+            $loc = $c['cartLocation']['locationId'] ?? 'Unknown';
+            $city = \DMS_API::get_city_by_store_id($loc);
+            $by_location_new[$city] = ($by_location_new[$city] ?? 0) + 1;
+        }
+        foreach ($dms_used as $c) {
+            $loc = $c['cartLocation']['locationId'] ?? 'Unknown';
+            $city = \DMS_API::get_city_by_store_id($loc);
+            $by_location_used[$city] = ($by_location_used[$city] ?? 0) + 1;
+        }
+        arsort($by_location_new);
+        arsort($by_location_used);
+
+        // By manufacturer (make)
+        $by_make_new = [];
+        $by_make_used = [];
+        foreach ($dms_new as $c) {
+            $make = $c['cartType']['make'] ?? 'Unknown';
+            $by_make_new[$make] = ($by_make_new[$make] ?? 0) + 1;
+        }
+        foreach ($dms_used as $c) {
+            $make = $c['cartType']['make'] ?? 'Unknown';
+            $by_make_used[$make] = ($by_make_used[$make] ?? 0) + 1;
+        }
+        arsort($by_make_new);
+        arsort($by_make_used);
+
+        // By model
+        $by_model_new = [];
+        $by_model_used = [];
+        foreach ($dms_new as $c) {
+            $make = $c['cartType']['make'] ?? '';
+            $model = $c['cartType']['model'] ?? 'Unknown';
+            $key = trim($make . ' ' . $model);
+            $by_model_new[$key] = ($by_model_new[$key] ?? 0) + 1;
+        }
+        foreach ($dms_used as $c) {
+            $make = $c['cartType']['make'] ?? '';
+            $model = $c['cartType']['model'] ?? 'Unknown';
+            $key = trim($make . ' ' . $model);
+            $by_model_used[$key] = ($by_model_used[$key] ?? 0) + 1;
+        }
+        arsort($by_model_new);
+        arsort($by_model_used);
 
     ### HTML Element Formatting ###
 
@@ -850,6 +956,111 @@ class Admin_Page
 
         echo '
         <div class="body" style="display:flex; flex-direction: column;">
+
+            <!-- ====== DMS INVENTORY DASHBOARD ====== -->
+            <div class="action-box" style="flex-direction:column; gap:1rem; width:100%; margin-bottom:1rem;">
+                <h2 style="margin:0;">DMS Inventory Dashboard</h2>
+                <p style="margin:0; color:#666;">Live inventory counts from the DMS system</p>
+
+                <div class="dms-dashboard">
+
+                    <!-- Overview card -->
+                    <div class="dash-card">
+                        <h3>Inventory Overview</h3>
+                        <div class="stat-row total-row">
+                            <span>Total DMS Carts</span>
+                            <span class="stat-value">' . number_format($total_dms) . '</span>
+                        </div>
+                        <div class="stat-row">
+                            <span>New Carts</span>
+                            <span class="stat-value">' . number_format($total_new_dms) . '</span>
+                        </div>
+                        <div class="stat-row">
+                            <span>Used Carts</span>
+                            <span class="stat-value">' . number_format($total_used_dms) . '</span>
+                        </div>
+                        <div class="stat-row">
+                            <span>WooCommerce New Products</span>
+                            <span class="stat-value">' . number_format($new_cart_pages) . '</span>
+                        </div>
+                        <div class="stat-row">
+                            <span>WooCommerce Used Products</span>
+                            <span class="stat-value">' . number_format($used_cart_pages) . '</span>
+                        </div>
+                    </div>
+
+                    <!-- By Location card -->
+                    <div class="dash-card">
+                        <h3>By Location</h3>
+                        <div class="dash-scrollable">';
+
+        // Location breakdown — New
+        if (!empty($by_location_new)) {
+            echo '<div style="font-weight:600; padding:0.35rem 0; color:var(--accent-color);">New</div>';
+            foreach ($by_location_new as $city => $count) {
+                echo '<div class="stat-row"><span>' . esc_html($city) . '</span><span class="stat-value">' . $count . '</span></div>';
+            }
+        }
+        // Location breakdown — Used
+        if (!empty($by_location_used)) {
+            echo '<div style="font-weight:600; padding:0.35rem 0; color:var(--accent-color); margin-top:0.5rem;">Used</div>';
+            foreach ($by_location_used as $city => $count) {
+                echo '<div class="stat-row"><span>' . esc_html($city) . '</span><span class="stat-value">' . $count . '</span></div>';
+            }
+        }
+
+        echo '
+                        </div>
+                    </div>
+
+                    <!-- By Manufacturer card -->
+                    <div class="dash-card">
+                        <h3>By Manufacturer</h3>
+                        <div class="dash-scrollable">';
+
+        if (!empty($by_make_new)) {
+            echo '<div style="font-weight:600; padding:0.35rem 0; color:var(--accent-color);">New</div>';
+            foreach ($by_make_new as $make => $count) {
+                echo '<div class="stat-row"><span>' . esc_html($make) . '</span><span class="stat-value">' . $count . '</span></div>';
+            }
+        }
+        if (!empty($by_make_used)) {
+            echo '<div style="font-weight:600; padding:0.35rem 0; color:var(--accent-color); margin-top:0.5rem;">Used</div>';
+            foreach ($by_make_used as $make => $count) {
+                echo '<div class="stat-row"><span>' . esc_html($make) . '</span><span class="stat-value">' . $count . '</span></div>';
+            }
+        }
+
+        echo '
+                        </div>
+                    </div>
+
+                    <!-- By Model card -->
+                    <div class="dash-card">
+                        <h3>By Model</h3>
+                        <div class="dash-scrollable">';
+
+        if (!empty($by_model_new)) {
+            echo '<div style="font-weight:600; padding:0.35rem 0; color:var(--accent-color);">New</div>';
+            foreach ($by_model_new as $model => $count) {
+                echo '<div class="stat-row"><span>' . esc_html($model) . '</span><span class="stat-value">' . $count . '</span></div>';
+            }
+        }
+        if (!empty($by_model_used)) {
+            echo '<div style="font-weight:600; padding:0.35rem 0; color:var(--accent-color); margin-top:0.5rem;">Used</div>';
+            foreach ($by_model_used as $model => $count) {
+                echo '<div class="stat-row"><span>' . esc_html($model) . '</span><span class="stat-value">' . $count . '</span></div>';
+            }
+        }
+
+        echo '
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- ====== SITE vs DMS COMPARISON ====== -->
             <div class="action-box-group">
                 <div class="action-box primary" id="new-status">
                     <h2>New Carts</h2>
@@ -858,7 +1069,7 @@ class Admin_Page
                     <p>Missing site pages: '.$new_not_on_site.'</p>
                     <p>Extra site pages: '.$new_not_on_dms.'</p>
                 </div>
-                <div class="action-box secondary" id="used-status">
+                <div class="action-box secondary">
                     '.$missing_new_string.'
                     '.$extra_new_string.'
                 </div>
@@ -876,14 +1087,14 @@ class Admin_Page
                 </div>
             </div>
             <div class="action-box-group">
-                <div class="action-box primary" id="used-status">
+                <div class="action-box primary">
                     <h2>Used Carts</h2>
                     <p>Pages on site: '.$used_cart_pages.'</p>
                     <p>Carts on DMS: '.$used_cart_dms.'</p>
                     <p>Missing site pages: '.$used_not_on_site.'</p>
                     <p>Extra site pages: '.$used_not_on_dms.'</p>
                 </div>
-                <div class="action-box secondary" id="used-status">
+                <div class="action-box secondary">
                     '.$missing_used_string.'
                     '.$extra_used_string.'
                 </div>
@@ -1148,7 +1359,7 @@ class Admin_Page
         <div class="body" style="display:flex; flex-direction:column;">
             <div class="tabbed-panel">
                 <div class="tigon-dms-nav" style="flex-direction:row;">
-                    <button class="tigon-dms-tab" id="general-tab">General</button>
+                    <button class="tigon-dms-tab active" id="general-tab">General</button>
                     <button class="tigon-dms-tab" id="schema-tab">Schema</button>
                 </div>
 

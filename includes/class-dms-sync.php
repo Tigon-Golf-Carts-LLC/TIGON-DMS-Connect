@@ -46,8 +46,16 @@ class DMS_Sync
             'updated'   => 0,
             'skipped'   => 0,
             'errors'    => 0,
+            'sold'      => 0,
             'total'     => 0,
         );
+
+        // Collect all active DMS cart IDs so we can detect sold products afterwards
+        $active_cart_ids = array();
+
+        // Deduplication set for new carts (mirrors import.js + Core.php)
+        // Key: make|model|cartColor|seatColor|locationId
+        $seen_new = array();
 
         $page_number = 0;
         $page_size = 20;
@@ -88,6 +96,73 @@ class DMS_Sync
 
                 $cart_id = $cart_data['_id'];
 
+                // ---------------------------------------------------------
+                // Cart eligibility filters (mirrors import.js + Core.php)
+                //
+                // The DMS API may return ALL carts without pre-filtering.
+                // Apply the same three-state condition from Abstract_Cart:
+                //   if (isInStock && !isInBoneyard && needOnWebsite) → create/update
+                //   else → delete/skip
+                // ---------------------------------------------------------
+
+                // Skip boneyard carts
+                $is_in_boneyard = !empty($cart_data['isInBoneyard']);
+                if ($is_in_boneyard) {
+                    $stats['skipped']++;
+                    continue;
+                }
+
+                // Skip carts not in stock
+                $is_in_stock = isset($cart_data['isInStock']) ? $cart_data['isInStock'] : true;
+                if (!$is_in_stock) {
+                    $stats['skipped']++;
+                    continue;
+                }
+
+                // Skip carts not flagged for website (advertising.needOnWebsite)
+                $need_on_website = $cart_data['advertising']['needOnWebsite']
+                    ?? ($cart_data['needOnWebsite'] ?? true);
+                if (!$need_on_website) {
+                    $stats['skipped']++;
+                    continue;
+                }
+
+                // Skip carts with DELETE in serialNo or vinNo (mirrors Core.php:506-512)
+                $serial = strtoupper($cart_data['serialNo'] ?? '');
+                $vin    = strtoupper($cart_data['vinNo'] ?? '');
+                if (str_contains($serial, 'DELETE') || str_contains($vin, 'DELETE')) {
+                    $stats['skipped']++;
+                    continue;
+                }
+
+                // Deduplicate new carts by make/model/color/seat/location
+                // (mirrors import.js dedup + Core.php:521-533)
+                $is_used = !empty($cart_data['isUsed']);
+                if (!$is_used) {
+                    $location_id = $cart_data['cartLocation']['locationId'] ?? '';
+                    $dedup_key = implode('|', array(
+                        $cart_data['cartType']['make'] ?? '',
+                        $cart_data['cartType']['model'] ?? '',
+                        $cart_data['cartAttributes']['cartColor'] ?? '',
+                        $cart_data['cartAttributes']['seatColor'] ?? '',
+                        $location_id,
+                    ));
+                    if (isset($seen_new[$dedup_key])) {
+                        $stats['skipped']++;
+                        continue;
+                    }
+                    $seen_new[$dedup_key] = true;
+                }
+
+                // Cart passed all filters — track as active
+                $active_cart_ids[] = $cart_id;
+
+                // Stage cart data in local tigon_dms_carts table
+                // This preserves ALL DMS fields locally for debugging/querying
+                $store_id   = $cart_data['cartLocation']['locationId'] ?? '';
+                $store_name = DMS_API::get_city_by_store_id($store_id);
+                \Tigon\DmsConnect\Admin\CartModel::upsert_from_api($cart_data, $store_name, '', $store_id);
+
                 // Check if product already exists (for stats tracking)
                 $existing_product_id = tigon_dms_get_product_by_cart_id($cart_id);
                 $was_existing = (bool) $existing_product_id;
@@ -95,17 +170,20 @@ class DMS_Sync
                 try {
                     // Use existing function to create/update product (idempotent)
                     $product_id = tigon_dms_ensure_woo_product($cart_data, $cart_id);
-                    
+
                     if ($product_id) {
                         // Handle images (featured + gallery)
                         self::sync_product_images($product_id, $cart_data);
-                        
+
                         // Track stats
                         if ($was_existing) {
                             $stats['updated']++;
                         } else {
                             $stats['created']++;
                         }
+
+                        // Report PID and URL back to DMS (mirrors Core.php:478-488)
+                        self::report_pid_to_dms($cart_id, $product_id);
                     } else {
                         $stats['errors']++;
                     }
@@ -124,12 +202,122 @@ class DMS_Sync
             }
         }
 
+        // -----------------------------------------------------------------
+        // Sold product detection (mirrors Database_Write_Controller cleanup)
+        //
+        // Find WooCommerce products with _dms_cart_id that are no longer
+        // in the active DMS inventory and mark them as sold/out-of-stock.
+        // -----------------------------------------------------------------
+        if (!empty($active_cart_ids)) {
+            $sold_products = self::detect_sold_products($active_cart_ids);
+            foreach ($sold_products as $sold_product_id) {
+                if (function_exists('tigon_dms_handle_sold_product')) {
+                    $handled = tigon_dms_handle_sold_product($sold_product_id);
+                    if ($handled) {
+                        $stats['sold']++;
+                    }
+                }
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // Post-import: global WC lookup table refresh
+        // (mirrors Abstract_Import_Controller::process_post_import and
+        //  Core.php:557 — called once after ALL products are processed)
+        // -----------------------------------------------------------------
+        if (function_exists('wc_update_product_lookup_tables')) {
+            wc_update_product_lookup_tables();
+        }
+
         return array(
             'success' => true,
             'stats'   => $stats,
         );
     }
 
+
+    /**
+     * Detect WooCommerce products whose DMS cart IDs are no longer active.
+     *
+     * Queries all published products with a _dms_cart_id meta and returns
+     * the product IDs whose cart ID is NOT in the active set.
+     *
+     * @param array $active_cart_ids Array of DMS cart IDs still in inventory
+     * @return array Product IDs that are no longer in DMS
+     */
+    private static function detect_sold_products($active_cart_ids)
+    {
+        global $wpdb;
+
+        // Get all published products that have a DMS cart ID
+        $results = $wpdb->get_results(
+            "SELECT p.ID, pm.meta_value AS cart_id
+             FROM {$wpdb->posts} p
+             INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_dms_cart_id'
+             WHERE p.post_type = 'product' AND p.post_status = 'publish'",
+            ARRAY_A
+        );
+
+        if (empty($results)) {
+            return array();
+        }
+
+        $sold_ids = array();
+        $active_set = array_flip($active_cart_ids); // O(1) lookups
+
+        foreach ($results as $row) {
+            if (!isset($active_set[$row['cart_id']])) {
+                $sold_ids[] = (int) $row['ID'];
+            }
+        }
+
+        return $sold_ids;
+    }
+
+    /**
+     * Report product ID and URL back to DMS after successful create/update.
+     *
+     * Mirrors Core.php:478-488 — tells DMS that this cart is now on the
+     * website with its permalink, so the DMS dashboard shows accurate status.
+     *
+     * @param string $cart_id    DMS cart _id
+     * @param int    $product_id WooCommerce product ID
+     */
+    private static function report_pid_to_dms($cart_id, $product_id)
+    {
+        if (empty($cart_id) || empty($product_id)) {
+            return;
+        }
+
+        // Use DMS_Connector if available (class-based API path)
+        if (class_exists('\Tigon\DmsConnect\Includes\DMS_Connector')) {
+            try {
+                $pid_request = wp_json_encode(array(array(
+                    '_id' => $cart_id,
+                    'pid' => $product_id,
+                    'advertising' => array(
+                        'onWebsite'  => true,
+                        'websiteUrl' => get_permalink($product_id),
+                    ),
+                )));
+                \Tigon\DmsConnect\Includes\DMS_Connector::request($pid_request, '/chimera/carts', 'PUT');
+            } catch (\Exception $e) {
+                error_log('DMS Sync: Failed to report PID ' . $product_id . ' for cart ' . $cart_id . ': ' . $e->getMessage());
+            }
+            return;
+        }
+
+        // Fallback: use DMS_API if it has an update method
+        if (method_exists('DMS_API', 'update_cart')) {
+            DMS_API::update_cart($cart_id, array(
+                'pid' => $product_id,
+                'advertising' => array(
+                    'onWebsite'  => true,
+                    'websiteUrl' => get_permalink($product_id),
+                ),
+            ));
+        }
+    }
 
     /**
      * Sync product images from DMS cart data
@@ -141,6 +329,14 @@ class DMS_Sync
      * @param array $cart_data  Full DMS cart payload
      * @return void
      */
+    /**
+     * Public wrapper for sync_product_images (used by selective sync AJAX handler).
+     */
+    public static function sync_product_images_public($product_id, $cart_data)
+    {
+        self::sync_product_images($product_id, $cart_data);
+    }
+
     private static function sync_product_images($product_id, $cart_data)
     {
         // Use centralized image resolver (handles coming-soon placeholder)
