@@ -473,6 +473,89 @@ abstract class Abstract_Cart
     }
 
     /**
+     * Normalize a DMS battery.warrantyLength value to match a pa_battery-warranty
+     * taxonomy term name.
+     *
+     * Taxonomy terms: 1 Year, 2 Years, 3 Years, 4 Years, 5 Years, 8 Years,
+     *                 6 Month, 12 Month, 18 Month,
+     *                 60 Days, 90 Days, 120 Days,
+     *                 As-Is, No, Yes
+     *
+     * DMS may send: "5 years", "5 year", "12 months", "90 days", "none", "as-is", etc.
+     */
+    protected function resolve_battery_warranty_key(string $raw): ?string
+    {
+        $input = strtoupper(trim($raw));
+        if ($input === '' || $input === 'NULL') {
+            return null;
+        }
+
+        $options = $this->generated_attributes->attributes['battery-warranty']['options'];
+
+        // Direct match
+        if (isset($options[$input])) {
+            return $input;
+        }
+
+        // Semantic aliases
+        $aliases = [
+            'NONE'       => 'NO',
+            'N/A'        => 'NO',
+            'NO WARRANTY'=> 'NO',
+            'AS IS'      => 'AS-IS',
+            'ASIS'       => 'AS-IS',
+        ];
+        if (isset($aliases[$input]) && isset($options[$aliases[$input]])) {
+            return $aliases[$input];
+        }
+
+        // Parse "N UNIT" patterns — e.g. "5 YEARS", "12 MONTHS", "90 DAYS"
+        if (preg_match('/^(\d+)\s*(YEAR|YEARS|MONTH|MONTHS|DAY|DAYS)$/i', $input, $m)) {
+            $num  = $m[1];
+            $unit = strtoupper($m[2]);
+
+            // Normalize unit to match taxonomy naming convention
+            if (in_array($unit, ['YEAR', 'YEARS'], true)) {
+                // Taxonomy uses "1 Year" (singular) but "2 Years", "3 Years" etc. (plural)
+                $normalized = $num . ($num === '1' ? ' YEAR' : ' YEARS');
+            } elseif (in_array($unit, ['MONTH', 'MONTHS'], true)) {
+                // Taxonomy always uses singular "MONTH"
+                $normalized = $num . ' MONTH';
+            } else {
+                // Taxonomy always uses plural "DAYS"
+                $normalized = $num . ' DAYS';
+            }
+
+            if (isset($options[$normalized])) {
+                return $normalized;
+            }
+
+            // Try the opposite plurality as fallback
+            if (in_array($unit, ['YEAR', 'YEARS'], true)) {
+                $alt = $num . ($num === '1' ? ' YEARS' : ' YEAR');
+            } elseif (in_array($unit, ['MONTH', 'MONTHS'], true)) {
+                $alt = $num . ' MONTHS';
+            } else {
+                $alt = $num . ' DAY';
+            }
+            if (isset($options[$alt])) {
+                return $alt;
+            }
+        }
+
+        // Bare number — try years first (most common), then months, then days
+        if (preg_match('/^\d+$/', $input)) {
+            foreach ([' YEARS', ' YEAR', ' MONTH', ' MONTHS', ' DAYS', ' DAY'] as $suffix) {
+                if (isset($options[$input . $suffix])) {
+                    return $input . $suffix;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Cached schema templates loaded from tigon_dms_config.
      *
      * @var array<string,string>|null
@@ -1369,10 +1452,11 @@ abstract class Abstract_Cart
                 }
             }
 
-            // Battery Warranty
+            // Battery Warranty — normalize DMS warrantyLength to taxonomy term
             $this->attributes['pa_battery-warranty'] = $this->generated_attributes->attributes['battery-warranty']['object'];
-            $bw_key = strtoupper($this->cart['battery']['warrantyLength'] ?? '');
-            if (!empty($bw_key) && isset($this->generated_attributes->attributes['battery-warranty']['options'][$bw_key])) {
+            $bw_raw = $this->cart['battery']['warrantyLength'] ?? '';
+            $bw_key = $this->resolve_battery_warranty_key($bw_raw);
+            if ($bw_key !== null && isset($this->generated_attributes->attributes['battery-warranty']['options'][$bw_key])) {
                 array_push(
                     $this->taxonomy_terms,
                     $this->generated_attributes->attributes['battery-warranty']['options'][$bw_key]
