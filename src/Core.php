@@ -31,23 +31,13 @@ class Core
     {
         // Enqueue scripts
         add_action('load-toplevel_page_tigon-dms-connect', 'Tigon\DmsConnect\Core::diagnostic_script_enqueue');
-        add_action('load-tigon-dms-connect_page_import', 'Tigon\DmsConnect\Core::import_script_enqueue');
         add_action('load-tigon-dms-connect_page_settings', 'Tigon\DmsConnect\Core::settings_script_enqueue');
         add_action('load-tigon-dms-connect_page_field-mapping', 'Tigon\DmsConnect\Core::field_mapping_script_enqueue');
         add_action('load-tigon-dms-connect_page_dms-inventory-sync', 'Tigon\DmsConnect\Core::sync_script_enqueue');
 
         // Register Ajax functions
-        add_action('wp_ajax_tigon_dms_query', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::query_dms');
-        add_action('wp_ajax_tigon_dms_get_new_carts', 'Tigon\DmsConnect\Admin\New\New_Cart_Converter::generate_new_carts');
-        add_action('wp_ajax_tigon_dms_ajax_import_convert', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_convert');
-        add_action('wp_ajax_tigon_dms_ajax_new_import_convert', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_new_import_convert');
-        add_action('wp_ajax_tigon_dms_ajax_import_create', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_create');
-        add_action('wp_ajax_tigon_dms_ajax_import_update', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_update');
-        add_action('wp_ajax_tigon_dms_ajax_import_delete', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_delete');
-        add_action('wp_ajax_tigon_dms_ajax_import_new', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_new');
         add_action('wp_ajax_tigon_dms_save_settings', 'Tigon\DmsConnect\Admin\Ajax_Settings_Controller::save_settings');
         add_action('wp_ajax_tigon_dms_get_dms_props', 'Tigon\DmsConnect\Admin\Ajax_Settings_Controller::get_dms_props');
-        add_action('wp_ajax_tigon_dms_post_import', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::process_post_import');
         add_action('wp_ajax_tigon_dms_sync_mapped', 'Tigon\DmsConnect\Core::ajax_sync_mapped_inventory');
         add_action('wp_ajax_tigon_dms_sync_selective', 'Tigon\DmsConnect\Core::ajax_sync_selective');
 
@@ -56,7 +46,8 @@ class Core
         add_action('wp_ajax_tigon_dms_sync_selective_batch', 'Tigon\DmsConnect\Core::ajax_sync_selective_batch');
         add_action('wp_ajax_tigon_dms_sync_mapped_init', 'Tigon\DmsConnect\Core::ajax_sync_mapped_init');
         add_action('wp_ajax_tigon_dms_sync_mapped_batch', 'Tigon\DmsConnect\Core::ajax_sync_mapped_batch');
-        add_action('wp_ajax_tigon_dms_publish_synced', 'Tigon\DmsConnect\Core::ajax_publish_synced_inventory');
+        add_action('wp_ajax_tigon_dms_publish_synced_init', 'Tigon\DmsConnect\Core::ajax_publish_synced_init');
+        add_action('wp_ajax_tigon_dms_publish_synced_batch', 'Tigon\DmsConnect\Core::ajax_publish_synced_batch');
 
         // Field mapping AJAX handlers
         add_action('wp_ajax_tigon_dms_get_field_mappings', 'Tigon\DmsConnect\Core::ajax_get_field_mappings');
@@ -66,6 +57,11 @@ class Core
 
         // Add admin page
         add_action('admin_menu', 'Tigon\DmsConnect\Admin\Admin_Page::add_menu_page');
+
+        // Late hook: nuke the legacy Import submenu no matter who registers it
+        add_action('admin_menu', function () {
+            remove_submenu_page('tigon-dms-connect', 'import');
+        }, 999);
 
         // Allow for automatic taxonomy updates
         add_action('woocommerce_rest_insert_product_object', 'Tigon\DmsConnect\Core::update_taxonomy', 10, 3);
@@ -144,26 +140,6 @@ class Core
         return $orderby;
     }
     
-    public static function import_script_enqueue()
-    {
-        $js_url = self::asset_url();
-        wp_register_script('@tigon-dms/globals', $js_url . 'globals.js');
-        wp_register_script_module('@tigon-dms/base64-js', $js_url . 'node_modules/base64-js/index.js');
-        wp_register_script_module('@tigon-dms/ieee754', $js_url . 'node_modules/ieee754/index.js');
-        wp_register_script_module('@tigon-dms/buffer', $js_url . 'node_modules/buffer/index.js', ['@tigon-dms/base64-js', '@tigon-dms/ieee754']);
-        wp_register_script_module('@tigon-dms/php_serialize', $js_url . 'node_modules/php-serialize/index.js');
-        wp_register_script_module('@tigon-dms/import', $js_url . 'import.js', ['jquery', '@tigon-dms/php_serialize']);
-
-        wp_localize_script('@tigon-dms/globals', 'globals', [
-            'ajaxurl' => admin_url('admin-ajax.php'),
-            'siteurl' => get_site_url()
-        ]);
-
-        wp_enqueue_script('@tigon-dms/globals');
-        wp_enqueue_script_module('@tigon-dms/php_serialize');
-        wp_enqueue_script('jquery');
-        wp_enqueue_script_module('@tigon-dms/import');
-    }
 
     public static function settings_script_enqueue()
     {
@@ -1258,18 +1234,99 @@ class Core
     }
 
     // ─────────────────────────────────────────────────────────────────
-    //  Publish Synced Inventory (bulk publish DMS products)
+    //  Publish Synced Inventory — micro-batched (Cloudflare-safe)
+    //
+    //  Cloudflare CDN enforces a hard ~100 s gateway timeout (free/pro
+    //  plans) and many managed-WP hosts cap PHP at 60 s.  Each
+    //  wp_update_post() fires WooCommerce save hooks, cache purges,
+    //  and term re-counts that can take 5-15 s per product, so even
+    //  10 products per batch blows through the window.
+    //
+    //  Strategy:
+    //    • Batch size = 3  (safe at ≤15 s/product → ≤45 s total)
+    //    • Direct $wpdb->update for the status flip (avoids the full
+    //      wp_update_post hook chain); we still call clean_post_cache
+    //      so WP/WC sees the change.
+    //    • wp_defer_term_counting while the batch runs.
+    //    • Lookup-table rebuild only on the final batch.
     // ─────────────────────────────────────────────────────────────────
 
+    /** Batch size for publish — intentionally tiny for CDN safety. */
+    const PUBLISH_BATCH_SIZE = 3;
+
     /**
-     * AJAX: Publish all DMS-synced products that are not yet published.
+     * AJAX: Init — gather DMS-synced product IDs, store in transient.
      *
-     * Finds every product with a _dms_cart_id meta key whose post_status
-     * is not 'publish', and flips it to 'publish'. Also marks each one
-     * as featured in the product_visibility taxonomy. Processes in batches
-     * of 50 so it stays within timeout limits.
+     * Only products that have a `_dms_cart_id` meta key are included —
+     * i.e. only inventory that actually came from the DMS API.
      */
-    public static function ajax_publish_synced_inventory()
+    public static function ajax_publish_synced_init()
+    {
+        check_ajax_referer('tigon_dms_publish_synced_nonce', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized', 403);
+        }
+
+        global $wpdb;
+
+        try {
+            // Only products with _dms_cart_id (came from DMS API)
+            $all_ids = $wpdb->get_col(
+                "SELECT DISTINCT p.ID
+                 FROM {$wpdb->posts} p
+                 INNER JOIN {$wpdb->postmeta} pm
+                    ON p.ID = pm.post_id AND pm.meta_key = '_dms_cart_id'
+                 WHERE p.post_type = 'product'"
+            );
+
+            if (empty($all_ids)) {
+                wp_send_json_success([
+                    'total'      => 0,
+                    'to_publish' => 0,
+                    'done'       => true,
+                    'message'    => 'No DMS-synced products found.',
+                ]);
+                return;
+            }
+
+            $to_publish = $wpdb->get_var(
+                "SELECT COUNT(DISTINCT p.ID)
+                 FROM {$wpdb->posts} p
+                 INNER JOIN {$wpdb->postmeta} pm
+                    ON p.ID = pm.post_id AND pm.meta_key = '_dms_cart_id'
+                 WHERE p.post_type = 'product'
+                   AND p.post_status != 'publish'"
+            );
+
+            $sync_id = 'dms_pub_' . wp_generate_password(16, false);
+            set_transient($sync_id, [
+                'ids'    => array_map('intval', $all_ids),
+                'offset' => 0,
+            ], HOUR_IN_SECONDS);
+
+            wp_send_json_success([
+                'sync_id'    => $sync_id,
+                'total'      => count($all_ids),
+                'to_publish' => (int) $to_publish,
+                'batch_size' => self::PUBLISH_BATCH_SIZE,
+            ]);
+        } catch (\Throwable $e) {
+            wp_send_json_error('Publish init error: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * AJAX: Batch — publish + feature products, 3 at a time.
+     *
+     * Every DB operation is direct SQL — no wp_update_post, no
+     * wp_set_object_terms — so the only cost per product is a
+     * handful of cheap queries and one cache flush.
+     *
+     * An elapsed-time guard bails out early if we approach the
+     * 45 s safety ceiling so the response always gets back to
+     * the browser before Cloudflare kills the connection.
+     */
+    public static function ajax_publish_synced_batch()
     {
         check_ajax_referer('tigon_dms_publish_synced_nonce', 'nonce');
         if (!current_user_can('manage_options')) {
@@ -1277,93 +1334,144 @@ class Core
         }
 
         ignore_user_abort(true);
-        @set_time_limit(90);
+        @set_time_limit(55);
 
         global $wpdb;
 
-        try {
-            // Find all DMS-synced products that are NOT published
-            $draft_products = $wpdb->get_results(
-                "SELECT p.ID, p.post_status
-                 FROM {$wpdb->posts} p
-                 INNER JOIN {$wpdb->postmeta} pm
-                    ON p.ID = pm.post_id AND pm.meta_key = '_dms_cart_id'
-                 WHERE p.post_type = 'product'
-                   AND p.post_status != 'publish'",
-                ARRAY_A
-            );
+        // ── Time guard: bail before Cloudflare / PHP kills us ──
+        $start    = microtime(true);
+        $max_secs = 40; // leave ~15 s headroom for CF + PHP overhead
 
-            if (empty($draft_products)) {
-                wp_send_json_success([
-                    'published' => 0,
-                    'featured'  => 0,
-                    'message'   => 'All DMS-synced products are already published.',
-                ]);
+        try {
+            $sync_id = sanitize_text_field($_POST['sync_id'] ?? '');
+            $meta = get_transient($sync_id);
+            if (!is_array($meta) || !isset($meta['ids'])) {
+                wp_send_json_error('Session expired or invalid. Please start again.');
                 return;
             }
 
-            $published_count = 0;
-            $errors = [];
+            $ids    = $meta['ids'];
+            $offset = $meta['offset'] ?? 0;
+            $batch  = array_slice($ids, $offset, self::PUBLISH_BATCH_SIZE);
 
-            foreach ($draft_products as $row) {
-                $pid = (int) $row['ID'];
-                try {
-                    $result = wp_update_post([
-                        'ID'          => $pid,
-                        'post_status' => 'publish',
-                    ], true);
-
-                    if (is_wp_error($result)) {
-                        $errors[] = "Product #{$pid}: " . $result->get_error_message();
-                        continue;
-                    }
-
-                    // Set as featured + visible
-                    wp_set_object_terms($pid, array('featured'), 'product_visibility');
-                    update_post_meta($pid, '_visibility', 'visible');
-
-                    $published_count++;
-                } catch (\Throwable $e) {
-                    $errors[] = "Product #{$pid}: " . $e->getMessage();
-                }
-            }
-
-            // Also ensure ALL published DMS products are marked featured
-            $all_dms_products = $wpdb->get_col(
-                "SELECT p.ID
-                 FROM {$wpdb->posts} p
-                 INNER JOIN {$wpdb->postmeta} pm
-                    ON p.ID = pm.post_id AND pm.meta_key = '_dms_cart_id'
-                 WHERE p.post_type = 'product'
-                   AND p.post_status = 'publish'"
+            // Look up the featured term_taxonomy_id once for all products
+            $featured_tt_id = (int) $wpdb->get_var(
+                "SELECT tt.term_taxonomy_id
+                 FROM {$wpdb->term_taxonomy} tt
+                 INNER JOIN {$wpdb->terms} t ON tt.term_id = t.term_id
+                 WHERE tt.taxonomy = 'product_visibility'
+                   AND t.slug = 'featured'
+                 LIMIT 1"
             );
 
-            $featured_count = 0;
-            foreach ($all_dms_products as $pid) {
-                $pid = (int) $pid;
-                $current_terms = wp_get_object_terms($pid, 'product_visibility', ['fields' => 'slugs']);
-                if (!is_array($current_terms) || !in_array('featured', $current_terms)) {
-                    wp_set_object_terms($pid, array('featured'), 'product_visibility');
-                    update_post_meta($pid, '_visibility', 'visible');
-                    $featured_count++;
+            $published = 0;
+            $featured  = 0;
+            $already   = 0;
+            $errors    = [];
+            $processed_count = 0;
+
+            foreach ($batch as $pid) {
+                // ── Time guard: stop before we hit the ceiling ──
+                if ((microtime(true) - $start) >= $max_secs) {
+                    break;
+                }
+
+                $processed_count++;
+
+                $status = get_post_status($pid);
+                if ($status === false) {
+                    $errors[] = "Product #{$pid}: not found";
+                    continue;
+                }
+
+                try {
+                    // ── Publish via direct DB update (skip heavy hooks) ──
+                    if ($status !== 'publish') {
+                        $updated = $wpdb->update(
+                            $wpdb->posts,
+                            ['post_status' => 'publish'],
+                            ['ID' => $pid],
+                            ['%s'],
+                            ['%d']
+                        );
+                        if ($updated === false) {
+                            $errors[] = "#{$pid}: DB update failed";
+                            continue;
+                        }
+                        clean_post_cache($pid);
+                        $published++;
+                    } else {
+                        $already++;
+                    }
+
+                    // ── Ensure "featured" visibility term (pure SQL) ──
+                    if ($featured_tt_id > 0) {
+                        $has_featured = (bool) $wpdb->get_var($wpdb->prepare(
+                            "SELECT 1
+                             FROM {$wpdb->term_relationships}
+                             WHERE object_id = %d
+                               AND term_taxonomy_id = %d
+                             LIMIT 1",
+                            $pid,
+                            $featured_tt_id
+                        ));
+                        if (!$has_featured) {
+                            // Direct insert into term_relationships
+                            $wpdb->replace(
+                                $wpdb->term_relationships,
+                                [
+                                    'object_id'        => $pid,
+                                    'term_taxonomy_id' => $featured_tt_id,
+                                    'term_order'       => 0,
+                                ],
+                                ['%d', '%d', '%d']
+                            );
+                            // Bump the count on the taxonomy row
+                            $wpdb->query($wpdb->prepare(
+                                "UPDATE {$wpdb->term_taxonomy}
+                                 SET count = count + 1
+                                 WHERE term_taxonomy_id = %d",
+                                $featured_tt_id
+                            ));
+                            update_post_meta($pid, '_visibility', 'visible');
+                            $featured++;
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    $errors[] = "#{$pid}: " . $e->getMessage();
                 }
             }
 
-            if (function_exists('wc_update_product_lookup_tables')) {
-                wc_update_product_lookup_tables();
+            // Advance offset by however many we actually touched
+            $new_offset = $offset + $processed_count;
+            $done = $new_offset >= count($ids);
+
+            if ($done) {
+                delete_transient($sync_id);
+                // Rebuild WC lookup tables once at the very end
+                if (function_exists('wc_update_product_lookup_tables')) {
+                    wc_update_product_lookup_tables();
+                }
+                // Clean term taxonomy counts in one shot
+                if ($featured_tt_id > 0) {
+                    wp_update_term_count_now([$featured_tt_id], 'product_visibility');
+                }
+            } else {
+                $meta['offset'] = $new_offset;
+                set_transient($sync_id, $meta, HOUR_IN_SECONDS);
             }
 
             wp_send_json_success([
-                'published' => $published_count,
-                'featured'  => $featured_count,
-                'total'     => count($all_dms_products),
+                'published' => $published,
+                'featured'  => $featured,
+                'already'   => $already,
                 'errors'    => $errors,
-                'message'   => $published_count > 0
-                    ? "Published {$published_count} product(s). Ensured {$featured_count} product(s) marked as featured."
-                    : "All products were already published. Ensured {$featured_count} product(s) marked as featured.",
+                'processed' => $new_offset,
+                'total'     => count($ids),
+                'done'      => $done,
             ]);
         } catch (\Throwable $e) {
-            wp_send_json_error('Publish error: ' . $e->getMessage());
+            wp_send_json_error('Publish batch error: ' . $e->getMessage());
         }
     }
 

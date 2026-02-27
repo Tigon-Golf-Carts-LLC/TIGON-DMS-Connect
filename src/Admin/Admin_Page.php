@@ -29,26 +29,14 @@ class Admin_Page
         $icon_url = $data_uri;
         $position = 55;
         add_menu_page($page_title, $menu_title, $capability, $menu_slug, $callback, $icon_url, $position);
-        self::add_import_page();
         self::add_settings_page();
         self::add_database_objects_page();
         self::add_field_mapping_page();
         self::add_sync_page();
-    }
 
-    /**
-     * Add Import submenu
-     * @return void
-     */
-    public static function add_import_page()
-    {
-        $parent_slug = "tigon-dms-connect";
-        $page_title = "Tigon DMS Import";
-        $menu_title = "Import";
-        $capability = "manage_options";
-        $menu_slug = "import";
-        $callback = 'Tigon\DmsConnect\Admin\Admin_Page::import_page';
-        add_submenu_page($parent_slug, $page_title, $menu_title, $capability, $menu_slug, $callback);
+        // Force-remove the legacy Import submenu in case a previous plugin
+        // version cached it or it was registered by stale code.
+        remove_submenu_page('tigon-dms-connect', 'import');
     }
 
     /**
@@ -1305,65 +1293,150 @@ class Admin_Page
                 });
             });
 
-            /* ── Publish Synced Inventory ──────────────────────────── */
+            /* ── Publish Synced Inventory (micro-batched, Cloudflare-safe) ── */
             $("#dms-publish-btn").on("click", function() {
                 var $btn = $(this);
                 var $spinner = $("#dms-publish-spinner");
                 var $results = $("#dms-publish-results");
 
-                $btn.prop("disabled", true).text("Publishing...");
+                $btn.prop("disabled", true).text("Scanning DMS products...");
                 $spinner.addClass("is-active");
                 $results.hide();
 
+                // Step 1: Init — collect DMS product IDs server-side
                 $.ajax({
                     url: ajaxurl,
                     type: "POST",
-                    data: { action: "tigon_dms_publish_synced", nonce: publishNonce },
-                    timeout: 95000,
-                    success: function(resp) {
-                        $spinner.removeClass("is-active");
-                        $btn.prop("disabled", false).text("Publish All DMS Products");
-
-                        if (!resp.success) {
-                            $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Error:</strong> \' + $("<span>").text(resp.data || "Unknown error").html() + "</p></div>").show();
+                    data: { action: "tigon_dms_publish_synced_init", nonce: publishNonce },
+                    timeout: 30000,
+                    success: function(initResp) {
+                        if (!initResp.success) {
+                            $spinner.removeClass("is-active");
+                            $btn.prop("disabled", false).text("Publish All DMS Products");
+                            showError($results, initResp.data || "Failed to scan products");
                             return;
                         }
 
-                        var d = resp.data;
-                        var html = \'<div style="background:#d4edda;border:1px solid #c3e6cb;padding:1rem;border-radius:6px;">\';
-                        html += \'<h3 style="margin:0 0 0.5rem 0; color:#155724;">Publish Complete</h3>\';
-                        html += \'<p style="margin:0 0 0.3rem;">\' + $("<span>").text(d.message).html() + "</p>";
-                        html += \'<div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin-top:0.5rem;font-size:0.9rem;">\';
-                        html += \'<span style="font-weight:600;color:#28a745;">Published: \' + d.published + "</span>";
-                        html += \'<span style="font-weight:600;color:#007bff;">Featured: \' + d.featured + "</span>";
-                        html += \'<span style="font-weight:600;color:#333;">Total DMS Products: \' + d.total + "</span>";
-                        html += "</div>";
+                        var d = initResp.data;
 
-                        if (d.errors && d.errors.length > 0) {
-                            html += \'<details style="margin-top:0.75rem;"><summary style="cursor:pointer;color:#856404;font-weight:600;">\' + d.errors.length + " error(s)</summary>";
-                            html += \'<ul style="margin:0.5rem 0 0 1.5rem;font-size:0.82rem;">\';
-                            $.each(d.errors, function(i, err) {
-                                html += "<li>" + $("<span>").text(err).html() + "</li>";
-                            });
-                            html += "</ul></details>";
+                        // If there is nothing to do (0 products) the server
+                        // returns done:true and no sync_id.
+                        if (d.total === 0 || d.done) {
+                            $spinner.removeClass("is-active");
+                            $btn.prop("disabled", false).text("Publish All DMS Products");
+                            $results.html(\'<div style="background:#d4edda;border:1px solid #c3e6cb;padding:1rem;border-radius:4px;"><p>\' + (d.message || "No DMS-synced products found.") + "</p></div>").show();
+                            return;
                         }
 
-                        html += "</div>";
-                        $results.html(html).show();
+                        var syncId     = d.sync_id;
+                        var total      = d.total;
+                        var toPublish  = d.to_publish || 0;
+                        var batchSize  = d.batch_size || 3;
+                        var cumulative = { published: 0, featured: 0, already: 0, errors: [] };
+                        var retries    = 0;
+                        var maxRetries = 4;
+
+                        $btn.text("Publishing " + toPublish + " of " + total + " DMS products...");
+                        showProgress($results, total);
+                        $results.find(".sync-progress-status").text(
+                            "Found " + total + " DMS products (" + toPublish + " need publishing). Processing " + batchSize + " at a time..."
+                        );
+
+                        // Step 2: Fire batches sequentially
+                        function processBatch() {
+                            $.ajax({
+                                url: ajaxurl,
+                                type: "POST",
+                                data: { action: "tigon_dms_publish_synced_batch", nonce: publishNonce, sync_id: syncId },
+                                timeout: 55000,
+                                success: function(batchResp) {
+                                    retries = 0;
+                                    if (!batchResp.success) {
+                                        cumulative.errors.push(batchResp.data || "unknown batch error");
+                                        $spinner.removeClass("is-active");
+                                        $btn.prop("disabled", false).text("Publish All DMS Products");
+                                        showPublishResults($results, cumulative, total);
+                                        return;
+                                    }
+
+                                    var b = batchResp.data;
+                                    cumulative.published += (b.published || 0);
+                                    cumulative.featured  += (b.featured  || 0);
+                                    cumulative.already   += (b.already   || 0);
+                                    cumulative.errors     = cumulative.errors.concat(b.errors || []);
+
+                                    var processed = b.processed || 0;
+                                    var pct = total > 0 ? Math.min(Math.round((processed / total) * 100), 100) : 0;
+                                    $results.find(".sync-progress-bar").css("width", pct + "%");
+                                    $results.find(".sync-progress-text").text(processed + " / " + total + " (" + pct + "%)");
+                                    $results.find(".sync-progress-status").text(
+                                        "Published: " + cumulative.published +
+                                        "  |  Featured: " + cumulative.featured +
+                                        "  |  Already OK: " + cumulative.already
+                                    );
+                                    $results.find(".created em").text(cumulative.published);
+                                    $results.find(".updated em").text(cumulative.featured);
+                                    $results.find(".total em").text(processed);
+
+                                    if (b.done) {
+                                        $spinner.removeClass("is-active");
+                                        $btn.prop("disabled", false).text("Publish All DMS Products");
+                                        showPublishResults($results, cumulative, total);
+                                    } else {
+                                        processBatch();
+                                    }
+                                },
+                                error: function(xhr, status, error) {
+                                    retries++;
+                                    var detail = (error || status || "timeout") + " [HTTP " + (xhr ? xhr.status : "?") + "]";
+                                    if (retries <= maxRetries) {
+                                        var wait = retries * 2000;
+                                        $results.find(".sync-progress-status").text(
+                                            "Network hiccup — retry " + retries + "/" + maxRetries + " in " + (wait/1000) + "s... (" + detail + ")"
+                                        );
+                                        setTimeout(processBatch, wait);
+                                    } else {
+                                        cumulative.errors.push("Gave up after " + maxRetries + " retries: " + detail);
+                                        $spinner.removeClass("is-active");
+                                        $btn.prop("disabled", false).text("Publish All DMS Products");
+                                        showPublishResults($results, cumulative, total);
+                                    }
+                                }
+                            });
+                        }
+
+                        processBatch();
                     },
                     error: function(xhr, status, error) {
                         $spinner.removeClass("is-active");
                         $btn.prop("disabled", false).text("Publish All DMS Products");
-                        var detail = error || status || "connection failed";
-                        if (xhr) {
-                            detail += " [HTTP " + xhr.status + "]";
-                            var body = (xhr.responseText || "").substring(0, 300);
-                            if (body) detail += " " + body;
-                        }
-                        $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Error:</strong> \' + $("<span>").text(detail).html() + "</p></div>").show();
+                        showError($results, "Failed to scan products: " + (error || status || "connection failed"), xhr);
                     }
                 });
             });
+
+            function showPublishResults($results, stats, total) {
+                var html = \'<div style="background:#d4edda;border:1px solid #c3e6cb;padding:1rem;border-radius:6px;">\';
+                html += \'<h3 style="margin:0 0 0.5rem 0; color:#155724;">Publish Complete</h3>\';
+                html += \'<ul style="list-style:disc;padding-left:1.5rem;">\';
+                html += "<li><strong>Total DMS products:</strong> " + total + "</li>";
+                html += "<li><strong>Newly published:</strong> " + stats.published + "</li>";
+                html += "<li><strong>Newly featured:</strong> " + stats.featured + "</li>";
+                html += "<li><strong>Already published:</strong> " + stats.already + "</li>";
+                if (stats.errors.length > 0) html += "<li><strong>Errors:</strong> " + stats.errors.length + "</li>";
+                html += "</ul>";
+                if (stats.errors.length > 0) {
+                    html += \'<details style="margin-top:0.5rem;"><summary style="cursor:pointer;font-weight:600;color:#dc3545;">Error details (\' + stats.errors.length + ")</summary>";
+                    html += \'<ul style="list-style:disc;padding-left:1.5rem;font-size:0.85rem;max-height:300px;overflow-y:auto;">\';
+                    stats.errors.slice(0, 50).forEach(function(e) {
+                        html += "<li>" + $("<span>").text(e).html() + "</li>";
+                    });
+                    if (stats.errors.length > 50) html += "<li><em>...and " + (stats.errors.length - 50) + " more</em></li>";
+                    html += "</ul></details>";
+                }
+                html += "</div>";
+                $results.html(html).show();
+            }
         });
         </script>
         ';
@@ -1778,80 +1851,6 @@ class Admin_Page
                         <div style="--color: var(--bad)">Inventory not on site</div>
                     </div>
                 </div>
-            </div>
-        </div>
-        ';
-    }
-
-    public static function import_page()
-    {
-        $nonce = wp_create_nonce("tigon_dms_run_import_nonce");
-        $link = admin_url('admin-ajax.php?action=tigon_dms_run_import&nonce=' . $nonce);
-
-        self::page_header();
-
-        echo '
-        <div class="body" style="display:flex;">
-            <!--<div class="action-box" style="flex-direction:row;">
-                <a id="new" class="tigon_dms_action tigon_dms_import" data-nonce="' . $nonce . '" href="' . $link . '"><button>Import New Carts</button></a>
-            </div>-->
-            <div class="tabbed-panel">
-                <div class="tigon-dms-nav" style="flex-direction:row;">
-                    <button class="tigon-dms-tab active" id="used-tab">Used Carts</button>
-                    <button class="tigon-dms-tab" id="new-tab">New Carts</button>
-                </div>
-
-                <div class="action-box" id="used-panel">
-                    <div class="action-box-column">
-                        <div id="mobile-title">Import Used Cart Data From DMS</div>
-                        <h3>Import settings</h3>
-                        <div>Input the VIN or Serial Number of a cart on the DMS to be imported.</div>
-                        <div class="form"><form>
-                            <div>
-                                <span>VIN Number:</span>
-                                <input type="text" list="vin" class="input-list" style="float:right" name="VIN Number" id="txt-vin" />
-                                <datalist id="vin">
-                                </datalist>
-                            </div>
-                            <div>
-                                <span>Serial Number:</span>
-                                <input type="text" list="serial" class="input-list" style="float:right" name="Serial Number" id="txt-serial" />
-                                <datalist id="serial">
-                                </datalist>
-                            </div>
-                            <div>
-                                <span>
-                                    <span>Import All Used Carts?</span>
-                                    <input type="checkbox" id="chk-all-carts" />
-                                </span>
-                            </div>
-                        </div>
-                    </form></div>
-                    <div class="action-box-column">
-                        <h3>Import Used Cart Data from DMS</h3>
-                        <div id="warning" class="warning"><i>This process may take several minutes. This should only be done in the case that a large portion of the inventory is missing or outdated.</i></div>
-                        <a id="used" class="tigon_dms_action tigon_dms_import" data-nonce="' . $nonce . '" href="' . $link . '"><button>Import Selected</button></a>
-                    </div>
-                </div>
-
-                <div class="action-box" id="new-panel">
-                    <div class="action-box-column" style="max-width:28rem; align-self:unset">
-                        <h3>Import New Cart Data from DMS</h3>
-                        <div class="warning"><i>This process may take several minutes. This should only be done in the case that a large portion of the inventory is missing or outdated.</i></div>
-                        <a id="new" class="tigon_dms_action tigon_dms_import" data-nonce="' . $nonce . '" href="' . $link . '"><button>Import All</button></a>
-                    </div>
-
-                    <div class="action-box-column">
-                    ' . self::checkboxes() . '
-                    </div>
-                </div>
-            </div>
-            <div class="action-box" id="result-box">
-                <div id="progress-bar-container"><div id="progress-bar"></div></div>
-                <div id="progress-text"></div>
-                <hr id="result-separator">
-                <div id="result"></div>
-                <div id="errors"></div>
             </div>
         </div>
         ';
