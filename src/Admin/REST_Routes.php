@@ -195,6 +195,134 @@ class REST_Routes
             return new \WP_Error(400, 'Bad Request: Body must contain {"advertising": {"websiteUrl": ********} }', $request);
     }
 
+    // ─────────────────────────────────────────────────────────────
+    //  Single-Cart Instant Push — DMS → WooCommerce
+    //
+    //  Accepts one cart payload from the DMS when a cart is updated
+    //  or changed.  Runs it through the full import pipeline
+    //  (images, categories, attributes, schema templates, AND
+    //  user-configured field mappings) then returns the resulting
+    //  WooCommerce product ID and permalink.
+    //
+    //  POST /wp-json/tigon-dms-connect/v1/push
+    //  Body: a single DMS cart object (JSON)
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * REST Callback — single cart instant push / update from DMS.
+     *
+     * @param \WP_REST_Request|array $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public static function push_single_cart($request)
+    {
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+
+        $cart = (is_object($request) && get_class($request) === 'WP_REST_Request')
+            ? json_decode($request->get_body(), true)
+            : $request;
+
+        // ── Validate: need at least an _id ─────────────────────────
+        if (empty($cart) || !is_array($cart)) {
+            return new \WP_Error(
+                'bad_request',
+                'Request body must be a JSON object representing a single DMS cart.',
+                ['status' => 400]
+            );
+        }
+        if (!isset($cart['_id']) && !isset($cart['pid'])) {
+            return new \WP_Error(
+                'missing_id',
+                'Cart payload must contain at least an _id or pid field.',
+                ['status' => 400]
+            );
+        }
+
+        try {
+            // Ensure constants are loaded for the import pipeline
+            \Tigon\DmsConnect\Includes\Product_Fields::define_constants();
+
+            // Determine cart type: used or new
+            $is_used = !empty($cart['isUsed']);
+
+            if ($is_used) {
+                // ── Used-cart path (same pipeline as POST /used) ────
+                $used_cart = new UsedCart($cart);
+                $converted = $used_cart->convert();
+
+                if (is_wp_error($converted)) {
+                    return $converted;
+                }
+
+                if ($converted->get_value('method') === 'create') {
+                    $result = REST_Import_Controller::import_create($converted);
+                    $code   = 201;
+                } else {
+                    $result = REST_Import_Controller::import_update($converted);
+                    $code   = 200;
+                }
+            } else {
+                // ── New-cart path (Abstract_Import_Controller) ──────
+                $result = \Tigon\DmsConnect\Abstracts\Abstract_Import_Controller::import_new($cart, 0);
+
+                if (is_wp_error($result)) {
+                    return $result;
+                }
+
+                // import_new returns an array, not JSON
+                $pid  = $result['pid'] ?? 0;
+                $code = $pid ? 200 : 201;
+
+                // Apply user-configured field mappings on top
+                if ($pid && function_exists('tigon_dms_apply_custom_mappings')) {
+                    tigon_dms_apply_custom_mappings($pid, $cart);
+                }
+
+                REST_Import_Controller::process_post_import();
+
+                return new WP_REST_Response([
+                    'success' => true,
+                    'pid'     => $pid,
+                    'url'     => $pid ? get_permalink($pid) : null,
+                    'action'  => $code === 201 ? 'created' : 'updated',
+                ], $code);
+            }
+
+            // ── Handle result for used-cart path ───────────────────
+            if (is_wp_error($result)) {
+                return new \WP_Error('import_failed', 'Import failed', ['status' => 500]);
+            }
+
+            if (is_string($result)) {
+                $result = json_decode($result, true);
+            }
+
+            $pid = $result['pid'] ?? 0;
+
+            // Apply user-configured field mappings on top
+            if ($pid && function_exists('tigon_dms_apply_custom_mappings')) {
+                tigon_dms_apply_custom_mappings($pid, $cart);
+            }
+
+            REST_Import_Controller::process_post_import();
+
+            return new WP_REST_Response([
+                'success' => true,
+                'pid'     => $pid,
+                'url'     => $pid ? get_permalink($pid) : null,
+                'action'  => $code === 201 ? 'created' : 'updated',
+            ], $code);
+        } catch (\Throwable $e) {
+            return new \WP_Error(
+                'push_error',
+                $e->getMessage(),
+                ['status' => 500]
+            );
+        }
+    }
+
     /**
      * REST Callback for showcase CREATABLE
      *

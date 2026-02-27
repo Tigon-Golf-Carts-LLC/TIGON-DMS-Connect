@@ -434,7 +434,17 @@ class Admin_Page
                 elseif ($m['target_type'] === 'taxonomy') $type_badge = 'purple';
                 elseif ($m['target_type'] === 'post') $type_badge = 'teal';
 
-                echo '<tr data-mapping-id="' . $mid . '">';
+                // Store ALL editable values as data-* attributes so
+                // the Edit button JS never has to scrape cell text.
+                echo '<tr data-mapping-id="' . $mid . '"'
+                    . ' data-dms-path="'      . esc_attr($m['dms_path'])      . '"'
+                    . ' data-woo-target="'     . esc_attr($m['woo_target'])    . '"'
+                    . ' data-target-type="'    . esc_attr($m['target_type'])   . '"'
+                    . ' data-transform="'      . esc_attr($m['transform'])     . '"'
+                    . ' data-transform-cfg="'  . esc_attr($m['transform_cfg']) . '"'
+                    . ' data-is-enabled="'     . ($m['is_enabled'] ? '1' : '0') . '"'
+                    . ' data-sort-order="'     . intval($m['sort_order'])       . '"'
+                    . '>';
                 echo '<td>' . $mid . '</td>';
                 echo '<td><code>' . esc_html($m['dms_path']) . '</code></td>';
                 echo '<td class="fm-arrow-col">&rarr;</td>';
@@ -457,6 +467,7 @@ class Admin_Page
         echo '<h3 id="tigon-form-title" style="margin-top:1.5rem;">Add New Mapping</h3>';
         echo '<div class="fm-form">';
         echo '<input type="hidden" id="tigon-mapping-id" value="0" />';
+        echo '<input type="hidden" id="tigon-sort-order" value="0" />';
 
         // DMS Field Path (with optgroups)
         echo '<div><label>DMS Field Path</label>';
@@ -737,17 +748,36 @@ class Admin_Page
                 $("#tigon-woo-target-custom").hide().val("");
             });
 
+            /* ── Inline status flash (replaces page reload) ───────── */
+            function showStatus(msg, isError) {
+                var $el = $("#tigon-mapping-status");
+                if (!$el.length) {
+                    $el = $("<div id=\"tigon-mapping-status\"></div>").insertAfter("#tigon-form-title");
+                }
+                $el.text(msg)
+                   .css({
+                       display: "block", padding: "0.6rem 1rem", borderRadius: "4px", fontWeight: 600, marginBottom: "0.7rem",
+                       background: isError ? "#fee2e2" : "#d1fae5",
+                       color:      isError ? "#991b1b" : "#065f46",
+                       border:     isError ? "1px solid #fca5a5" : "1px solid #6ee7b7"
+                   });
+                if (!isError) setTimeout(function() { $el.fadeOut(400); }, 3000);
+            }
+
             /* ── Save mapping ───────────────────────────────────────── */
             $("#tigon-save-mapping").on("click", function() {
+                var $btn = $(this);
                 var dmsPath = $("#tigon-dms-path").val();
-                if (dmsPath === "__custom__") dmsPath = $("#tigon-dms-path-custom").val();
+                if (dmsPath === "__custom__") dmsPath = $("#tigon-dms-path-custom").val().trim();
                 var wooTarget = $("#tigon-woo-target").val();
-                if (wooTarget === "__custom__") wooTarget = $("#tigon-woo-target-custom").val();
+                if (wooTarget === "__custom__") wooTarget = $("#tigon-woo-target-custom").val().trim();
 
                 if (!dmsPath || !wooTarget) {
-                    alert("Please select both a DMS field and a WooCommerce target.");
+                    showStatus("Please select both a DMS field and a WooCommerce target.", true);
                     return;
                 }
+
+                $btn.prop("disabled", true).text("Saving...");
 
                 var data = {
                     action: "tigon_dms_save_field_mapping",
@@ -759,51 +789,71 @@ class Admin_Page
                     transform: $("#tigon-transform").val(),
                     transform_cfg: $("#tigon-transform-cfg").val(),
                     is_enabled: $("#tigon-is-enabled").is(":checked") ? 1 : 0,
-                    sort_order: 0
+                    sort_order: parseInt($("#tigon-sort-order").val()) || 0
                 };
 
                 $.post(globals.ajaxurl, data, function(resp) {
                     if (resp.success) {
+                        // Reload to reflect the change in the table
                         location.reload();
                     } else {
-                        alert("Error: " + (resp.data || "Unknown error"));
+                        showStatus("Save failed: " + (resp.data || "Unknown error"), true);
+                        $btn.prop("disabled", false).text("Save Mapping");
                     }
+                }).fail(function(xhr) {
+                    showStatus("Network error (HTTP " + xhr.status + "). Your session may have expired — try refreshing the page.", true);
+                    $btn.prop("disabled", false).text("Save Mapping");
                 });
             });
 
             /* ── Delete mapping ─────────────────────────────────────── */
             $(document).on("click", ".tigon-delete-mapping", function() {
                 if (!confirm("Delete this mapping?")) return;
-                var id = $(this).data("id");
+                var $btn = $(this);
+                var id = $btn.data("id");
+                $btn.prop("disabled", true).text("...");
                 $.post(globals.ajaxurl, {
                     action: "tigon_dms_delete_field_mapping",
                     nonce: nonce,
                     mapping_id: id
                 }, function(resp) {
-                    if (resp.success) location.reload();
-                    else alert("Error deleting mapping");
+                    if (resp.success) {
+                        $btn.closest("tr").fadeOut(300, function() { $(this).remove(); });
+                    } else {
+                        showStatus("Delete failed: " + (resp.data || "Unknown error"), true);
+                        $btn.prop("disabled", false).text("Del");
+                    }
+                }).fail(function(xhr) {
+                    showStatus("Network error (HTTP " + xhr.status + "). Try refreshing the page.", true);
+                    $btn.prop("disabled", false).text("Del");
                 });
             });
 
-            /* ── Edit mapping — populate form ───────────────────────── */
+            /* ── Edit mapping — populate form from data attributes ──── */
             $(document).on("click", ".tigon-edit-mapping", function() {
                 var $row = $(this).closest("tr");
-                var id = $(this).data("id");
+                var id         = $row.data("mapping-id");
+                var dmsPath    = $row.data("dms-path")    || "";
+                var wooTarget  = $row.data("woo-target")  || "";
+                var targetType = $row.data("target-type")  || "postmeta";
+                var transform  = $row.data("transform")    || "direct";
+                var cfg        = $row.data("transform-cfg") || "";
+                var enabled    = $row.data("is-enabled") == 1;
+                var sortOrder  = $row.data("sort-order")   || 0;
+
+                // Convert to strings (jQuery may parse numbers/booleans)
+                dmsPath   = String(dmsPath);
+                wooTarget = String(wooTarget);
+                cfg       = String(cfg);
 
                 $("#tigon-mapping-id").val(id);
                 $("#tigon-form-title").text("Edit Mapping #" + id);
                 $("#tigon-cancel-edit").show();
 
-                var cells = $row.find("td");
-                var dmsPath    = cells.eq(1).text().trim();
-                var targetType = cells.eq(3).text().trim();
-                var wooTarget  = cells.eq(4).text().trim();
-                var transform  = cells.eq(5).text().trim();
-                var cfg        = cells.eq(6).text().trim();
-                var enabled    = cells.eq(7).find("input").is(":checked");
-
+                // Set target type first — this rebuilds the WooCommerce target dropdown
                 $("#tigon-target-type").val(targetType).trigger("change");
 
+                // Set DMS path (use custom input if not in the dropdown)
                 if ($("#tigon-dms-path option[value=\'" + dmsPath + "\']").length) {
                     $("#tigon-dms-path").val(dmsPath);
                     $("#tigon-dms-path-custom").hide();
@@ -812,6 +862,7 @@ class Admin_Page
                     $("#tigon-dms-path-custom").show().val(dmsPath);
                 }
 
+                // Set WooCommerce target after dropdown rebuild settles
                 setTimeout(function() {
                     if ($("#tigon-woo-target option[value=\'" + wooTarget + "\']").length) {
                         $("#tigon-woo-target").val(wooTarget);
@@ -820,11 +871,12 @@ class Admin_Page
                         $("#tigon-woo-target").val("__custom__");
                         $("#tigon-woo-target-custom").show().val(wooTarget);
                     }
-                }, 50);
+                }, 80);
 
                 $("#tigon-transform").val(transform);
                 $("#tigon-transform-cfg").val(cfg);
                 $("#tigon-is-enabled").prop("checked", enabled);
+                $("#tigon-sort-order").val(sortOrder);
 
                 $("html, body").animate({ scrollTop: $("#tigon-form-title").offset().top - 50 }, 300);
             });
@@ -834,6 +886,7 @@ class Admin_Page
                 $("#tigon-mapping-id").val(0);
                 $("#tigon-form-title").text("Add New Mapping");
                 $(this).hide();
+                $("#tigon-mapping-status").hide();
                 $("#tigon-dms-path").val("");
                 $("#tigon-dms-path-custom").hide().val("");
                 $("#tigon-woo-target").val("");
@@ -842,6 +895,7 @@ class Admin_Page
                 $("#tigon-transform").val("direct");
                 $("#tigon-transform-cfg").val("");
                 $("#tigon-is-enabled").prop("checked", true);
+                $("#tigon-sort-order").val(0);
             });
         })(jQuery);
         </script>
@@ -2017,6 +2071,24 @@ class Admin_Page
             ARRAY_A
         );
 
+        // ── All taxonomy terms with tag_ID, name, slug ─────────────
+        // Grouped by taxonomy for the Tag IDs tab
+        $all_terms_raw = $wpdb->get_results(
+            "SELECT t.term_id, t.name, t.slug, tt.taxonomy, tt.count, tt.parent
+             FROM {$wpdb->terms} t
+             INNER JOIN {$wpdb->term_taxonomy} tt ON t.term_id = tt.term_id
+             ORDER BY tt.taxonomy ASC, t.name ASC",
+            ARRAY_A
+        );
+        $terms_by_taxonomy = [];
+        foreach ($all_terms_raw as $term) {
+            $tax = $term['taxonomy'];
+            if (!isset($terms_by_taxonomy[$tax])) {
+                $terms_by_taxonomy[$tax] = [];
+            }
+            $terms_by_taxonomy[$tax][] = $term;
+        }
+
         // Active plugins (extract name from path)
         $active_plugins = get_option('active_plugins', []);
 
@@ -2123,6 +2195,7 @@ class Admin_Page
             'posttypes'  => 'Post Types',
             'woocommerce'=> 'WooCommerce',
             'taxonomies' => 'Taxonomies',
+            'tagids'     => 'Tag IDs &amp; Terms',
             'metakeys'   => 'Meta Keys',
             'tables'     => 'Database Tables',
             'plugins'    => 'Plugins',
@@ -2259,7 +2332,69 @@ class Admin_Page
         }
         echo '</tbody></table></div></div>';
 
-        // ── TAB 5: Meta Keys ────────────────────────────────────────────
+        // ── TAB 5: Tag IDs & Terms ─────────────────────────────────────
+        echo '<div class="dbo-panel" data-panel="tagids">';
+        echo '<h2 style="margin-top:0;">Tag IDs &amp; Terms <span class="dbo-badge teal" style="font-size:0.7rem;vertical-align:middle;">' . esc_html(count($all_terms_raw)) . ' total terms</span></h2>';
+        echo '<p style="color:#666;font-size:0.85rem;">Every taxonomy term in the database with its <strong>Tag ID</strong> (<code>term_id</code>), title, slug, and usage count. Use the Tag ID when building field mappings or referencing terms in code.</p>';
+
+        // Filter pills for taxonomy type
+        echo '<div class="dbo-pill-row" id="tagid-filter-pills">';
+        echo '<div class="dbo-pill active" data-filter-val="all">All</div>';
+        echo '<div class="dbo-pill" data-filter-val="product_cat">Categories</div>';
+        echo '<div class="dbo-pill" data-filter-val="product_tag">Tags</div>';
+        echo '<div class="dbo-pill" data-filter-val="pa_">Attributes (pa_)</div>';
+        $custom_taxes = ['manufacturers', 'models', 'location', 'sound-systems', 'added-features',
+                         'tires', 'vehicle-class', 'drivetrain', 'inventory-status', 'rims', 'product_visibility'];
+        echo '<div class="dbo-pill" data-filter-val="__custom__">Custom Taxonomies</div>';
+        echo '</div>';
+
+        echo '<input type="text" class="dbo-search" id="tagid-search" placeholder="Search by name, slug, tag ID, or taxonomy...">';
+
+        // Total term count per taxonomy (for section headers)
+        $total_all_terms = count($all_terms_raw);
+
+        foreach ($terms_by_taxonomy as $tax_slug => $terms) {
+            $tax_obj = get_taxonomy($tax_slug);
+            $tax_label = $tax_obj ? $tax_obj->label : $tax_slug;
+            $term_count = count($terms);
+            $is_custom = in_array($tax_slug, $custom_taxes, true);
+            $is_attr   = strpos($tax_slug, 'pa_') === 0;
+
+            echo '<div class="dbo-section tagid-section" data-tax="' . esc_attr($tax_slug) . '" data-is-custom="' . ($is_custom ? '1' : '0') . '" data-is-attr="' . ($is_attr ? '1' : '0') . '">';
+            echo '<div class="dbo-section-hd" onclick="this.classList.toggle(\'open\')">';
+            echo '<span class="arrow">&#9654;</span>';
+            echo '<h3>' . esc_html($tax_label) . ' <code style="font-size:0.75rem;font-weight:400;color:#888;">' . esc_html($tax_slug) . '</code></h3>';
+            echo '<span class="dbo-badge ' . ($is_attr ? 'purple' : ($is_custom ? 'teal' : 'blue')) . '">' . esc_html($term_count) . ' terms</span>';
+            echo '</div>';
+            echo '<div class="dbo-section-bd">';
+            echo '<div class="dbo-scroll" style="max-height:400px;">';
+            echo '<table class="dbo-table"><thead><tr>';
+            echo '<th style="width:80px;">Tag ID</th>';
+            echo '<th>Title (Name)</th>';
+            echo '<th>Slug</th>';
+            echo '<th style="width:80px;">Parent</th>';
+            echo '<th style="width:80px;">Count</th>';
+            echo '<th style="width:140px;">Edit Link</th>';
+            echo '</tr></thead><tbody>';
+
+            foreach ($terms as $t) {
+                $edit_url = admin_url('term.php?taxonomy=' . urlencode($tax_slug) . '&tag_ID=' . intval($t['term_id']) . '&post_type=product');
+                echo '<tr class="tagid-row" data-tax="' . esc_attr($tax_slug) . '">';
+                echo '<td><strong>' . esc_html($t['term_id']) . '</strong></td>';
+                echo '<td>' . esc_html($t['name']) . '</td>';
+                echo '<td><code>' . esc_html($t['slug']) . '</code></td>';
+                echo '<td>' . ($t['parent'] > 0 ? esc_html($t['parent']) : '&mdash;') . '</td>';
+                echo '<td>' . esc_html($t['count']) . '</td>';
+                echo '<td><a href="' . esc_url($edit_url) . '" target="_blank" style="font-size:0.78rem;">Edit &rarr;</a></td>';
+                echo '</tr>';
+            }
+
+            echo '</tbody></table></div></div></div>';
+        }
+
+        echo '</div>'; // end tagids panel
+
+        // ── TAB 6: Meta Keys ────────────────────────────────────────────
         echo '<div class="dbo-panel" data-panel="metakeys">';
         echo '<h2 style="margin-top:0;">Product Meta Keys <span class="dbo-badge teal" style="font-size:0.7rem;vertical-align:middle;">' . esc_html(count($meta_rows)) . ' total</span></h2>';
         echo '<input type="text" class="dbo-search" data-filter="meta-all" placeholder="Search all meta keys...">';
@@ -2563,6 +2698,47 @@ class Admin_Page
                     });
                 });
             });
+
+            // ── Tag IDs tab: filter pills ─────────────────────────────
+            var tagidPills = document.querySelectorAll("#tagid-filter-pills .dbo-pill");
+            var customTaxes = ["manufacturers","models","location","sound-systems","added-features","tires","vehicle-class","drivetrain","inventory-status","rims","product_visibility"];
+            tagidPills.forEach(function(pill){
+                pill.addEventListener("click", function(){
+                    tagidPills.forEach(function(p){ p.classList.remove("active"); });
+                    pill.classList.add("active");
+                    var val = pill.dataset.filterVal;
+                    document.querySelectorAll(".tagid-section").forEach(function(sec){
+                        var tax = sec.dataset.tax || "";
+                        if(val === "all"){
+                            sec.style.display = "";
+                        } else if(val === "__custom__"){
+                            sec.style.display = (customTaxes.indexOf(tax) > -1) ? "" : "none";
+                        } else if(val === "pa_"){
+                            sec.style.display = (tax.indexOf("pa_") === 0) ? "" : "none";
+                        } else {
+                            sec.style.display = (tax === val) ? "" : "none";
+                        }
+                    });
+                });
+            });
+
+            // ── Tag IDs tab: search ───────────────────────────────────
+            var tagidSearch = document.getElementById("tagid-search");
+            if(tagidSearch){
+                tagidSearch.addEventListener("input", function(){
+                    var q = this.value.toLowerCase();
+                    document.querySelectorAll(".tagid-row").forEach(function(row){
+                        row.style.display = row.textContent.toLowerCase().indexOf(q) > -1 ? "" : "none";
+                    });
+                    document.querySelectorAll(".tagid-section").forEach(function(sec){
+                        var visible = sec.querySelectorAll(".tagid-row:not([style*=\"display: none\"])");
+                        sec.style.display = (!q || visible.length > 0) ? "" : "none";
+                        if(q && visible.length > 0){
+                            sec.querySelector(".dbo-section-hd").classList.add("open");
+                        }
+                    });
+                });
+            }
         })();
         </script>';
     }
@@ -2639,6 +2815,58 @@ class Admin_Page
                         </div>
                     </div>
                     <a id="save" class="tigon_dms_action tigon_dms_save" data-nonce="' . $nonce . '"><button>Save Settings</button></a>
+
+                    <hr style="margin:1.5rem 0; border:none; border-top:1px solid #ddd;" />
+
+                    <h3 style="margin:0 0 0.5rem 0;">REST API Endpoints</h3>
+                    <p style="font-size:0.85rem; color:#666; margin:0 0 1rem 0;">These are the endpoint addresses the DMS uses to push data to this site. All endpoints require authentication (WordPress application password or logged-in admin session).</p>
+
+                    <div class="settings form" style="gap:0.6rem;">
+                        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                            <span style="min-width:160px; font-weight:600; font-size:0.85rem;">Single Cart Push:</span>
+                            <code id="endpoint-push" style="background:#f0f4f8; padding:0.35rem 0.7rem; border-radius:4px; font-size:0.82rem; word-break:break-all; flex:1; border:1px solid #d0d5dd;">' . esc_html(rest_url('tigon-dms-connect/v1/push')) . '</code>
+                            <button type="button" class="tigon-copy-btn" data-target="endpoint-push" style="padding:0.3rem 0.7rem; font-size:0.78rem; cursor:pointer; border:1px solid #ccc; border-radius:4px; background:#fff;">Copy</button>
+                        </div>
+                        <div style="font-size:0.78rem; color:#888; margin-left:160px; margin-top:-0.2rem;">
+                            <strong>POST</strong> &mdash; Send a single DMS cart JSON object when it is updated or changed. Creates or updates the WooCommerce product using field mappings and schema templates.
+                        </div>
+
+                        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-top:0.7rem;">
+                            <span style="min-width:160px; font-weight:600; font-size:0.85rem;">Push Used Cart:</span>
+                            <code id="endpoint-used" style="background:#f0f4f8; padding:0.35rem 0.7rem; border-radius:4px; font-size:0.82rem; word-break:break-all; flex:1; border:1px solid #d0d5dd;">' . esc_html(rest_url('tigon-dms-connect/used')) . '</code>
+                            <button type="button" class="tigon-copy-btn" data-target="endpoint-used" style="padding:0.3rem 0.7rem; font-size:0.78rem; cursor:pointer; border:1px solid #ccc; border-radius:4px; background:#fff;">Copy</button>
+                        </div>
+                        <div style="font-size:0.78rem; color:#888; margin-left:160px; margin-top:-0.2rem;">
+                            <strong>POST</strong> &mdash; Create or update a used cart. <strong>DELETE</strong> &mdash; Remove a used cart.
+                        </div>
+
+                        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-top:0.7rem;">
+                            <span style="min-width:160px; font-weight:600; font-size:0.85rem;">Push New Cart:</span>
+                            <code id="endpoint-new" style="background:#f0f4f8; padding:0.35rem 0.7rem; border-radius:4px; font-size:0.82rem; word-break:break-all; flex:1; border:1px solid #d0d5dd;">' . esc_html(rest_url('tigon-dms-connect/new/update')) . '</code>
+                            <button type="button" class="tigon-copy-btn" data-target="endpoint-new" style="padding:0.3rem 0.7rem; font-size:0.78rem; cursor:pointer; border:1px solid #ccc; border-radius:4px; background:#fff;">Copy</button>
+                        </div>
+                        <div style="font-size:0.78rem; color:#888; margin-left:160px; margin-top:-0.2rem;">
+                            <strong>POST</strong> &mdash; Create or update a new (non-used) cart.
+                        </div>
+
+                        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-top:0.7rem;">
+                            <span style="min-width:160px; font-weight:600; font-size:0.85rem;">Lookup by Slug:</span>
+                            <code id="endpoint-pid" style="background:#f0f4f8; padding:0.35rem 0.7rem; border-radius:4px; font-size:0.82rem; word-break:break-all; flex:1; border:1px solid #d0d5dd;">' . esc_html(rest_url('tigon-dms-connect/new/pid')) . '</code>
+                            <button type="button" class="tigon-copy-btn" data-target="endpoint-pid" style="padding:0.3rem 0.7rem; font-size:0.78rem; cursor:pointer; border:1px solid #ccc; border-radius:4px; background:#fff;">Copy</button>
+                        </div>
+                        <div style="font-size:0.78rem; color:#888; margin-left:160px; margin-top:-0.2rem;">
+                            <strong>POST</strong> &mdash; Get WooCommerce product ID by website URL slug.
+                        </div>
+
+                        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-top:0.7rem;">
+                            <span style="min-width:160px; font-weight:600; font-size:0.85rem;">Showcase Grid:</span>
+                            <code id="endpoint-showcase" style="background:#f0f4f8; padding:0.35rem 0.7rem; border-radius:4px; font-size:0.82rem; word-break:break-all; flex:1; border:1px solid #d0d5dd;">' . esc_html(rest_url('tigon-dms-connect/showcase')) . '</code>
+                            <button type="button" class="tigon-copy-btn" data-target="endpoint-showcase" style="padding:0.3rem 0.7rem; font-size:0.78rem; cursor:pointer; border:1px solid #ccc; border-radius:4px; background:#fff;">Copy</button>
+                        </div>
+                        <div style="font-size:0.78rem; color:#888; margin-left:160px; margin-top:-0.2rem;">
+                            <strong>POST</strong> &mdash; Set the featured product grid for a location page.
+                        </div>
+                    </div>
                 </div>
 
                 <div class="action-box" id="schema">
@@ -2811,6 +3039,32 @@ class Admin_Page
             </div>
                 </div>
         </div>
+        <script>
+        document.querySelectorAll(".tigon-copy-btn").forEach(function(btn){
+            btn.addEventListener("click", function(){
+                var target = document.getElementById(btn.dataset.target);
+                if(!target) return;
+                var text = target.textContent;
+                if(navigator.clipboard && navigator.clipboard.writeText){
+                    navigator.clipboard.writeText(text).then(function(){
+                        btn.textContent = "Copied!";
+                        setTimeout(function(){ btn.textContent = "Copy"; }, 2000);
+                    });
+                } else {
+                    var ta = document.createElement("textarea");
+                    ta.value = text;
+                    ta.style.position = "fixed";
+                    ta.style.opacity = "0";
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand("copy");
+                    document.body.removeChild(ta);
+                    btn.textContent = "Copied!";
+                    setTimeout(function(){ btn.textContent = "Copy"; }, 2000);
+                }
+            });
+        });
+        </script>
         ';
     }
 
