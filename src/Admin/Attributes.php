@@ -206,7 +206,7 @@ class Attributes
             'hide_empty' => false
         ]);
         foreach($category_list as $category) {
-            $categories[strtoupper($category->name)] = $category->term_id;
+            $categories[strtoupper($category->name)] = $category->term_taxonomy_id;
         }
         return $categories;
     }
@@ -223,7 +223,7 @@ class Attributes
             'hide_empty' => false
         ]);
         foreach($tag_list as $tag) {
-            $tags[strtoupper($tag->name)] = $tag->term_id;
+            $tags[strtoupper($tag->name)] = $tag->term_taxonomy_id;
         }
         return $tags;
     }
@@ -257,7 +257,7 @@ class Attributes
                 'fields' => 'all',
                 'hide_empty' => false
             )) as $term) {
-                $attributes[$attr->attribute_name]['options'][strtoupper($term->name)] = $term->term_id;
+                $attributes[$attr->attribute_name]['options'][strtoupper($term->name)] = $term->term_taxonomy_id;
             }
         }
         return $attributes;
@@ -275,7 +275,7 @@ class Attributes
             'hide_empty' => false
         ]);
         foreach($manufacturers as $term) {
-            $manufacturers_taxonomy[strtoupper($term->name)] = $term->term_id;
+            $manufacturers_taxonomy[strtoupper($term->name)] = $term->term_taxonomy_id;
         }
         return $manufacturers_taxonomy;
     }
@@ -292,7 +292,7 @@ class Attributes
             'hide_empty' => false
         ]);
         foreach($models as $term) {
-            $models_taxonomy[strtoupper($term->name)] = $term->term_id;
+            $models_taxonomy[strtoupper($term->name)] = $term->term_taxonomy_id;
         }
         return $models_taxonomy;
     }
@@ -309,7 +309,7 @@ class Attributes
             'hide_empty' => false
         ]);
         foreach($classes as $term) {
-            $classes_taxonomy[strtoupper($term->name)] = $term->term_id;
+            $classes_taxonomy[strtoupper($term->name)] = $term->term_taxonomy_id;
         }
         return $classes_taxonomy;
     }
@@ -326,7 +326,7 @@ class Attributes
             'hide_empty' => false
         ]);
         foreach($features as $term) {
-            $features_taxonomy[strtoupper($term->name)] = $term->term_id;
+            $features_taxonomy[strtoupper($term->name)] = $term->term_taxonomy_id;
         }
         return $features_taxonomy;
     }
@@ -343,7 +343,7 @@ class Attributes
             'hide_empty' => false
         ]);
         foreach($sound_systems as $term) {
-            $sound_systems_taxonomy[strtoupper($term->name)] = $term->term_id;
+            $sound_systems_taxonomy[strtoupper($term->name)] = $term->term_taxonomy_id;
         }
         return $sound_systems_taxonomy;
     }
@@ -360,7 +360,7 @@ class Attributes
             'hide_empty' => false
         ]);
         foreach($drivetrains as $term) {
-            $drivetrain_taxonomy[strtoupper($term->name)] = $term->term_id;
+            $drivetrain_taxonomy[strtoupper($term->name)] = $term->term_taxonomy_id;
         }
         return $drivetrain_taxonomy;
     }
@@ -377,7 +377,7 @@ class Attributes
             'hide_empty' => false
         ]);
         foreach($statuses as $term) {
-            $inventory_status_taxonomy[strtoupper($term->name)] = $term->term_id;
+            $inventory_status_taxonomy[strtoupper($term->name)] = $term->term_taxonomy_id;
         }
         return $inventory_status_taxonomy;
     }
