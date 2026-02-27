@@ -999,7 +999,7 @@ class Admin_Page
         .sync-live-stats{display:flex;gap:1.5rem;flex-wrap:wrap;margin-top:0.5rem;font-size:0.82rem;}
         .sync-live-stats span{font-weight:600;}
         .sync-live-stats .created{color:#28a745;} .sync-live-stats .updated{color:#007bff;}
-        .sync-live-stats .errors{color:#dc3545;} .sync-live-stats .total{color:#333;}
+        .sync-live-stats .skipped{color:#856404;} .sync-live-stats .errors{color:#dc3545;} .sync-live-stats .total{color:#333;}
         </style>
         <script>
         jQuery(document).ready(function($) {
@@ -1024,6 +1024,7 @@ class Admin_Page
                     \'<span class="total">Processed: <em>0</em></span>\' +
                     \'<span class="created">Created: <em>0</em></span>\' +
                     \'<span class="updated">Updated: <em>0</em></span>\' +
+                    \'<span class="skipped">Skipped: <em>0</em></span>\' +
                     \'<span class="errors">Errors: <em>0</em></span>\' +
                     \'</div></div>\'
                 ).show();
@@ -1037,6 +1038,7 @@ class Admin_Page
                 $results.find(".total em").text(offset);
                 $results.find(".created em").text(stats.created);
                 $results.find(".updated em").text(stats.updated);
+                $results.find(".skipped em").text(stats.skipped || 0);
                 $results.find(".errors em").text(stats.errors);
             }
 
@@ -1050,12 +1052,22 @@ class Admin_Page
                 if (stats.skipped !== undefined) html += "<li><strong>Skipped:</strong> " + stats.skipped + "</li>";
                 html += "<li><strong>Errors:</strong> " + stats.errors + "</li>";
                 html += "</ul>";
+                if (stats.skip_details && stats.skip_details.length > 0) {
+                    html += \'<details style="margin-top:0.5rem;"><summary style="cursor:pointer;font-weight:600;color:#856404;">Skip reasons (\' + stats.skip_details.length + ")</summary>";
+                    html += \'<ul style="list-style:disc;padding-left:1.5rem;font-size:0.85rem;max-height:300px;overflow-y:auto;">\';
+                    stats.skip_details.slice(0, 100).forEach(function(e) {
+                        html += "<li>" + $("<span>").text(e).html() + "</li>";
+                    });
+                    if (stats.skip_details.length > 100) html += "<li><em>...and " + (stats.skip_details.length - 100) + " more</em></li>";
+                    html += "</ul></details>";
+                }
                 if (stats.error_details && stats.error_details.length > 0) {
-                    html += "<details><summary>Error details (" + stats.error_details.length + ")</summary><ul style=\'list-style:disc;padding-left:1.5rem;\'>";
+                    html += \'<details style="margin-top:0.5rem;"><summary style="cursor:pointer;font-weight:600;color:#dc3545;">Error details (\' + stats.error_details.length + ")</summary>";
+                    html += \'<ul style="list-style:disc;padding-left:1.5rem;font-size:0.85rem;max-height:300px;overflow-y:auto;">\';
                     stats.error_details.slice(0, 50).forEach(function(e) {
                         html += "<li>" + $("<span>").text(e).html() + "</li>";
                     });
-                    if (stats.error_details.length > 50) html += "<li>...and " + (stats.error_details.length - 50) + " more</li>";
+                    if (stats.error_details.length > 50) html += "<li><em>...and " + (stats.error_details.length - 50) + " more</em></li>";
                     html += "</ul></details>";
                 }
                 html += "</div>";
@@ -1101,7 +1113,7 @@ class Admin_Page
                         var syncId = initResp.data.sync_id;
                         var total = initResp.data.total;
                         var batchSize = initResp.data.batch_size || 5;
-                        var cumulative = { created: 0, updated: 0, skipped: 0, errors: 0, error_details: [] };
+                        var cumulative = { created: 0, updated: 0, skipped: 0, errors: 0, error_details: [], skip_details: [] };
                         var retries = 0;
                         var maxRetries = 2;
 
@@ -1138,6 +1150,7 @@ class Admin_Page
                                     cumulative.created += (d.created || 0);
                                     cumulative.updated += (d.updated || 0);
                                     cumulative.skipped += (d.skipped || 0);
+                                    cumulative.skip_details = cumulative.skip_details.concat(d.skip_details || []);
                                     cumulative.errors += (d.errors || 0);
                                     cumulative.error_details = cumulative.error_details.concat(d.error_details || []);
 
@@ -1206,7 +1219,7 @@ class Admin_Page
                         var syncId = initResp.data.sync_id;
                         var total = initResp.data.total;
                         var batchSize = initResp.data.batch_size || 3;
-                        var cumulative = { created: 0, updated: 0, skipped: 0, errors: 0, error_details: [] };
+                        var cumulative = { created: 0, updated: 0, skipped: 0, errors: 0, error_details: [], skip_details: [] };
                         var retries = 0;
                         var maxRetries = 2;
                         var processed = 0;
@@ -1251,6 +1264,7 @@ class Admin_Page
                                     cumulative.skipped += (d.skipped || 0);
                                     cumulative.errors += (d.errors || 0);
                                     cumulative.error_details = cumulative.error_details.concat(d.error_details || []);
+                                    cumulative.skip_details = cumulative.skip_details.concat(d.skip_details || []);
 
                                     processed += batchSize;
                                     if (processed > total) processed = total;

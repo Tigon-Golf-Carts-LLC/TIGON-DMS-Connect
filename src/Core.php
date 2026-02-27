@@ -856,46 +856,64 @@ class Core
                 'skipped'       => 0,
                 'errors'        => 0,
                 'error_details' => [],
+                'skip_details'  => [],
             ];
 
             foreach ($batch as $cart) {
                 $cart_id = $cart['_id'] ?? '';
                 if (empty($cart_id)) {
+                    $stats['skipped']++;
+                    $stats['skip_details'][] = '(unknown cart): Missing _id field';
                     continue;
                 }
+
+                // Build a human-readable label for skip messages
+                $make  = $cart['cartType']['make'] ?? '';
+                $model = $cart['cartType']['model'] ?? '';
+                $color = $cart['cartAttributes']['cartColor'] ?? '';
+                $serial = $cart['serialNo'] ?? '';
+                $cart_label = trim("{$make} {$model}") ?: $cart_id;
+                if ($color) $cart_label .= " ({$color})";
+                if ($serial) $cart_label .= " SN:{$serial}";
 
                 $is_used = !empty($cart['isUsed']);
 
                 // Filter by sync type
                 if ($sync_type === 'new' && $is_used) {
                     $stats['skipped']++;
+                    $stats['skip_details'][] = "{$cart_label}: Skipped — used cart (syncing new only)";
                     continue;
                 }
                 if ($sync_type === 'used' && !$is_used) {
                     $stats['skipped']++;
+                    $stats['skip_details'][] = "{$cart_label}: Skipped — new cart (syncing used only)";
                     continue;
                 }
 
                 // Eligibility filters
                 if (!empty($cart['isInBoneyard'])) {
                     $stats['skipped']++;
+                    $stats['skip_details'][] = "{$cart_label}: Skipped — in boneyard";
                     continue;
                 }
                 $is_in_stock = isset($cart['isInStock']) ? $cart['isInStock'] : true;
                 if (!$is_in_stock) {
                     $stats['skipped']++;
+                    $stats['skip_details'][] = "{$cart_label}: Skipped — not in stock";
                     continue;
                 }
                 $need_on_website = $cart['advertising']['needOnWebsite']
                     ?? ($cart['needOnWebsite'] ?? true);
                 if (!$need_on_website) {
                     $stats['skipped']++;
+                    $stats['skip_details'][] = "{$cart_label}: Skipped — needOnWebsite is false";
                     continue;
                 }
-                $serial = strtoupper($cart['serialNo'] ?? '');
+                $serial_upper = strtoupper($cart['serialNo'] ?? '');
                 $vin    = strtoupper($cart['vinNo'] ?? '');
-                if (str_contains($serial, 'DELETE') || str_contains($vin, 'DELETE')) {
+                if (str_contains($serial_upper, 'DELETE') || str_contains($vin, 'DELETE')) {
                     $stats['skipped']++;
+                    $stats['skip_details'][] = "{$cart_label}: Skipped — serial/VIN contains DELETE";
                     continue;
                 }
 
@@ -911,6 +929,7 @@ class Core
                     ]);
                     if (isset($seen_new[$dedup_key])) {
                         $stats['skipped']++;
+                        $stats['skip_details'][] = "{$cart_label}: Skipped — duplicate new cart (same make/model/color/seat/location)";
                         continue;
                     }
                     $seen_new[$dedup_key] = true;
