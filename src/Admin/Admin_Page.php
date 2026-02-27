@@ -29,7 +29,6 @@ class Admin_Page
         $icon_url = $data_uri;
         $position = 55;
         add_menu_page($page_title, $menu_title, $capability, $menu_slug, $callback, $icon_url, $position);
-        self::add_import_page();
         self::add_settings_page();
         self::add_database_objects_page();
         self::add_field_mapping_page();

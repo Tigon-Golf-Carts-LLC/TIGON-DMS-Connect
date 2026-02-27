@@ -31,7 +31,6 @@ class Core
     {
         // Enqueue scripts
         add_action('load-toplevel_page_tigon-dms-connect', 'Tigon\DmsConnect\Core::diagnostic_script_enqueue');
-        add_action('load-tigon-dms-connect_page_import', 'Tigon\DmsConnect\Core::import_script_enqueue');
         add_action('load-tigon-dms-connect_page_settings', 'Tigon\DmsConnect\Core::settings_script_enqueue');
         add_action('load-tigon-dms-connect_page_field-mapping', 'Tigon\DmsConnect\Core::field_mapping_script_enqueue');
         add_action('load-tigon-dms-connect_page_dms-inventory-sync', 'Tigon\DmsConnect\Core::sync_script_enqueue');
