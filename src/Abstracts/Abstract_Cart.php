@@ -254,6 +254,81 @@ abstract class Abstract_Cart
     }
 
     /**
+     * Map make_with_symbol to the correct manufacturers taxonomy term name.
+     * DMS make values like "Teko" produce make_with_symbol "Teko®", but the
+     * manufacturer term may be "TEKO EV®", "MOTO EV®", etc.
+     * Returns the uppercase manufacturer key, or null.
+     */
+    protected function resolve_manufacturer_key(string $make_upper): ?string
+    {
+        // Explicit overrides where the DMS make name differs from the taxonomy term
+        static $mfg_map = [
+            'SWIFT EV®'      => 'SWIFT®',
+            'STAR®'          => 'STAR EV®',
+            'TEKO®'          => 'TEKO EV®',
+            'MOTO ELECTRIC®' => 'MOTO EV®',
+            'MOTO®'          => 'MOTO EV®',
+            'KODIAK®'        => 'KODIAK EV®',
+            'VENOM®'         => 'VENOM EV®',
+            'MAMMOTH®'       => 'MAMMOTH EV®',
+            'VIVID®'         => 'VIVID EV®',
+            'TROJAN®'        => 'TROJAN EV®',
+            'VOYAGER®'       => 'VOYAGER EV®',
+            'VIKING®'        => 'VIKING EV®',
+            'ALSET®'         => 'ALSET EV®',
+            'AETRIC®'        => 'AETRIC EV®',
+            'ADVANCED®'      => 'ADVANCED EV®',
+            'LEGION®'        => 'LEGION EV®',
+            'SPARTAN®'       => 'SPARTAN EV®',
+            'NEVO®'          => 'NEVO EV®',
+            'SPREE®'         => 'SPREE EV®',
+            'BREMARK®'       => 'BREMARK EV®',
+            'BREEZY®'        => 'BREEZY EV®',
+            'ACTIVE®'        => 'ACTIVE EV®',
+            'GORILLA RIDES®' => 'GORILLA RIDES EV®',
+            'EPIC CARTS®'    => 'EPIC®',
+            'CROWN®'         => 'CROWN CARTS®',
+            'FREEDOM®'       => 'FREEDOM CARTS®',
+            'SUNDAY®'        => 'SUNDAY CARTS®',
+            'DYNAMIC®'       => 'DYNAMIC CARTS®',
+            'ENVY®'          => 'ENVY GOLF CART®',
+            'HONOR®'         => 'HONOR LSV®',
+            'OLYMPUS®'       => 'OLYMPUS LSV®',
+            'SIERRA®'        => 'SIERRA LSV®',
+            'IRONBULL®'      => 'IRONBULL CART®',
+            'VIPER®'         => 'VIPER CART®',
+            'MASSIMO®'       => 'MASSIMO MOTOR®',
+            'MOKO®'          => 'MOKO AMERICA®',
+        ];
+
+        if (isset($mfg_map[$make_upper])) {
+            return $mfg_map[$make_upper];
+        }
+
+        // Direct match — most manufacturers (CLUB CAR®, EVOLUTION®, EZGO®, etc.)
+        if (isset($this->generated_attributes->manufacturers_taxonomy[$make_upper])) {
+            return $make_upper;
+        }
+
+        // Fallback — try adding " EV" before the ® for EV-suffixed manufacturer terms
+        $ev_key = str_replace('®', 'EV®', $make_upper);
+        $ev_key = str_replace('EV®', ' EV®', $ev_key);
+        // Avoid double space if make already ended with a space before ®
+        $ev_key = preg_replace('/\s+/', ' ', $ev_key);
+        if (isset($this->generated_attributes->manufacturers_taxonomy[$ev_key])) {
+            return $ev_key;
+        }
+
+        // Fallback — try without ® symbol
+        $without_symbol = trim(str_replace('®', '', $make_upper));
+        if (isset($this->generated_attributes->manufacturers_taxonomy[$without_symbol])) {
+            return $without_symbol;
+        }
+
+        return null;
+    }
+
+    /**
      * Parent-child relationships for the added-features taxonomy.
      * Key = child term name (uppercase), Value = parent term name (uppercase).
      */
@@ -1488,21 +1563,12 @@ abstract class Abstract_Cart
         // primary_location uses term_id (for Yoast SEO meta)
         $this->primary_location = Attributes::$locations[$this->location_id]['city_id'];
 
-        // Manufacturers
-        if (strtoupper($this->make_with_symbol) == 'SWIFT EV®') {
+        // Manufacturers — resolve make to the correct manufacturer taxonomy term
+        $mfg_key = $this->resolve_manufacturer_key(strtoupper($this->make_with_symbol));
+        if ($mfg_key !== null && isset($this->generated_attributes->manufacturers_taxonomy[$mfg_key])) {
             array_push(
                 $this->taxonomy_terms,
-                $this->generated_attributes->manufacturers_taxonomy['SWIFT®']
-            );
-        } else if (strtoupper($this->make_with_symbol) == 'STAR®') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->manufacturers_taxonomy['STAR EV®']
-            );
-        } else {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->manufacturers_taxonomy[strtoupper($this->make_with_symbol)]
+                $this->generated_attributes->manufacturers_taxonomy[$mfg_key]
             );
         }
 
