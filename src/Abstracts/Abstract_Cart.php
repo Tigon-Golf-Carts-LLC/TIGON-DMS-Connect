@@ -254,6 +254,82 @@ abstract class Abstract_Cart
     }
 
     /**
+     * Parent-child relationships for the added-features taxonomy.
+     * Key = child term name (uppercase), Value = parent term name (uppercase).
+     */
+    protected static $feature_parents = [
+        'BUMPER GUARDS'              => 'BRUSH GUARD',
+        'CENTER GRILLE GUARD'        => 'BRUSH GUARD',
+        'FULL FRONT END GRILLE GUARD'=> 'BRUSH GUARD',
+        'NUDGE BAR'                  => 'BRUSH GUARD',
+        'SKID PLATE'                 => 'BRUSH GUARD',
+        'SPORT BARS'                 => 'BRUSH GUARD',
+        'TAIL LIGHT GUARD'           => 'BRUSH GUARD',
+        'LIGHT BAR'                  => 'LEDS',
+        'UNDER GLOW'                 => 'LEDS',
+        'CARGO'                      => 'UTILITY BED',
+        'CARGO BOX'                  => 'CARGO',
+        'CARGO CAGE'                 => 'CARGO',
+        'CARGO HALF WALL'            => 'CARGO',
+        'DUMP BED'                   => 'UTILITY BED',
+        'FLAT BED'                   => 'UTILITY BED',
+        'RETRACTABLE BED'            => 'UTILITY BED',
+    ];
+
+    /**
+     * Map camelCase payload keys from addedFeatures booleans to taxonomy term names.
+     */
+    protected static $feature_bool_map = [
+        'staticStock'  => 'STATIC STOCK',
+        'brushGuard'   => 'BRUSH GUARD',
+        'clayBasket'   => 'CLAY BASKET',
+        'fenderFlares' => 'FENDER FLARES',
+        'LEDs'         => 'LEDS',
+        'lightBar'     => 'LIGHT BAR',
+        'underGlow'    => 'UNDER GLOW',
+        'stockOptions' => 'STOCK OPTIONS',
+        'vehicleWrap'  => 'VEHICLE WRAP',
+        'towHitch'     => 'TOW HITCH',
+        'liftKit'      => 'LIFT KIT',
+        'bumperGuards' => 'BUMPER GUARDS',
+        'centerGrilleGuard'      => 'CENTER GRILLE GUARD',
+        'fullFrontEndGrilleGuard'=> 'FULL FRONT END GRILLE GUARD',
+        'nudgeBar'     => 'NUDGE BAR',
+        'skidPlate'    => 'SKID PLATE',
+        'sportBars'    => 'SPORT BARS',
+        'tailLightGuard'=> 'TAIL LIGHT GUARD',
+        'utilityBed'   => 'UTILITY BED',
+        'cargo'        => 'CARGO',
+        'cargoBox'     => 'CARGO BOX',
+        'cargoCage'    => 'CARGO CAGE',
+        'cargoHalfWall'=> 'CARGO HALF WALL',
+        'dumpBed'      => 'DUMP BED',
+        'flatBed'      => 'FLAT BED',
+        'retractableBed'=> 'RETRACTABLE BED',
+    ];
+
+    /**
+     * Resolve an added-feature name to its term_taxonomy_id(s), including parent terms.
+     * Returns an array of term_taxonomy_ids (child first, then parents up the chain).
+     */
+    protected function resolve_added_feature(string $feature_name): array
+    {
+        $key = strtoupper(trim($feature_name));
+        $ids = [];
+
+        // Walk the feature and its parent chain
+        $current = $key;
+        while ($current !== null) {
+            if (isset($this->generated_attributes->added_features_taxonomy[$current])) {
+                $ids[] = $this->generated_attributes->added_features_taxonomy[$current];
+            }
+            $current = self::$feature_parents[$current] ?? null;
+        }
+
+        return $ids;
+    }
+
+    /**
      * Cached schema templates loaded from tigon_dms_config.
      *
      * @var array<string,string>|null
@@ -1497,40 +1573,57 @@ abstract class Abstract_Cart
             );
         }
 
-        // Added Features
+        // Added Features — process boolean flags from addedFeatures payload
+        // and cartAttributes, mapping each to the added-features taxonomy
+        // including parent terms in the hierarchy.
+        $feature_ids = [];
         if (isset($this->cart['addedFeatures'])) {
-            if ($this->cart['addedFeatures']['staticStock'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['STATIC STOCK']);
+            $af = $this->cart['addedFeatures'];
+            foreach (self::$feature_bool_map as $payload_key => $term_name) {
+                if (!empty($af[$payload_key])) {
+                    foreach ($this->resolve_added_feature($term_name) as $id) {
+                        $feature_ids[$id] = true;
+                    }
+                }
+            }
+        }
 
+        // Lift Kit from cartAttributes.isLifted
+        if (!empty($this->cart['cartAttributes']['isLifted'])) {
+            foreach ($this->resolve_added_feature('LIFT KIT') as $id) {
+                $feature_ids[$id] = true;
+            }
+        }
 
-            if ($this->cart['addedFeatures']['brushGuard'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['BRUSH GUARD']);
+        // Tow Hitch from cartAttributes.hitch
+        if (!empty($this->cart['cartAttributes']['hitch'])) {
+            foreach ($this->resolve_added_feature('TOW HITCH') as $id) {
+                $feature_ids[$id] = true;
+            }
+        }
 
+        // Utility Bed from cartAttributes.utilityBed
+        if (!empty($this->cart['cartAttributes']['utilityBed'])) {
+            foreach ($this->resolve_added_feature('UTILITY BED') as $id) {
+                $feature_ids[$id] = true;
+            }
+        }
 
-            if ($this->cart['addedFeatures']['clayBasket'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['CLAY BASKET']);
+        // Also process cartAttributes.addedFeatures array (string names or objects)
+        if (isset($this->cart['cartAttributes']['addedFeatures']) && is_array($this->cart['cartAttributes']['addedFeatures'])) {
+            foreach ($this->cart['cartAttributes']['addedFeatures'] as $feature) {
+                $name = is_string($feature) ? $feature : ($feature['name'] ?? '');
+                if (!empty($name)) {
+                    foreach ($this->resolve_added_feature($name) as $id) {
+                        $feature_ids[$id] = true;
+                    }
+                }
+            }
+        }
 
-
-            if ($this->cart['addedFeatures']['fenderFlares'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['FENDER FLARES']);
-
-            if ($this->cart['addedFeatures']['LEDs'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['LEDS']);
-
-            if ($this->cart['addedFeatures']['lightBar'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['LIGHT BAR']);
-
-            if ($this->cart['addedFeatures']['underGlow'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['UNDER GLOW']);
-
-            if ($this->cart['cartAttributes']['isLifted'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['LIFT KIT']);
-
-            if ($this->cart['cartAttributes']['hitch'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['TOW HITCH']);
-
-            if ($this->cart['addedFeatures']['stockOptions'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['STOCK OPTIONS']);
+        // Push all resolved added-feature term_taxonomy_ids (deduplicated via keys)
+        foreach (array_keys($feature_ids) as $id) {
+            array_push($this->taxonomy_terms, $id);
         }
 
         // Vehicle class taxonomy
