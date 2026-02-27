@@ -1289,22 +1289,22 @@ class Admin_Page
                 });
             });
 
-            /* ── Publish Synced Inventory (batched, Cloudflare-safe) ── */
+            /* ── Publish Synced Inventory (micro-batched, Cloudflare-safe) ── */
             $("#dms-publish-btn").on("click", function() {
                 var $btn = $(this);
                 var $spinner = $("#dms-publish-spinner");
                 var $results = $("#dms-publish-results");
 
-                $btn.prop("disabled", true).text("Scanning products...");
+                $btn.prop("disabled", true).text("Scanning DMS products...");
                 $spinner.addClass("is-active");
                 $results.hide();
 
-                // Step 1: Init — get list of DMS product IDs
+                // Step 1: Init — collect DMS product IDs server-side
                 $.ajax({
                     url: ajaxurl,
                     type: "POST",
                     data: { action: "tigon_dms_publish_synced_init", nonce: publishNonce },
-                    timeout: 60000,
+                    timeout: 30000,
                     success: function(initResp) {
                         if (!initResp.success) {
                             $spinner.removeClass("is-active");
@@ -1313,31 +1313,38 @@ class Admin_Page
                             return;
                         }
 
-                        var syncId = initResp.data.sync_id;
-                        var total = initResp.data.total;
-                        var toPublish = initResp.data.to_publish || 0;
-                        var cumulative = { published: 0, featured: 0, already: 0, errors: [] };
-                        var retries = 0;
-                        var maxRetries = 2;
+                        var d = initResp.data;
 
-                        if (total === 0) {
+                        // If there is nothing to do (0 products) the server
+                        // returns done:true and no sync_id.
+                        if (d.total === 0 || d.done) {
                             $spinner.removeClass("is-active");
                             $btn.prop("disabled", false).text("Publish All DMS Products");
-                            $results.html(\'<div style="background:#d4edda;border:1px solid #c3e6cb;padding:1rem;border-radius:4px;"><p>No DMS-synced products found.</p></div>\').show();
+                            $results.html(\'<div style="background:#d4edda;border:1px solid #c3e6cb;padding:1rem;border-radius:4px;"><p>\' + (d.message || "No DMS-synced products found.") + "</p></div>").show();
                             return;
                         }
 
+                        var syncId     = d.sync_id;
+                        var total      = d.total;
+                        var toPublish  = d.to_publish || 0;
+                        var batchSize  = d.batch_size || 3;
+                        var cumulative = { published: 0, featured: 0, already: 0, errors: [] };
+                        var retries    = 0;
+                        var maxRetries = 4;
+
                         $btn.text("Publishing " + toPublish + " of " + total + " DMS products...");
                         showProgress($results, total);
-                        $results.find(".sync-progress-status").text("Found " + total + " DMS products (" + toPublish + " need publishing). Processing 10 at a time...");
+                        $results.find(".sync-progress-status").text(
+                            "Found " + total + " DMS products (" + toPublish + " need publishing). Processing " + batchSize + " at a time..."
+                        );
 
-                        // Step 2: Batch loop
+                        // Step 2: Fire batches sequentially
                         function processBatch() {
                             $.ajax({
                                 url: ajaxurl,
                                 type: "POST",
                                 data: { action: "tigon_dms_publish_synced_batch", nonce: publishNonce, sync_id: syncId },
-                                timeout: 95000,
+                                timeout: 55000,
                                 success: function(batchResp) {
                                     retries = 0;
                                     if (!batchResp.success) {
@@ -1348,22 +1355,26 @@ class Admin_Page
                                         return;
                                     }
 
-                                    var d = batchResp.data;
-                                    cumulative.published += (d.published || 0);
-                                    cumulative.featured += (d.featured || 0);
-                                    cumulative.already += (d.already || 0);
-                                    cumulative.errors = cumulative.errors.concat(d.errors || []);
+                                    var b = batchResp.data;
+                                    cumulative.published += (b.published || 0);
+                                    cumulative.featured  += (b.featured  || 0);
+                                    cumulative.already   += (b.already   || 0);
+                                    cumulative.errors     = cumulative.errors.concat(b.errors || []);
 
-                                    var processed = d.processed || 0;
+                                    var processed = b.processed || 0;
                                     var pct = total > 0 ? Math.min(Math.round((processed / total) * 100), 100) : 0;
                                     $results.find(".sync-progress-bar").css("width", pct + "%");
                                     $results.find(".sync-progress-text").text(processed + " / " + total + " (" + pct + "%)");
-                                    $results.find(".sync-progress-status").text("Published: " + cumulative.published + "  |  Featured: " + cumulative.featured + "  |  Already OK: " + cumulative.already);
+                                    $results.find(".sync-progress-status").text(
+                                        "Published: " + cumulative.published +
+                                        "  |  Featured: " + cumulative.featured +
+                                        "  |  Already OK: " + cumulative.already
+                                    );
                                     $results.find(".created em").text(cumulative.published);
                                     $results.find(".updated em").text(cumulative.featured);
                                     $results.find(".total em").text(processed);
 
-                                    if (d.done) {
+                                    if (b.done) {
                                         $spinner.removeClass("is-active");
                                         $btn.prop("disabled", false).text("Publish All DMS Products");
                                         showPublishResults($results, cumulative, total);
@@ -1373,11 +1384,15 @@ class Admin_Page
                                 },
                                 error: function(xhr, status, error) {
                                     retries++;
+                                    var detail = (error || status || "timeout") + " [HTTP " + (xhr ? xhr.status : "?") + "]";
                                     if (retries <= maxRetries) {
-                                        cumulative.errors.push("Network error (attempt " + retries + "): " + (error || status) + " [HTTP " + (xhr ? xhr.status : "?") + "] — retrying...");
-                                        setTimeout(processBatch, retries * 2000);
+                                        var wait = retries * 2000;
+                                        $results.find(".sync-progress-status").text(
+                                            "Network hiccup — retry " + retries + "/" + maxRetries + " in " + (wait/1000) + "s... (" + detail + ")"
+                                        );
+                                        setTimeout(processBatch, wait);
                                     } else {
-                                        cumulative.errors.push("Failed after " + maxRetries + " retries: " + (error || status));
+                                        cumulative.errors.push("Gave up after " + maxRetries + " retries: " + detail);
                                         $spinner.removeClass("is-active");
                                         $btn.prop("disabled", false).text("Publish All DMS Products");
                                         showPublishResults($results, cumulative, total);

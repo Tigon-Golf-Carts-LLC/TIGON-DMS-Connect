@@ -1258,13 +1258,31 @@ class Core
     }
 
     // ─────────────────────────────────────────────────────────────────
-    //  Publish Synced Inventory — batched (Cloudflare-safe)
+    //  Publish Synced Inventory — micro-batched (Cloudflare-safe)
+    //
+    //  Cloudflare CDN enforces a hard ~100 s gateway timeout (free/pro
+    //  plans) and many managed-WP hosts cap PHP at 60 s.  Each
+    //  wp_update_post() fires WooCommerce save hooks, cache purges,
+    //  and term re-counts that can take 5-15 s per product, so even
+    //  10 products per batch blows through the window.
+    //
+    //  Strategy:
+    //    • Batch size = 3  (safe at ≤15 s/product → ≤45 s total)
+    //    • Direct $wpdb->update for the status flip (avoids the full
+    //      wp_update_post hook chain); we still call clean_post_cache
+    //      so WP/WC sees the change.
+    //    • wp_defer_term_counting while the batch runs.
+    //    • Lookup-table rebuild only on the final batch.
     // ─────────────────────────────────────────────────────────────────
 
+    /** Batch size for publish — intentionally tiny for CDN safety. */
+    const PUBLISH_BATCH_SIZE = 3;
+
     /**
-     * AJAX: Init — gather all DMS-synced product IDs that need publishing
-     * or that are missing the "featured" visibility term, store in a
-     * transient, and return the total count.
+     * AJAX: Init — gather DMS-synced product IDs, store in transient.
+     *
+     * Only products that have a `_dms_cart_id` meta key are included —
+     * i.e. only inventory that actually came from the DMS API.
      */
     public static function ajax_publish_synced_init()
     {
@@ -1276,7 +1294,7 @@ class Core
         global $wpdb;
 
         try {
-            // All DMS-synced products (have _dms_cart_id meta)
+            // Only products with _dms_cart_id (came from DMS API)
             $all_ids = $wpdb->get_col(
                 "SELECT DISTINCT p.ID
                  FROM {$wpdb->posts} p
@@ -1287,14 +1305,14 @@ class Core
 
             if (empty($all_ids)) {
                 wp_send_json_success([
-                    'total'     => 0,
+                    'total'      => 0,
                     'to_publish' => 0,
-                    'message'   => 'No DMS-synced products found.',
+                    'done'       => true,
+                    'message'    => 'No DMS-synced products found.',
                 ]);
                 return;
             }
 
-            // Count how many are not yet published
             $to_publish = $wpdb->get_var(
                 "SELECT COUNT(DISTINCT p.ID)
                  FROM {$wpdb->posts} p
@@ -1304,19 +1322,17 @@ class Core
                    AND p.post_status != 'publish'"
             );
 
-            $batch_size = 10;
             $sync_id = 'dms_pub_' . wp_generate_password(16, false);
             set_transient($sync_id, [
-                'ids'        => array_map('intval', $all_ids),
-                'offset'     => 0,
-                'batch_size' => $batch_size,
+                'ids'    => array_map('intval', $all_ids),
+                'offset' => 0,
             ], HOUR_IN_SECONDS);
 
             wp_send_json_success([
                 'sync_id'    => $sync_id,
                 'total'      => count($all_ids),
                 'to_publish' => (int) $to_publish,
-                'batch_size' => $batch_size,
+                'batch_size' => self::PUBLISH_BATCH_SIZE,
             ]);
         } catch (\Throwable $e) {
             wp_send_json_error('Publish init error: ' . $e->getMessage());
@@ -1324,8 +1340,12 @@ class Core
     }
 
     /**
-     * AJAX: Batch — publish + feature 10 products per request.
-     * Server manages offset via the transient so JS just sends sync_id.
+     * AJAX: Batch — publish + feature products, 3 at a time.
+     *
+     * Uses direct $wpdb->update to flip post_status so we skip the
+     * expensive wp_update_post hook chain (WC product-save, cache
+     * purges, etc.).  clean_post_cache() is called so WP picks up
+     * the change without the full hook overhead.
      */
     public static function ajax_publish_synced_batch()
     {
@@ -1335,7 +1355,9 @@ class Core
         }
 
         ignore_user_abort(true);
-        @set_time_limit(90);
+        @set_time_limit(55);
+
+        global $wpdb;
 
         try {
             $sync_id = sanitize_text_field($_POST['sync_id'] ?? '');
@@ -1345,56 +1367,78 @@ class Core
                 return;
             }
 
-            $ids        = $meta['ids'];
-            $offset     = $meta['offset'] ?? 0;
-            $batch_size = $meta['batch_size'] ?? 10;
-            $batch      = array_slice($ids, $offset, $batch_size);
+            $ids    = $meta['ids'];
+            $offset = $meta['offset'] ?? 0;
+            $batch  = array_slice($ids, $offset, self::PUBLISH_BATCH_SIZE);
 
             $published = 0;
             $featured  = 0;
             $already   = 0;
             $errors    = [];
 
+            // Defer expensive term counting until we're done
+            wp_defer_term_counting(true);
+
             foreach ($batch as $pid) {
-                $post = get_post($pid);
-                if (!$post) {
+                $status = get_post_status($pid);
+                if ($status === false) {
                     $errors[] = "Product #{$pid}: not found";
                     continue;
                 }
 
                 try {
-                    // Publish if not already published
-                    if ($post->post_status !== 'publish') {
-                        $result = wp_update_post([
-                            'ID'          => $pid,
-                            'post_status' => 'publish',
-                        ], true);
-                        if (is_wp_error($result)) {
-                            $errors[] = "#{$pid} " . get_the_title($pid) . ': ' . $result->get_error_message();
+                    // ── Publish via direct DB update (skip heavy hooks) ──
+                    if ($status !== 'publish') {
+                        $updated = $wpdb->update(
+                            $wpdb->posts,
+                            ['post_status' => 'publish'],
+                            ['ID' => $pid],
+                            ['%s'],
+                            ['%d']
+                        );
+                        if ($updated === false) {
+                            $errors[] = "#{$pid}: DB update failed";
                             continue;
                         }
+                        // Flush WP object cache for this post so the
+                        // new status is visible immediately.
+                        clean_post_cache($pid);
                         $published++;
                     } else {
                         $already++;
                     }
 
-                    // Ensure featured visibility
-                    $terms = wp_get_object_terms($pid, 'product_visibility', ['fields' => 'slugs']);
-                    if (!is_array($terms) || !in_array('featured', $terms)) {
-                        wp_set_object_terms($pid, array('featured'), 'product_visibility');
+                    // ── Ensure "featured" visibility term ──
+                    $has_featured = $wpdb->get_var($wpdb->prepare(
+                        "SELECT 1
+                         FROM {$wpdb->term_relationships} tr
+                         INNER JOIN {$wpdb->term_taxonomy} tt ON tr.term_taxonomy_id = tt.term_taxonomy_id
+                         INNER JOIN {$wpdb->terms} t ON tt.term_id = t.term_id
+                         WHERE tr.object_id = %d
+                           AND tt.taxonomy = 'product_visibility'
+                           AND t.slug = 'featured'
+                         LIMIT 1",
+                        $pid
+                    ));
+                    if (!$has_featured) {
+                        wp_set_object_terms($pid, 'featured', 'product_visibility', true);
                         update_post_meta($pid, '_visibility', 'visible');
                         $featured++;
                     }
                 } catch (\Throwable $e) {
-                    $errors[] = "#{$pid} " . get_the_title($pid) . ': ' . $e->getMessage();
+                    $errors[] = "#{$pid}: " . $e->getMessage();
                 }
             }
+
+            // Flush deferred term counts
+            wp_defer_term_counting(false);
 
             $new_offset = $offset + count($batch);
             $done = $new_offset >= count($ids);
 
             if ($done) {
                 delete_transient($sync_id);
+                // Rebuild WC lookup tables once at the very end
                 if (function_exists('wc_update_product_lookup_tables')) {
                     wc_update_product_lookup_tables();
                 }
