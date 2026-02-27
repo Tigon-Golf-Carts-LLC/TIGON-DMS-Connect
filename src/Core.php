@@ -63,6 +63,12 @@ class Core
             remove_submenu_page('tigon-dms-connect', 'import');
         }, 999);
 
+        // Ensure custom DB tables exist on every admin load.
+        // register_activation_hook does NOT fire on plugin updates,
+        // so we check a stored schema version and run install if it
+        // is missing or outdated.
+        add_action('admin_init', 'Tigon\DmsConnect\Core::maybe_upgrade_db');
+
         // Allow for automatic taxonomy updates
         add_action('woocommerce_rest_insert_product_object', 'Tigon\DmsConnect\Core::update_taxonomy', 10, 3);
 
@@ -266,6 +272,22 @@ class Core
             'callback' => 'Tigon\DmsConnect\Admin\REST_Routes::set_grid',
             'permission_callback' => $permission_check,
         ]);
+    }
+
+    /**
+     * Run on admin_init — if the stored DB schema version is missing
+     * or older than the current plugin version, re-run install().
+     * This ensures custom tables (field_mappings, cart_staging, etc.)
+     * exist even after a file-only plugin update.
+     */
+    public static function maybe_upgrade_db(): void
+    {
+        $key     = 'tigon_dms_db_version';
+        $current = get_option($key, '0');
+        if (version_compare($current, TIGON_DMS_VERSION, '<')) {
+            self::install();
+            update_option($key, TIGON_DMS_VERSION);
+        }
     }
 
     // Activation Hook

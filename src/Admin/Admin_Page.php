@@ -434,7 +434,17 @@ class Admin_Page
                 elseif ($m['target_type'] === 'taxonomy') $type_badge = 'purple';
                 elseif ($m['target_type'] === 'post') $type_badge = 'teal';
 
-                echo '<tr data-mapping-id="' . $mid . '">';
+                // Store ALL editable values as data-* attributes so
+                // the Edit button JS never has to scrape cell text.
+                echo '<tr data-mapping-id="' . $mid . '"'
+                    . ' data-dms-path="'      . esc_attr($m['dms_path'])      . '"'
+                    . ' data-woo-target="'     . esc_attr($m['woo_target'])    . '"'
+                    . ' data-target-type="'    . esc_attr($m['target_type'])   . '"'
+                    . ' data-transform="'      . esc_attr($m['transform'])     . '"'
+                    . ' data-transform-cfg="'  . esc_attr($m['transform_cfg']) . '"'
+                    . ' data-is-enabled="'     . ($m['is_enabled'] ? '1' : '0') . '"'
+                    . ' data-sort-order="'     . intval($m['sort_order'])       . '"'
+                    . '>';
                 echo '<td>' . $mid . '</td>';
                 echo '<td><code>' . esc_html($m['dms_path']) . '</code></td>';
                 echo '<td class="fm-arrow-col">&rarr;</td>';
@@ -457,6 +467,7 @@ class Admin_Page
         echo '<h3 id="tigon-form-title" style="margin-top:1.5rem;">Add New Mapping</h3>';
         echo '<div class="fm-form">';
         echo '<input type="hidden" id="tigon-mapping-id" value="0" />';
+        echo '<input type="hidden" id="tigon-sort-order" value="0" />';
 
         // DMS Field Path (with optgroups)
         echo '<div><label>DMS Field Path</label>';
@@ -737,17 +748,36 @@ class Admin_Page
                 $("#tigon-woo-target-custom").hide().val("");
             });
 
+            /* ── Inline status flash (replaces page reload) ───────── */
+            function showStatus(msg, isError) {
+                var $el = $("#tigon-mapping-status");
+                if (!$el.length) {
+                    $el = $("<div id=\"tigon-mapping-status\"></div>").insertAfter("#tigon-form-title");
+                }
+                $el.text(msg)
+                   .css({
+                       display: "block", padding: "0.6rem 1rem", borderRadius: "4px", fontWeight: 600, marginBottom: "0.7rem",
+                       background: isError ? "#fee2e2" : "#d1fae5",
+                       color:      isError ? "#991b1b" : "#065f46",
+                       border:     isError ? "1px solid #fca5a5" : "1px solid #6ee7b7"
+                   });
+                if (!isError) setTimeout(function() { $el.fadeOut(400); }, 3000);
+            }
+
             /* ── Save mapping ───────────────────────────────────────── */
             $("#tigon-save-mapping").on("click", function() {
+                var $btn = $(this);
                 var dmsPath = $("#tigon-dms-path").val();
-                if (dmsPath === "__custom__") dmsPath = $("#tigon-dms-path-custom").val();
+                if (dmsPath === "__custom__") dmsPath = $("#tigon-dms-path-custom").val().trim();
                 var wooTarget = $("#tigon-woo-target").val();
-                if (wooTarget === "__custom__") wooTarget = $("#tigon-woo-target-custom").val();
+                if (wooTarget === "__custom__") wooTarget = $("#tigon-woo-target-custom").val().trim();
 
                 if (!dmsPath || !wooTarget) {
-                    alert("Please select both a DMS field and a WooCommerce target.");
+                    showStatus("Please select both a DMS field and a WooCommerce target.", true);
                     return;
                 }
+
+                $btn.prop("disabled", true).text("Saving...");
 
                 var data = {
                     action: "tigon_dms_save_field_mapping",
@@ -759,51 +789,71 @@ class Admin_Page
                     transform: $("#tigon-transform").val(),
                     transform_cfg: $("#tigon-transform-cfg").val(),
                     is_enabled: $("#tigon-is-enabled").is(":checked") ? 1 : 0,
-                    sort_order: 0
+                    sort_order: parseInt($("#tigon-sort-order").val()) || 0
                 };
 
                 $.post(globals.ajaxurl, data, function(resp) {
                     if (resp.success) {
+                        // Reload to reflect the change in the table
                         location.reload();
                     } else {
-                        alert("Error: " + (resp.data || "Unknown error"));
+                        showStatus("Save failed: " + (resp.data || "Unknown error"), true);
+                        $btn.prop("disabled", false).text("Save Mapping");
                     }
+                }).fail(function(xhr) {
+                    showStatus("Network error (HTTP " + xhr.status + "). Your session may have expired — try refreshing the page.", true);
+                    $btn.prop("disabled", false).text("Save Mapping");
                 });
             });
 
             /* ── Delete mapping ─────────────────────────────────────── */
             $(document).on("click", ".tigon-delete-mapping", function() {
                 if (!confirm("Delete this mapping?")) return;
-                var id = $(this).data("id");
+                var $btn = $(this);
+                var id = $btn.data("id");
+                $btn.prop("disabled", true).text("...");
                 $.post(globals.ajaxurl, {
                     action: "tigon_dms_delete_field_mapping",
                     nonce: nonce,
                     mapping_id: id
                 }, function(resp) {
-                    if (resp.success) location.reload();
-                    else alert("Error deleting mapping");
+                    if (resp.success) {
+                        $btn.closest("tr").fadeOut(300, function() { $(this).remove(); });
+                    } else {
+                        showStatus("Delete failed: " + (resp.data || "Unknown error"), true);
+                        $btn.prop("disabled", false).text("Del");
+                    }
+                }).fail(function(xhr) {
+                    showStatus("Network error (HTTP " + xhr.status + "). Try refreshing the page.", true);
+                    $btn.prop("disabled", false).text("Del");
                 });
             });
 
-            /* ── Edit mapping — populate form ───────────────────────── */
+            /* ── Edit mapping — populate form from data attributes ──── */
             $(document).on("click", ".tigon-edit-mapping", function() {
                 var $row = $(this).closest("tr");
-                var id = $(this).data("id");
+                var id         = $row.data("mapping-id");
+                var dmsPath    = $row.data("dms-path")    || "";
+                var wooTarget  = $row.data("woo-target")  || "";
+                var targetType = $row.data("target-type")  || "postmeta";
+                var transform  = $row.data("transform")    || "direct";
+                var cfg        = $row.data("transform-cfg") || "";
+                var enabled    = $row.data("is-enabled") == 1;
+                var sortOrder  = $row.data("sort-order")   || 0;
+
+                // Convert to strings (jQuery may parse numbers/booleans)
+                dmsPath   = String(dmsPath);
+                wooTarget = String(wooTarget);
+                cfg       = String(cfg);
 
                 $("#tigon-mapping-id").val(id);
                 $("#tigon-form-title").text("Edit Mapping #" + id);
                 $("#tigon-cancel-edit").show();
 
-                var cells = $row.find("td");
-                var dmsPath    = cells.eq(1).text().trim();
-                var targetType = cells.eq(3).text().trim();
-                var wooTarget  = cells.eq(4).text().trim();
-                var transform  = cells.eq(5).text().trim();
-                var cfg        = cells.eq(6).text().trim();
-                var enabled    = cells.eq(7).find("input").is(":checked");
-
+                // Set target type first — this rebuilds the WooCommerce target dropdown
                 $("#tigon-target-type").val(targetType).trigger("change");
 
+                // Set DMS path (use custom input if not in the dropdown)
                 if ($("#tigon-dms-path option[value=\'" + dmsPath + "\']").length) {
                     $("#tigon-dms-path").val(dmsPath);
                     $("#tigon-dms-path-custom").hide();
@@ -812,6 +862,7 @@ class Admin_Page
                     $("#tigon-dms-path-custom").show().val(dmsPath);
                 }
 
+                // Set WooCommerce target after dropdown rebuild settles
                 setTimeout(function() {
                     if ($("#tigon-woo-target option[value=\'" + wooTarget + "\']").length) {
                         $("#tigon-woo-target").val(wooTarget);
@@ -820,11 +871,12 @@ class Admin_Page
                         $("#tigon-woo-target").val("__custom__");
                         $("#tigon-woo-target-custom").show().val(wooTarget);
                     }
-                }, 50);
+                }, 80);
 
                 $("#tigon-transform").val(transform);
                 $("#tigon-transform-cfg").val(cfg);
                 $("#tigon-is-enabled").prop("checked", enabled);
+                $("#tigon-sort-order").val(sortOrder);
 
                 $("html, body").animate({ scrollTop: $("#tigon-form-title").offset().top - 50 }, 300);
             });
@@ -834,6 +886,7 @@ class Admin_Page
                 $("#tigon-mapping-id").val(0);
                 $("#tigon-form-title").text("Add New Mapping");
                 $(this).hide();
+                $("#tigon-mapping-status").hide();
                 $("#tigon-dms-path").val("");
                 $("#tigon-dms-path-custom").hide().val("");
                 $("#tigon-woo-target").val("");
@@ -842,6 +895,7 @@ class Admin_Page
                 $("#tigon-transform").val("direct");
                 $("#tigon-transform-cfg").val("");
                 $("#tigon-is-enabled").prop("checked", true);
+                $("#tigon-sort-order").val(0);
             });
         })(jQuery);
         </script>
