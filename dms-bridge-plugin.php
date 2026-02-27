@@ -707,9 +707,8 @@ function tigon_dms_create_woo_product($cart_id, $title, $price, $cart_data, $spe
     // Set product type to simple
     wp_set_object_terms($product_id, 'simple', 'product_type');
     
-    // Make product visible in catalog (needed for inventory page)
-    // Set visibility to 'visible' (appears in both catalog and search)
-    wp_set_object_terms($product_id, array('visible'), 'product_visibility');
+    // Make product visible in catalog and featured
+    wp_set_object_terms($product_id, array('featured'), 'product_visibility');
     
     // Assign product categories (only use existing categories, don't create new ones)
     $categories = array();
@@ -1046,11 +1045,12 @@ function tigon_dms_update_woo_product($product_id, $title, $price, $cart_data, $
     // Normalize title for consistency (e.g., "In" → "-")
     $normalized_title = tigon_dms_normalize_title($title);
     
-    // Update post title and slug
+    // Update post title, slug, and ensure published status
     wp_update_post(array(
-        'ID'         => $product_id,
-        'post_title' => sanitize_text_field($normalized_title),
-        'post_name'  => sanitize_title($normalized_title),
+        'ID'          => $product_id,
+        'post_title'  => sanitize_text_field($normalized_title),
+        'post_name'   => sanitize_title($normalized_title),
+        'post_status' => 'publish',
     ));
     
     // Update price
@@ -1287,24 +1287,8 @@ function tigon_dms_update_woo_product($product_id, $title, $price, $cart_data, $
         wp_set_object_terms($product_id, $categories, 'product_cat');
     }
 
-    // Ensure product is visible in catalog (remove any exclude-from-catalog terms)
-    // This ensures synced products appear on inventory page
-    $current_visibility = wp_get_object_terms($product_id, 'product_visibility', array('fields' => 'slugs'));
-    if (is_array($current_visibility) && in_array('exclude-from-catalog', $current_visibility)) {
-        // Remove exclude-from-catalog and set to visible
-        $new_visibility = array_filter($current_visibility, function($term) {
-            return $term !== 'exclude-from-catalog';
-        });
-        if (empty($new_visibility) || !in_array('visible', $new_visibility)) {
-            $new_visibility[] = 'visible';
-        }
-        wp_set_object_terms($product_id, array_values($new_visibility), 'product_visibility');
-    } elseif (empty($current_visibility) || !in_array('visible', $current_visibility)) {
-        // No visibility set or not visible - set to visible
-        wp_set_object_terms($product_id, array('visible'), 'product_visibility');
-    }
-    
-    // Update visibility meta to ensure compatibility
+    // Ensure product is visible in catalog and featured
+    wp_set_object_terms($product_id, array('featured'), 'product_visibility');
     update_post_meta($product_id, '_visibility', 'visible');
 
     // Google/Facebook product feed meta

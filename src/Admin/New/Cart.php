@@ -94,7 +94,7 @@ class Cart extends \Tigon\DmsConnect\Abstracts\Abstract_Cart
 
     protected function field_overrides()
     {
-        $this->published = 'draft';
+        $this->published = 'publish';
         if (!$this->not_default) {
             $this->in_stock = 'outofstock';
             $this->monroney_sticker = '[pdf-embedder url=""]';
