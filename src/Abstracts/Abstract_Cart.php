@@ -1044,11 +1044,11 @@ abstract class Abstract_Cart
         if ($this->make_with_symbol === 'EZGO®') {
             $model_key = strtoupper('EZ-GO® ' . $this->cart['cartType']['model']);
         }
-        if (isset($this->generated_attributes->categories[$model_key])) {
-            $this->primary_category = $this->generated_attributes->categories[$model_key];
+        if (isset($this->generated_attributes->category_term_ids[$model_key])) {
+            $this->primary_category = $this->generated_attributes->category_term_ids[$model_key];
         } else {
             // Fallback to make if the model category doesn't exist yet
-            $this->primary_category = $this->generated_attributes->categories[strtoupper($this->make_with_symbol)];
+            $this->primary_category = $this->generated_attributes->category_term_ids[strtoupper($this->make_with_symbol)];
         }
     }
 
@@ -1335,9 +1335,16 @@ abstract class Abstract_Cart
 
     protected function attach_taxonomies()
     {
-        // Location
-        array_push($this->taxonomy_terms, Attributes::$locations[$this->location_id]['city_id']);
-        array_push($this->taxonomy_terms, Attributes::$locations[$this->location_id]['state_id']);
+        // Location — hardcoded IDs are term_id; convert to term_taxonomy_id for term_relationships
+        $city_term = get_term(Attributes::$locations[$this->location_id]['city_id']);
+        if ($city_term && !is_wp_error($city_term)) {
+            array_push($this->taxonomy_terms, $city_term->term_taxonomy_id);
+        }
+        $state_term = get_term(Attributes::$locations[$this->location_id]['state_id']);
+        if ($state_term && !is_wp_error($state_term)) {
+            array_push($this->taxonomy_terms, $state_term->term_taxonomy_id);
+        }
+        // primary_location uses term_id (for Yoast SEO meta)
         $this->primary_location = Attributes::$locations[$this->location_id]['city_id'];
 
         // Manufacturers
@@ -2036,7 +2043,11 @@ abstract class Abstract_Cart
         $this->downloadable = 'no';
         $this->download_limit = '-1';
         $this->download_expiry = '-1';
-        array_push($this->taxonomy_terms, 665);//shipping class
+        // Shipping class — hardcoded term_id 665; convert to term_taxonomy_id for term_relationships
+        $shipping_term = get_term(665);
+        if ($shipping_term && !is_wp_error($shipping_term)) {
+            array_push($this->taxonomy_terms, $shipping_term->term_taxonomy_id);
+        }
         $this->bit_is_cornerstone = '1';
         $this->attr_exclude_global_forms = '1';
         $this->stock = 10000;

@@ -157,6 +157,7 @@ class Attributes
 
     //Automatically propagated
     public $categories = [];
+    public $category_term_ids = [];
     public $tags = [];
     public $attributes = [];
     public $tabs = [];
@@ -171,7 +172,7 @@ class Attributes
 
     public function __construct()
     {
-        $this->categories = Attributes::ai_get_categories();
+        list($this->categories, $this->category_term_ids) = Attributes::ai_get_categories();
         $this->tags = Attributes::ai_get_tags();
         $this->tabs = Attributes::ai_get_tabs();
         $this->attributes = Attributes::ai_get_attributes();
@@ -201,14 +202,17 @@ class Attributes
     private static function ai_get_categories()
     {
         $categories = array();
+        $category_term_ids = array();
         $category_list = get_categories([
             'taxonomy' => 'product_cat',
             'hide_empty' => false
         ]);
         foreach($category_list as $category) {
-            $categories[strtoupper($category->name)] = $category->term_taxonomy_id;
+            $key = strtoupper($category->name);
+            $categories[$key] = $category->term_taxonomy_id;
+            $category_term_ids[$key] = $category->term_id;
         }
-        return $categories;
+        return [$categories, $category_term_ids];
     }
 
     /**
