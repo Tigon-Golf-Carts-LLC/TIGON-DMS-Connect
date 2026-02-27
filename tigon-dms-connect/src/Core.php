@@ -31,21 +31,11 @@ class Core
     {
         // Enqueue scripts
         add_action('load-toplevel_page_tigon-dms-connect', 'Tigon\DmsConnect\Core::diagnostic_script_enqueue');
-        add_action('load-tigon-dms-connect_page_import', 'Tigon\DmsConnect\Core::import_script_enqueue');
         add_action('load-tigon-dms-connect_page_settings', 'Tigon\DmsConnect\Core::settings_script_enqueue');
 
         // Register Ajax functions
-        add_action('wp_ajax_tigon_dms_query', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::query_dms');
-        add_action('wp_ajax_tigon_dms_get_new_carts', 'Tigon\DmsConnect\Admin\New\New_Cart_Converter::generate_new_carts');
-        add_action('wp_ajax_tigon_dms_ajax_import_convert', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_convert');
-        add_action('wp_ajax_tigon_dms_ajax_new_import_convert', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_new_import_convert');
-        add_action('wp_ajax_tigon_dms_ajax_import_create', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_create');
-        add_action('wp_ajax_tigon_dms_ajax_import_update', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_update');
-        add_action('wp_ajax_tigon_dms_ajax_import_delete', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_delete');
-        add_action('wp_ajax_tigon_dms_ajax_import_new', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_new');
         add_action('wp_ajax_tigon_dms_save_settings', 'Tigon\DmsConnect\Admin\Ajax_Settings_Controller::save_settings');
         add_action('wp_ajax_tigon_dms_get_dms_props', 'Tigon\DmsConnect\Admin\Ajax_Settings_Controller::get_dms_props');
-        add_action('wp_ajax_tigon_dms_post_import', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::process_post_import');
         add_action('wp_ajax_tigon_dms_sync_mapped', 'Tigon\DmsConnect\Core::ajax_sync_mapped_inventory');
 
         // Add admin page
@@ -128,26 +118,6 @@ class Core
         return $orderby;
     }
     
-    public static function import_script_enqueue()
-    {
-        $js_url = self::asset_url();
-        wp_register_script('@tigon-dms/globals', $js_url . 'globals.js');
-        wp_register_script_module('@tigon-dms/base64-js', $js_url . 'node_modules/base64-js/index.js');
-        wp_register_script_module('@tigon-dms/ieee754', $js_url . 'node_modules/ieee754/index.js');
-        wp_register_script_module('@tigon-dms/buffer', $js_url . 'node_modules/buffer/index.js', ['@tigon-dms/base64-js', '@tigon-dms/ieee754']);
-        wp_register_script_module('@tigon-dms/php_serialize', $js_url . 'node_modules/php-serialize/index.js');
-        wp_register_script_module('@tigon-dms/import', $js_url . 'import.js', ['jquery', '@tigon-dms/php_serialize']);
-
-        wp_localize_script('@tigon-dms/globals', 'globals', [
-            'ajaxurl' => admin_url('admin-ajax.php'),
-            'siteurl' => get_site_url()
-        ]);
-
-        wp_enqueue_script('@tigon-dms/globals');
-        wp_enqueue_script_module('@tigon-dms/php_serialize');
-        wp_enqueue_script('jquery');
-        wp_enqueue_script_module('@tigon-dms/import');
-    }
 
     public static function settings_script_enqueue()
     {

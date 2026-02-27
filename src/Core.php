@@ -1342,10 +1342,13 @@ class Core
     /**
      * AJAX: Batch — publish + feature products, 3 at a time.
      *
-     * Uses direct $wpdb->update to flip post_status so we skip the
-     * expensive wp_update_post hook chain (WC product-save, cache
-     * purges, etc.).  clean_post_cache() is called so WP picks up
-     * the change without the full hook overhead.
+     * Every DB operation is direct SQL — no wp_update_post, no
+     * wp_set_object_terms — so the only cost per product is a
+     * handful of cheap queries and one cache flush.
+     *
+     * An elapsed-time guard bails out early if we approach the
+     * 45 s safety ceiling so the response always gets back to
+     * the browser before Cloudflare kills the connection.
      */
     public static function ajax_publish_synced_batch()
     {
@@ -1359,6 +1362,10 @@ class Core
 
         global $wpdb;
 
+        // ── Time guard: bail before Cloudflare / PHP kills us ──
+        $start    = microtime(true);
+        $max_secs = 40; // leave ~15 s headroom for CF + PHP overhead
+
         try {
             $sync_id = sanitize_text_field($_POST['sync_id'] ?? '');
             $meta = get_transient($sync_id);
@@ -1371,15 +1378,30 @@ class Core
             $offset = $meta['offset'] ?? 0;
             $batch  = array_slice($ids, $offset, self::PUBLISH_BATCH_SIZE);
 
+            // Look up the featured term_taxonomy_id once for all products
+            $featured_tt_id = (int) $wpdb->get_var(
+                "SELECT tt.term_taxonomy_id
+                 FROM {$wpdb->term_taxonomy} tt
+                 INNER JOIN {$wpdb->terms} t ON tt.term_id = t.term_id
+                 WHERE tt.taxonomy = 'product_visibility'
+                   AND t.slug = 'featured'
+                 LIMIT 1"
+            );
+
             $published = 0;
             $featured  = 0;
             $already   = 0;
             $errors    = [];
-
-            // Defer expensive term counting until we're done
-            wp_defer_term_counting(true);
+            $processed_count = 0;
 
             foreach ($batch as $pid) {
+                // ── Time guard: stop before we hit the ceiling ──
+                if ((microtime(true) - $start) >= $max_secs) {
+                    break;
+                }
+
+                $processed_count++;
+
                 $status = get_post_status($pid);
                 if ($status === false) {
                     $errors[] = "Product #{$pid}: not found";
@@ -1400,40 +1422,52 @@ class Core
                             $errors[] = "#{$pid}: DB update failed";
                             continue;
                         }
-                        // Flush WP object cache for this post so the
-                        // new status is visible immediately.
                         clean_post_cache($pid);
                         $published++;
                     } else {
                         $already++;
                     }
 
-                    // ── Ensure "featured" visibility term ──
-                    $has_featured = $wpdb->get_var($wpdb->prepare(
-                        "SELECT 1
-                         FROM {$wpdb->term_relationships} tr
-                         INNER JOIN {$wpdb->term_taxonomy} tt ON tr.term_taxonomy_id = tt.term_taxonomy_id
-                         INNER JOIN {$wpdb->terms} t ON tt.term_id = t.term_id
-                         WHERE tr.object_id = %d
-                           AND tt.taxonomy = 'product_visibility'
-                           AND t.slug = 'featured'
-                         LIMIT 1",
-                        $pid
-                    ));
-                    if (!$has_featured) {
-                        wp_set_object_terms($pid, 'featured', 'product_visibility', true);
-                        update_post_meta($pid, '_visibility', 'visible');
-                        $featured++;
+                    // ── Ensure "featured" visibility term (pure SQL) ──
+                    if ($featured_tt_id > 0) {
+                        $has_featured = (bool) $wpdb->get_var($wpdb->prepare(
+                            "SELECT 1
+                             FROM {$wpdb->term_relationships}
+                             WHERE object_id = %d
+                               AND term_taxonomy_id = %d
+                             LIMIT 1",
+                            $pid,
+                            $featured_tt_id
+                        ));
+                        if (!$has_featured) {
+                            // Direct insert into term_relationships
+                            $wpdb->replace(
+                                $wpdb->term_relationships,
+                                [
+                                    'object_id'        => $pid,
+                                    'term_taxonomy_id' => $featured_tt_id,
+                                    'term_order'       => 0,
+                                ],
+                                ['%d', '%d', '%d']
+                            );
+                            // Bump the count on the taxonomy row
+                            $wpdb->query($wpdb->prepare(
+                                "UPDATE {$wpdb->term_taxonomy}
+                                 SET count = count + 1
+                                 WHERE term_taxonomy_id = %d",
+                                $featured_tt_id
+                            ));
+                            update_post_meta($pid, '_visibility', 'visible');
+                            $featured++;
+                        }
                     }
                 } catch (\Throwable $e) {
                     $errors[] = "#{$pid}: " . $e->getMessage();
                 }
             }
 
-            // Flush deferred term counts
-            wp_defer_term_counting(false);
-
-            $new_offset = $offset + count($batch);
+            // Advance offset by however many we actually touched
+            $new_offset = $offset + $processed_count;
             $done = $new_offset >= count($ids);
 
             if ($done) {
@@ -1441,6 +1475,10 @@ class Core
                 // Rebuild WC lookup tables once at the very end
                 if (function_exists('wc_update_product_lookup_tables')) {
                     wc_update_product_lookup_tables();
+                }
+                // Clean term taxonomy counts in one shot
+                if ($featured_tt_id > 0) {
+                    wp_update_term_count_now([$featured_tt_id], 'product_visibility');
                 }
             } else {
                 $meta['offset'] = $new_offset;
