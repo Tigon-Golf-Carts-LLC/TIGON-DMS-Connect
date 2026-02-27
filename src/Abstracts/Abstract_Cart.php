@@ -188,6 +188,35 @@ abstract class Abstract_Cart
     protected $taxonomy_terms;
 
     /**
+     * Resolve a product_tag term_taxonomy_id by name.
+     * If the tag exists in the pre-loaded lookup, return its term_taxonomy_id.
+     * If not, create the tag via wp_insert_term and return the new term_taxonomy_id.
+     * Returns null only if creation fails.
+     */
+    protected function resolve_tag(string $name): ?int
+    {
+        $key = strtoupper($name);
+        if (isset($this->generated_attributes->tags[$key])) {
+            return (int) $this->generated_attributes->tags[$key];
+        }
+        // Tag doesn't exist yet — create it
+        $result = wp_insert_term($name, 'product_tag');
+        if (is_wp_error($result)) {
+            // Term may already exist under a different casing — try fetching by slug
+            $existing = get_term_by('slug', sanitize_title($name), 'product_tag');
+            if ($existing) {
+                $this->generated_attributes->tags[$key] = $existing->term_taxonomy_id;
+                return (int) $existing->term_taxonomy_id;
+            }
+            return null;
+        }
+        $tt_id = (int) $result['term_taxonomy_id'];
+        // Cache for subsequent calls in this sync
+        $this->generated_attributes->tags[$key] = $tt_id;
+        return $tt_id;
+    }
+
+    /**
      * Cached schema templates loaded from tigon_dms_config.
      *
      * @var array<string,string>|null
@@ -802,7 +831,6 @@ abstract class Abstract_Cart
      */
     protected function attach_categories_tags()
     {
-        // TODO tags need to be added as taxonomy terms
         $this->taxonomy_terms = [];
         // Formatting
         $cat_make_model = $this->make_with_symbol . ' ' . $this->cart['cartType']['model'];
@@ -825,19 +853,19 @@ abstract class Abstract_Cart
             array_push(
                 $this->taxonomy_terms,
                 $this->generated_attributes->categories['SWIFT®'],
-                $this->generated_attributes->tags['SWIFT®']
+                $this->resolve_tag('SWIFT®')
             );
         } else if (strtoupper($this->make_with_symbol) == 'EZGO®') {
             array_push(
                 $this->taxonomy_terms,
                 $this->generated_attributes->categories['EZ-GO®'],
-                $this->generated_attributes->tags['EZGO®']
+                $this->resolve_tag('EZGO®')
             );
         } else {
             array_push(
                 $this->taxonomy_terms,
                 $this->generated_attributes->categories[strtoupper($this->make_with_symbol)],
-                $this->generated_attributes->tags[strtoupper($this->make_with_symbol)]
+                $this->resolve_tag($this->make_with_symbol)
             );
         }
 
@@ -853,15 +881,15 @@ abstract class Abstract_Cart
 
         array_push(
             $this->taxonomy_terms,
-            $this->generated_attributes->tags[strtoupper($cat_make_model)],
-            $this->generated_attributes->tags[strtoupper($this->make_model_color)],
-            $this->generated_attributes->tags[strtoupper($this->name)]
+            $this->resolve_tag($cat_make_model),
+            $this->resolve_tag($this->make_model_color),
+            $this->resolve_tag($this->name)
         );
 
         //color
         array_push(
             $this->taxonomy_terms,
-            $this->generated_attributes->tags[strtoupper($this->cart['cartAttributes']['cartColor'])]
+            $this->resolve_tag($this->cart['cartAttributes']['cartColor'])
         );
 
         // seats
@@ -869,7 +897,7 @@ abstract class Abstract_Cart
             array_push(
                 $this->taxonomy_terms,
                 $this->generated_attributes->categories[$cat_seats],
-                $this->generated_attributes->tags[$tag_seats]
+                $this->resolve_tag($tag_seats)
             );
         }
 
@@ -878,12 +906,12 @@ abstract class Abstract_Cart
             array_push(
                 $this->taxonomy_terms,
                 $this->generated_attributes->categories['LIFTED'],
-                $this->generated_attributes->tags['LIFTED']
+                $this->resolve_tag('LIFTED')
             );
         } else {
             array_push(
                 $this->taxonomy_terms,
-                $this->generated_attributes->tags['NON LIFTED']
+                $this->resolve_tag('NON LIFTED')
             );
         }
 
@@ -901,31 +929,31 @@ abstract class Abstract_Cart
         if ($this->cart['isUsed']) {
             array_push(
                 $this->taxonomy_terms,
-                $this->generated_attributes->tags['USED']
+                $this->resolve_tag('USED')
             );
         } else
             array_push(
                 $this->taxonomy_terms,
-                $this->generated_attributes->tags['NEW']
+                $this->resolve_tag('NEW')
             );
 
         // location
         array_push(
             $this->taxonomy_terms,
 
-            $this->generated_attributes->tags[strtoupper($this->city_shortname)],
-            $this->generated_attributes->tags[strtoupper($this->tigonwm_text)],
-            $this->generated_attributes->tags[strtoupper(Attributes::$locations[$this->location_id]['state'])],
-            $this->generated_attributes->tags[strtoupper($this->city_shortname) . ' GOLF CART DEALERSHIP'],
-            $this->generated_attributes->tags[strtoupper(Attributes::$locations[$this->location_id]['state']) . ' GOLF CART DEALERSHIP'],
-            $this->generated_attributes->tags[strtoupper($this->city_shortname . ' ' . Attributes::$locations[$this->location_id]['state']) . ' STREET LEGAL DEALERSHIP']
+            $this->resolve_tag($this->city_shortname),
+            $this->resolve_tag($this->tigonwm_text),
+            $this->resolve_tag(Attributes::$locations[$this->location_id]['state']),
+            $this->resolve_tag($this->city_shortname . ' GOLF CART DEALERSHIP'),
+            $this->resolve_tag(Attributes::$locations[$this->location_id]['state'] . ' GOLF CART DEALERSHIP'),
+            $this->resolve_tag($this->city_shortname . ' ' . Attributes::$locations[$this->location_id]['state'] . ' STREET LEGAL DEALERSHIP')
         );
 
         // battery or gas
         array_push(
             $this->taxonomy_terms,
             $this->generated_attributes->categories['GOLF CARTS'],
-            $this->generated_attributes->tags['GOLF CART']
+            $this->resolve_tag('GOLF CART')
         );
         if ($this->cart['isElectric']) {
             // ── Electric vehicle categories — ALL electric carts get these ──
@@ -938,10 +966,10 @@ abstract class Abstract_Cart
                 $this->generated_attributes->categories['PERSONAL TRANSPORTATION VEHICLES (PTVS)'],     // term 1855
                 $this->generated_attributes->categories['ZERO EMISSION VEHICLES (ZEVS)'],
 
-                $this->generated_attributes->tags['ELECTRIC'],
-                $this->generated_attributes->tags['NEV'],
-                $this->generated_attributes->tags['BEV'],
-                $this->generated_attributes->tags['ZEV']
+                $this->resolve_tag('ELECTRIC'),
+                $this->resolve_tag('NEV'),
+                $this->resolve_tag('BEV'),
+                $this->resolve_tag('ZEV')
             );
 
             if ($this->cart['battery']['type'] == 'Lead') {
@@ -949,14 +977,14 @@ abstract class Abstract_Cart
                     $this->taxonomy_terms,
 
                     $this->generated_attributes->categories['LEAD-ACID'],
-                    $this->generated_attributes->tags['LEAD-ACID']
+                    $this->resolve_tag('LEAD-ACID')
                 );
             } elseif ($this->cart['battery']['type'] == "Lithium") {
                 array_push(
                     $this->taxonomy_terms,
 
                     $this->generated_attributes->categories['LITHIUM'],
-                    $this->generated_attributes->tags['LITHIUM']
+                    $this->resolve_tag('LITHIUM')
                 );
             }
             array_push($this->taxonomy_terms, $this->generated_attributes->categories[$this->cart['battery']['packVoltage'] . " VOLT"]);
@@ -967,7 +995,7 @@ abstract class Abstract_Cart
 
                     $this->generated_attributes->categories['MEDIUM SPEED VEHICLES (MSVS)'],
 
-                    $this->generated_attributes->tags['MSV']
+                    $this->resolve_tag('MSV')
                 );
             }
         } else {
@@ -975,8 +1003,8 @@ abstract class Abstract_Cart
                 $this->taxonomy_terms,
 
                 $this->generated_attributes->categories['GAS'],
-                $this->generated_attributes->tags['GAS'],
-                $this->generated_attributes->tags['PTV']
+                $this->resolve_tag('GAS'),
+                $this->resolve_tag('PTV')
             );
         }
 
@@ -992,9 +1020,9 @@ abstract class Abstract_Cart
                 $this->generated_attributes->categories['LOW SPEED VEHICLES (LSVS)'],              // term 1408
                 $this->generated_attributes->categories['GOLF CARTS'],                             // term 1406
 
-                $this->generated_attributes->tags['STREET LEGAL'],
-                $this->generated_attributes->tags['LSV'],
-                $this->generated_attributes->tags['PTV']
+                $this->resolve_tag('STREET LEGAL'),
+                $this->resolve_tag('LSV'),
+                $this->resolve_tag('PTV')
             );
         }
 
@@ -1033,8 +1061,8 @@ abstract class Abstract_Cart
 
         array_push(
             $this->taxonomy_terms,
-            $this->generated_attributes->tags['TIGON'],
-            $this->generated_attributes->tags['TIGON GOLF CARTS']
+            $this->resolve_tag('TIGON'),
+            $this->resolve_tag('TIGON GOLF CARTS')
         );
 
         /*
