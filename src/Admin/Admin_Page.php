@@ -2071,6 +2071,24 @@ class Admin_Page
             ARRAY_A
         );
 
+        // ── All taxonomy terms with tag_ID, name, slug ─────────────
+        // Grouped by taxonomy for the Tag IDs tab
+        $all_terms_raw = $wpdb->get_results(
+            "SELECT t.term_id, t.name, t.slug, tt.taxonomy, tt.count, tt.parent
+             FROM {$wpdb->terms} t
+             INNER JOIN {$wpdb->term_taxonomy} tt ON t.term_id = tt.term_id
+             ORDER BY tt.taxonomy ASC, t.name ASC",
+            ARRAY_A
+        );
+        $terms_by_taxonomy = [];
+        foreach ($all_terms_raw as $term) {
+            $tax = $term['taxonomy'];
+            if (!isset($terms_by_taxonomy[$tax])) {
+                $terms_by_taxonomy[$tax] = [];
+            }
+            $terms_by_taxonomy[$tax][] = $term;
+        }
+
         // Active plugins (extract name from path)
         $active_plugins = get_option('active_plugins', []);
 
@@ -2177,6 +2195,7 @@ class Admin_Page
             'posttypes'  => 'Post Types',
             'woocommerce'=> 'WooCommerce',
             'taxonomies' => 'Taxonomies',
+            'tagids'     => 'Tag IDs &amp; Terms',
             'metakeys'   => 'Meta Keys',
             'tables'     => 'Database Tables',
             'plugins'    => 'Plugins',
@@ -2313,7 +2332,69 @@ class Admin_Page
         }
         echo '</tbody></table></div></div>';
 
-        // ── TAB 5: Meta Keys ────────────────────────────────────────────
+        // ── TAB 5: Tag IDs & Terms ─────────────────────────────────────
+        echo '<div class="dbo-panel" data-panel="tagids">';
+        echo '<h2 style="margin-top:0;">Tag IDs &amp; Terms <span class="dbo-badge teal" style="font-size:0.7rem;vertical-align:middle;">' . esc_html(count($all_terms_raw)) . ' total terms</span></h2>';
+        echo '<p style="color:#666;font-size:0.85rem;">Every taxonomy term in the database with its <strong>Tag ID</strong> (<code>term_id</code>), title, slug, and usage count. Use the Tag ID when building field mappings or referencing terms in code.</p>';
+
+        // Filter pills for taxonomy type
+        echo '<div class="dbo-pill-row" id="tagid-filter-pills">';
+        echo '<div class="dbo-pill active" data-filter-val="all">All</div>';
+        echo '<div class="dbo-pill" data-filter-val="product_cat">Categories</div>';
+        echo '<div class="dbo-pill" data-filter-val="product_tag">Tags</div>';
+        echo '<div class="dbo-pill" data-filter-val="pa_">Attributes (pa_)</div>';
+        $custom_taxes = ['manufacturers', 'models', 'location', 'sound-systems', 'added-features',
+                         'tires', 'vehicle-class', 'drivetrain', 'inventory-status', 'rims', 'product_visibility'];
+        echo '<div class="dbo-pill" data-filter-val="__custom__">Custom Taxonomies</div>';
+        echo '</div>';
+
+        echo '<input type="text" class="dbo-search" id="tagid-search" placeholder="Search by name, slug, tag ID, or taxonomy...">';
+
+        // Total term count per taxonomy (for section headers)
+        $total_all_terms = count($all_terms_raw);
+
+        foreach ($terms_by_taxonomy as $tax_slug => $terms) {
+            $tax_obj = get_taxonomy($tax_slug);
+            $tax_label = $tax_obj ? $tax_obj->label : $tax_slug;
+            $term_count = count($terms);
+            $is_custom = in_array($tax_slug, $custom_taxes, true);
+            $is_attr   = strpos($tax_slug, 'pa_') === 0;
+
+            echo '<div class="dbo-section tagid-section" data-tax="' . esc_attr($tax_slug) . '" data-is-custom="' . ($is_custom ? '1' : '0') . '" data-is-attr="' . ($is_attr ? '1' : '0') . '">';
+            echo '<div class="dbo-section-hd" onclick="this.classList.toggle(\'open\')">';
+            echo '<span class="arrow">&#9654;</span>';
+            echo '<h3>' . esc_html($tax_label) . ' <code style="font-size:0.75rem;font-weight:400;color:#888;">' . esc_html($tax_slug) . '</code></h3>';
+            echo '<span class="dbo-badge ' . ($is_attr ? 'purple' : ($is_custom ? 'teal' : 'blue')) . '">' . esc_html($term_count) . ' terms</span>';
+            echo '</div>';
+            echo '<div class="dbo-section-bd">';
+            echo '<div class="dbo-scroll" style="max-height:400px;">';
+            echo '<table class="dbo-table"><thead><tr>';
+            echo '<th style="width:80px;">Tag ID</th>';
+            echo '<th>Title (Name)</th>';
+            echo '<th>Slug</th>';
+            echo '<th style="width:80px;">Parent</th>';
+            echo '<th style="width:80px;">Count</th>';
+            echo '<th style="width:140px;">Edit Link</th>';
+            echo '</tr></thead><tbody>';
+
+            foreach ($terms as $t) {
+                $edit_url = admin_url('term.php?taxonomy=' . urlencode($tax_slug) . '&tag_ID=' . intval($t['term_id']) . '&post_type=product');
+                echo '<tr class="tagid-row" data-tax="' . esc_attr($tax_slug) . '">';
+                echo '<td><strong>' . esc_html($t['term_id']) . '</strong></td>';
+                echo '<td>' . esc_html($t['name']) . '</td>';
+                echo '<td><code>' . esc_html($t['slug']) . '</code></td>';
+                echo '<td>' . ($t['parent'] > 0 ? esc_html($t['parent']) : '&mdash;') . '</td>';
+                echo '<td>' . esc_html($t['count']) . '</td>';
+                echo '<td><a href="' . esc_url($edit_url) . '" target="_blank" style="font-size:0.78rem;">Edit &rarr;</a></td>';
+                echo '</tr>';
+            }
+
+            echo '</tbody></table></div></div></div>';
+        }
+
+        echo '</div>'; // end tagids panel
+
+        // ── TAB 6: Meta Keys ────────────────────────────────────────────
         echo '<div class="dbo-panel" data-panel="metakeys">';
         echo '<h2 style="margin-top:0;">Product Meta Keys <span class="dbo-badge teal" style="font-size:0.7rem;vertical-align:middle;">' . esc_html(count($meta_rows)) . ' total</span></h2>';
         echo '<input type="text" class="dbo-search" data-filter="meta-all" placeholder="Search all meta keys...">';
@@ -2617,6 +2698,47 @@ class Admin_Page
                     });
                 });
             });
+
+            // ── Tag IDs tab: filter pills ─────────────────────────────
+            var tagidPills = document.querySelectorAll("#tagid-filter-pills .dbo-pill");
+            var customTaxes = ["manufacturers","models","location","sound-systems","added-features","tires","vehicle-class","drivetrain","inventory-status","rims","product_visibility"];
+            tagidPills.forEach(function(pill){
+                pill.addEventListener("click", function(){
+                    tagidPills.forEach(function(p){ p.classList.remove("active"); });
+                    pill.classList.add("active");
+                    var val = pill.dataset.filterVal;
+                    document.querySelectorAll(".tagid-section").forEach(function(sec){
+                        var tax = sec.dataset.tax || "";
+                        if(val === "all"){
+                            sec.style.display = "";
+                        } else if(val === "__custom__"){
+                            sec.style.display = (customTaxes.indexOf(tax) > -1) ? "" : "none";
+                        } else if(val === "pa_"){
+                            sec.style.display = (tax.indexOf("pa_") === 0) ? "" : "none";
+                        } else {
+                            sec.style.display = (tax === val) ? "" : "none";
+                        }
+                    });
+                });
+            });
+
+            // ── Tag IDs tab: search ───────────────────────────────────
+            var tagidSearch = document.getElementById("tagid-search");
+            if(tagidSearch){
+                tagidSearch.addEventListener("input", function(){
+                    var q = this.value.toLowerCase();
+                    document.querySelectorAll(".tagid-row").forEach(function(row){
+                        row.style.display = row.textContent.toLowerCase().indexOf(q) > -1 ? "" : "none";
+                    });
+                    document.querySelectorAll(".tagid-section").forEach(function(sec){
+                        var visible = sec.querySelectorAll(".tagid-row:not([style*=\"display: none\"])");
+                        sec.style.display = (!q || visible.length > 0) ? "" : "none";
+                        if(q && visible.length > 0){
+                            sec.querySelector(".dbo-section-hd").classList.add("open");
+                        }
+                    });
+                });
+            }
         })();
         </script>';
     }
