@@ -329,6 +329,74 @@ abstract class Abstract_Cart
     }
 
     /**
+     * Map of make_with_symbol (uppercase) to the prefix used in model term names.
+     * Most makes use make_with_symbol directly; only mismatches need entries here.
+     */
+    protected static $model_make_prefix = [
+        'EZGO®'          => 'EZ-GO®',
+        'STAR®'          => 'STAR EV®',
+        'SWIFT®'         => 'SWIFT EV®',
+        'SWIFT EV®'      => 'SWIFT EV®',
+        'TEKO®'          => 'TEKO EV®',
+        'TEKO EV®'       => 'TEKO EV®',
+        'MOTO ELECTRIC®' => 'MOTO EV®',
+        'MOTO®'          => 'MOTO EV®',
+        'ROYAL EV®'      => 'ROYAL EV®',
+        'ROYAL®'         => 'ROYAL EV®',
+    ];
+
+    /**
+     * Map of DMS model names to the term-name suffix used in the models taxonomy.
+     * Only models whose taxonomy name differs from the raw DMS value need entries.
+     */
+    protected static $model_name_transforms = [
+        'DS'        => 'DS ELECTRIC',
+        'PRECEDENT' => 'PRECEDENT ELECTRIC',
+        '4L'        => 'CROWN 4 LIFTED',
+        '6L'        => 'CROWN 6 LIFTED',
+        'DRIVE 2'   => 'DRIVE2',
+    ];
+
+    /**
+     * Resolve a make + model pair to the models taxonomy term key.
+     * Determines the correct make prefix and model suffix, then looks
+     * up in models_taxonomy with multiple fallback strategies.
+     */
+    protected function resolve_model_key(string $make_upper, string $model): ?string
+    {
+        // 1. Determine the make prefix for model terms
+        $prefix = self::$model_make_prefix[$make_upper] ?? $make_upper;
+
+        // 2. Transform the model name if needed
+        $model_upper = strtoupper(trim($model));
+        $suffix = self::$model_name_transforms[$model_upper]
+                ?? self::$model_name_transforms[$model]
+                ?? $model_upper;
+
+        // 3. Build the lookup key
+        $key = $prefix . ' ' . $suffix;
+
+        if (isset($this->generated_attributes->models_taxonomy[$key])) {
+            return $key;
+        }
+
+        // Fallback — try raw make_with_symbol + model (no prefix remap)
+        $raw_key = $make_upper . ' ' . $model_upper;
+        if ($raw_key !== $key && isset($this->generated_attributes->models_taxonomy[$raw_key])) {
+            return $raw_key;
+        }
+
+        // Fallback — try raw make_with_symbol + transformed model
+        $raw_transformed = $make_upper . ' ' . $suffix;
+        if ($raw_transformed !== $key && $raw_transformed !== $raw_key
+            && isset($this->generated_attributes->models_taxonomy[$raw_transformed])) {
+            return $raw_transformed;
+        }
+
+        return null;
+    }
+
+    /**
      * Parent-child relationships for the added-features taxonomy.
      * Key = child term name (uppercase), Value = parent term name (uppercase).
      */
@@ -1583,46 +1651,15 @@ abstract class Abstract_Cart
             );
         }
 
-        // Models
-        if ($this->cart['cartType']['model'] == 'DS') {
+        // Models — resolve make + model to the correct models taxonomy term
+        $model_key = $this->resolve_model_key(
+            strtoupper($this->make_with_symbol),
+            $this->cart['cartType']['model']
+        );
+        if ($model_key !== null && isset($this->generated_attributes->models_taxonomy[$model_key])) {
             array_push(
                 $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' DS ELECTRIC']
-            );
-        } else if ($this->cart['cartType']['model'] == 'Precedent') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' PRECEDENT ELECTRIC']
-            );
-        } else if ($this->cart['cartType']['model'] == '4L') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' CROWN 4 LIFTED']
-            );
-        } else if ($this->cart['cartType']['model'] == '6L') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' CROWN 6 LIFTED']
-            );
-        } else if ($this->cart['cartType']['model'] == 'Drive 2') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' DRIVE2']
-            );
-        } else if (strtoupper($this->make_with_symbol) == 'STAR®') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy['STAR EV®' . ' ' . strtoupper($this->cart['cartType']['model'])]
-            );
-        } else if (strtoupper($this->make_with_symbol) == 'EZGO®') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy['EZ-GO®' . ' ' . strtoupper($this->cart['cartType']['model'])]
-            );
-        } else {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol . ' ' . $this->cart['cartType']['model'])]
+                $this->generated_attributes->models_taxonomy[$model_key]
             );
         }
 
