@@ -1344,19 +1344,40 @@ abstract class Abstract_Cart
          */
         $this->attributes = array();
 
-        // Battery Type
+        // Battery Type — map battery.type to all applicable pa_battery-type terms.
+        // DMS sends simple values (Lithium, Lead, AGM, etc.); the taxonomy has both
+        // primary terms and more specific subtypes that should also be assigned.
         if ($this->cart['isElectric']) {
             $this->attributes['pa_battery-type'] = $this->generated_attributes->attributes['battery-type']['object'];
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->attributes['battery-type']['options'][strtoupper($this->cart['battery']['type'])]
-            );
+            $bt_options = $this->generated_attributes->attributes['battery-type']['options'];
+            $bt_type = strtoupper(trim($this->cart['battery']['type']));
+
+            // Map each DMS battery type to all taxonomy terms it should assign
+            $battery_type_map = [
+                'LITHIUM'     => ['LITHIUM', 'LITHIUM-ION BATTERIES'],
+                'LITHIUM-ION' => ['LITHIUM-ION BATTERIES', 'LITHIUM'],
+                'LEAD'        => ['LEAD'],
+                'AGM'         => ['AGM', 'AGM LEAD ACID BATTERIES', 'LEAD'],
+                'FLOODED'     => ['FLOODED LEAD ACID BATTERIES', 'LEAD'],
+                'GEL'         => ['GEL LEAD ACID BATTERIES', 'LEAD'],
+            ];
+
+            $bt_terms = $battery_type_map[$bt_type] ?? [$bt_type];
+            foreach ($bt_terms as $bt_name) {
+                if (isset($bt_options[$bt_name])) {
+                    array_push($this->taxonomy_terms, $bt_options[$bt_name]);
+                }
+            }
+
             // Battery Warranty
             $this->attributes['pa_battery-warranty'] = $this->generated_attributes->attributes['battery-warranty']['object'];
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->attributes['battery-warranty']['options'][strtoupper($this->cart['battery']['warrantyLength'])]
-            );
+            $bw_key = strtoupper($this->cart['battery']['warrantyLength'] ?? '');
+            if (!empty($bw_key) && isset($this->generated_attributes->attributes['battery-warranty']['options'][$bw_key])) {
+                array_push(
+                    $this->taxonomy_terms,
+                    $this->generated_attributes->attributes['battery-warranty']['options'][$bw_key]
+                );
+            }
         }
 
         // TODO - Model Specific
