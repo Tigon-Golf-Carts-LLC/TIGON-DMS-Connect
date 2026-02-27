@@ -65,6 +65,8 @@ final class Database_Write_Controller {
         $result = self::write_database_object($database_object);
 
         if($result) {
+            // Mark product as featured and visible
+            wp_set_object_terms($result, array('featured'), 'product_visibility');
             return ['pid' => $result, 'onWebsite' => true, 'websiteUrl' => get_permalink($result)];
         }
         return new \WP_Error(
@@ -84,6 +86,8 @@ final class Database_Write_Controller {
         $result = self::write_database_object($database_object);
 
         if($result) {
+            // Mark product as featured and visible
+            wp_set_object_terms($result, array('featured'), 'product_visibility');
             return ['pid' => $result, 'onWebsite' => true, 'websiteUrl' => get_permalink($result)];
         }
         return new \WP_Error(
