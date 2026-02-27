@@ -2815,6 +2815,58 @@ class Admin_Page
                         </div>
                     </div>
                     <a id="save" class="tigon_dms_action tigon_dms_save" data-nonce="' . $nonce . '"><button>Save Settings</button></a>
+
+                    <hr style="margin:1.5rem 0; border:none; border-top:1px solid #ddd;" />
+
+                    <h3 style="margin:0 0 0.5rem 0;">REST API Endpoints</h3>
+                    <p style="font-size:0.85rem; color:#666; margin:0 0 1rem 0;">These are the endpoint addresses the DMS uses to push data to this site. All endpoints require authentication (WordPress application password or logged-in admin session).</p>
+
+                    <div class="settings form" style="gap:0.6rem;">
+                        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                            <span style="min-width:160px; font-weight:600; font-size:0.85rem;">Single Cart Push:</span>
+                            <code id="endpoint-push" style="background:#f0f4f8; padding:0.35rem 0.7rem; border-radius:4px; font-size:0.82rem; word-break:break-all; flex:1; border:1px solid #d0d5dd;">' . esc_html(rest_url('tigon-dms-connect/v1/push')) . '</code>
+                            <button type="button" class="tigon-copy-btn" data-target="endpoint-push" style="padding:0.3rem 0.7rem; font-size:0.78rem; cursor:pointer; border:1px solid #ccc; border-radius:4px; background:#fff;">Copy</button>
+                        </div>
+                        <div style="font-size:0.78rem; color:#888; margin-left:160px; margin-top:-0.2rem;">
+                            <strong>POST</strong> &mdash; Send a single DMS cart JSON object when it is updated or changed. Creates or updates the WooCommerce product using field mappings and schema templates.
+                        </div>
+
+                        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-top:0.7rem;">
+                            <span style="min-width:160px; font-weight:600; font-size:0.85rem;">Push Used Cart:</span>
+                            <code id="endpoint-used" style="background:#f0f4f8; padding:0.35rem 0.7rem; border-radius:4px; font-size:0.82rem; word-break:break-all; flex:1; border:1px solid #d0d5dd;">' . esc_html(rest_url('tigon-dms-connect/used')) . '</code>
+                            <button type="button" class="tigon-copy-btn" data-target="endpoint-used" style="padding:0.3rem 0.7rem; font-size:0.78rem; cursor:pointer; border:1px solid #ccc; border-radius:4px; background:#fff;">Copy</button>
+                        </div>
+                        <div style="font-size:0.78rem; color:#888; margin-left:160px; margin-top:-0.2rem;">
+                            <strong>POST</strong> &mdash; Create or update a used cart. <strong>DELETE</strong> &mdash; Remove a used cart.
+                        </div>
+
+                        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-top:0.7rem;">
+                            <span style="min-width:160px; font-weight:600; font-size:0.85rem;">Push New Cart:</span>
+                            <code id="endpoint-new" style="background:#f0f4f8; padding:0.35rem 0.7rem; border-radius:4px; font-size:0.82rem; word-break:break-all; flex:1; border:1px solid #d0d5dd;">' . esc_html(rest_url('tigon-dms-connect/new/update')) . '</code>
+                            <button type="button" class="tigon-copy-btn" data-target="endpoint-new" style="padding:0.3rem 0.7rem; font-size:0.78rem; cursor:pointer; border:1px solid #ccc; border-radius:4px; background:#fff;">Copy</button>
+                        </div>
+                        <div style="font-size:0.78rem; color:#888; margin-left:160px; margin-top:-0.2rem;">
+                            <strong>POST</strong> &mdash; Create or update a new (non-used) cart.
+                        </div>
+
+                        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-top:0.7rem;">
+                            <span style="min-width:160px; font-weight:600; font-size:0.85rem;">Lookup by Slug:</span>
+                            <code id="endpoint-pid" style="background:#f0f4f8; padding:0.35rem 0.7rem; border-radius:4px; font-size:0.82rem; word-break:break-all; flex:1; border:1px solid #d0d5dd;">' . esc_html(rest_url('tigon-dms-connect/new/pid')) . '</code>
+                            <button type="button" class="tigon-copy-btn" data-target="endpoint-pid" style="padding:0.3rem 0.7rem; font-size:0.78rem; cursor:pointer; border:1px solid #ccc; border-radius:4px; background:#fff;">Copy</button>
+                        </div>
+                        <div style="font-size:0.78rem; color:#888; margin-left:160px; margin-top:-0.2rem;">
+                            <strong>POST</strong> &mdash; Get WooCommerce product ID by website URL slug.
+                        </div>
+
+                        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-top:0.7rem;">
+                            <span style="min-width:160px; font-weight:600; font-size:0.85rem;">Showcase Grid:</span>
+                            <code id="endpoint-showcase" style="background:#f0f4f8; padding:0.35rem 0.7rem; border-radius:4px; font-size:0.82rem; word-break:break-all; flex:1; border:1px solid #d0d5dd;">' . esc_html(rest_url('tigon-dms-connect/showcase')) . '</code>
+                            <button type="button" class="tigon-copy-btn" data-target="endpoint-showcase" style="padding:0.3rem 0.7rem; font-size:0.78rem; cursor:pointer; border:1px solid #ccc; border-radius:4px; background:#fff;">Copy</button>
+                        </div>
+                        <div style="font-size:0.78rem; color:#888; margin-left:160px; margin-top:-0.2rem;">
+                            <strong>POST</strong> &mdash; Set the featured product grid for a location page.
+                        </div>
+                    </div>
                 </div>
 
                 <div class="action-box" id="schema">
@@ -2987,6 +3039,32 @@ class Admin_Page
             </div>
                 </div>
         </div>
+        <script>
+        document.querySelectorAll(".tigon-copy-btn").forEach(function(btn){
+            btn.addEventListener("click", function(){
+                var target = document.getElementById(btn.dataset.target);
+                if(!target) return;
+                var text = target.textContent;
+                if(navigator.clipboard && navigator.clipboard.writeText){
+                    navigator.clipboard.writeText(text).then(function(){
+                        btn.textContent = "Copied!";
+                        setTimeout(function(){ btn.textContent = "Copy"; }, 2000);
+                    });
+                } else {
+                    var ta = document.createElement("textarea");
+                    ta.value = text;
+                    ta.style.position = "fixed";
+                    ta.style.opacity = "0";
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand("copy");
+                    document.body.removeChild(ta);
+                    btn.textContent = "Copied!";
+                    setTimeout(function(){ btn.textContent = "Copy"; }, 2000);
+                }
+            });
+        });
+        </script>
         ';
     }
 

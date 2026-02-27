@@ -272,6 +272,13 @@ class Core
             'callback' => 'Tigon\DmsConnect\Admin\REST_Routes::set_grid',
             'permission_callback' => $permission_check,
         ]);
+
+        // Single-cart instant push — DMS sends one cart when it changes
+        register_rest_route('tigon-dms-connect', 'v1/push', [
+            'methods' => \WP_REST_Server::CREATABLE,
+            'callback' => 'Tigon\DmsConnect\Admin\REST_Routes::push_single_cart',
+            'permission_callback' => $permission_check,
+        ]);
     }
 
     /**
