@@ -1304,65 +1304,135 @@ class Admin_Page
                 });
             });
 
-            /* ── Publish Synced Inventory ──────────────────────────── */
+            /* ── Publish Synced Inventory (batched, Cloudflare-safe) ── */
             $("#dms-publish-btn").on("click", function() {
                 var $btn = $(this);
                 var $spinner = $("#dms-publish-spinner");
                 var $results = $("#dms-publish-results");
 
-                $btn.prop("disabled", true).text("Publishing...");
+                $btn.prop("disabled", true).text("Scanning products...");
                 $spinner.addClass("is-active");
                 $results.hide();
 
+                // Step 1: Init — get list of DMS product IDs
                 $.ajax({
                     url: ajaxurl,
                     type: "POST",
-                    data: { action: "tigon_dms_publish_synced", nonce: publishNonce },
-                    timeout: 95000,
-                    success: function(resp) {
-                        $spinner.removeClass("is-active");
-                        $btn.prop("disabled", false).text("Publish All DMS Products");
-
-                        if (!resp.success) {
-                            $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Error:</strong> \' + $("<span>").text(resp.data || "Unknown error").html() + "</p></div>").show();
+                    data: { action: "tigon_dms_publish_synced_init", nonce: publishNonce },
+                    timeout: 60000,
+                    success: function(initResp) {
+                        if (!initResp.success) {
+                            $spinner.removeClass("is-active");
+                            $btn.prop("disabled", false).text("Publish All DMS Products");
+                            showError($results, initResp.data || "Failed to scan products");
                             return;
                         }
 
-                        var d = resp.data;
-                        var html = \'<div style="background:#d4edda;border:1px solid #c3e6cb;padding:1rem;border-radius:6px;">\';
-                        html += \'<h3 style="margin:0 0 0.5rem 0; color:#155724;">Publish Complete</h3>\';
-                        html += \'<p style="margin:0 0 0.3rem;">\' + $("<span>").text(d.message).html() + "</p>";
-                        html += \'<div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin-top:0.5rem;font-size:0.9rem;">\';
-                        html += \'<span style="font-weight:600;color:#28a745;">Published: \' + d.published + "</span>";
-                        html += \'<span style="font-weight:600;color:#007bff;">Featured: \' + d.featured + "</span>";
-                        html += \'<span style="font-weight:600;color:#333;">Total DMS Products: \' + d.total + "</span>";
-                        html += "</div>";
+                        var syncId = initResp.data.sync_id;
+                        var total = initResp.data.total;
+                        var toPublish = initResp.data.to_publish || 0;
+                        var cumulative = { published: 0, featured: 0, already: 0, errors: [] };
+                        var retries = 0;
+                        var maxRetries = 2;
 
-                        if (d.errors && d.errors.length > 0) {
-                            html += \'<details style="margin-top:0.75rem;"><summary style="cursor:pointer;color:#856404;font-weight:600;">\' + d.errors.length + " error(s)</summary>";
-                            html += \'<ul style="margin:0.5rem 0 0 1.5rem;font-size:0.82rem;">\';
-                            $.each(d.errors, function(i, err) {
-                                html += "<li>" + $("<span>").text(err).html() + "</li>";
-                            });
-                            html += "</ul></details>";
+                        if (total === 0) {
+                            $spinner.removeClass("is-active");
+                            $btn.prop("disabled", false).text("Publish All DMS Products");
+                            $results.html(\'<div style="background:#d4edda;border:1px solid #c3e6cb;padding:1rem;border-radius:4px;"><p>No DMS-synced products found.</p></div>\').show();
+                            return;
                         }
 
-                        html += "</div>";
-                        $results.html(html).show();
+                        $btn.text("Publishing " + toPublish + " of " + total + " DMS products...");
+                        showProgress($results, total);
+                        $results.find(".sync-progress-status").text("Found " + total + " DMS products (" + toPublish + " need publishing). Processing 10 at a time...");
+
+                        // Step 2: Batch loop
+                        function processBatch() {
+                            $.ajax({
+                                url: ajaxurl,
+                                type: "POST",
+                                data: { action: "tigon_dms_publish_synced_batch", nonce: publishNonce, sync_id: syncId },
+                                timeout: 95000,
+                                success: function(batchResp) {
+                                    retries = 0;
+                                    if (!batchResp.success) {
+                                        cumulative.errors.push(batchResp.data || "unknown batch error");
+                                        $spinner.removeClass("is-active");
+                                        $btn.prop("disabled", false).text("Publish All DMS Products");
+                                        showPublishResults($results, cumulative, total);
+                                        return;
+                                    }
+
+                                    var d = batchResp.data;
+                                    cumulative.published += (d.published || 0);
+                                    cumulative.featured += (d.featured || 0);
+                                    cumulative.already += (d.already || 0);
+                                    cumulative.errors = cumulative.errors.concat(d.errors || []);
+
+                                    var processed = d.processed || 0;
+                                    var pct = total > 0 ? Math.min(Math.round((processed / total) * 100), 100) : 0;
+                                    $results.find(".sync-progress-bar").css("width", pct + "%");
+                                    $results.find(".sync-progress-text").text(processed + " / " + total + " (" + pct + "%)");
+                                    $results.find(".sync-progress-status").text("Published: " + cumulative.published + "  |  Featured: " + cumulative.featured + "  |  Already OK: " + cumulative.already);
+                                    $results.find(".created em").text(cumulative.published);
+                                    $results.find(".updated em").text(cumulative.featured);
+                                    $results.find(".total em").text(processed);
+
+                                    if (d.done) {
+                                        $spinner.removeClass("is-active");
+                                        $btn.prop("disabled", false).text("Publish All DMS Products");
+                                        showPublishResults($results, cumulative, total);
+                                    } else {
+                                        processBatch();
+                                    }
+                                },
+                                error: function(xhr, status, error) {
+                                    retries++;
+                                    if (retries <= maxRetries) {
+                                        cumulative.errors.push("Network error (attempt " + retries + "): " + (error || status) + " [HTTP " + (xhr ? xhr.status : "?") + "] — retrying...");
+                                        setTimeout(processBatch, retries * 2000);
+                                    } else {
+                                        cumulative.errors.push("Failed after " + maxRetries + " retries: " + (error || status));
+                                        $spinner.removeClass("is-active");
+                                        $btn.prop("disabled", false).text("Publish All DMS Products");
+                                        showPublishResults($results, cumulative, total);
+                                    }
+                                }
+                            });
+                        }
+
+                        processBatch();
                     },
                     error: function(xhr, status, error) {
                         $spinner.removeClass("is-active");
                         $btn.prop("disabled", false).text("Publish All DMS Products");
-                        var detail = error || status || "connection failed";
-                        if (xhr) {
-                            detail += " [HTTP " + xhr.status + "]";
-                            var body = (xhr.responseText || "").substring(0, 300);
-                            if (body) detail += " " + body;
-                        }
-                        $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Error:</strong> \' + $("<span>").text(detail).html() + "</p></div>").show();
+                        showError($results, "Failed to scan products: " + (error || status || "connection failed"), xhr);
                     }
                 });
             });
+
+            function showPublishResults($results, stats, total) {
+                var html = \'<div style="background:#d4edda;border:1px solid #c3e6cb;padding:1rem;border-radius:6px;">\';
+                html += \'<h3 style="margin:0 0 0.5rem 0; color:#155724;">Publish Complete</h3>\';
+                html += \'<ul style="list-style:disc;padding-left:1.5rem;">\';
+                html += "<li><strong>Total DMS products:</strong> " + total + "</li>";
+                html += "<li><strong>Newly published:</strong> " + stats.published + "</li>";
+                html += "<li><strong>Newly featured:</strong> " + stats.featured + "</li>";
+                html += "<li><strong>Already published:</strong> " + stats.already + "</li>";
+                if (stats.errors.length > 0) html += "<li><strong>Errors:</strong> " + stats.errors.length + "</li>";
+                html += "</ul>";
+                if (stats.errors.length > 0) {
+                    html += \'<details style="margin-top:0.5rem;"><summary style="cursor:pointer;font-weight:600;color:#dc3545;">Error details (\' + stats.errors.length + ")</summary>";
+                    html += \'<ul style="list-style:disc;padding-left:1.5rem;font-size:0.85rem;max-height:300px;overflow-y:auto;">\';
+                    stats.errors.slice(0, 50).forEach(function(e) {
+                        html += "<li>" + $("<span>").text(e).html() + "</li>";
+                    });
+                    if (stats.errors.length > 50) html += "<li><em>...and " + (stats.errors.length - 50) + " more</em></li>";
+                    html += "</ul></details>";
+                }
+                html += "</div>";
+                $results.html(html).show();
+            }
         });
         </script>
         ';
