@@ -928,14 +928,21 @@ abstract class Abstract_Cart
             $this->generated_attributes->tags['GOLF CART']
         );
         if ($this->cart['isElectric']) {
+            // ── Electric vehicle categories — ALL electric carts get these ──
             array_push(
                 $this->taxonomy_terms,
 
-                $this->generated_attributes->categories['ELECTRIC'],
-                $this->generated_attributes->tags['ELECTRIC']
-            );
+                $this->generated_attributes->categories['ELECTRIC'],                                    // term 73
+                $this->generated_attributes->categories['BATTERY ELECTRIC VEHICLES (BEVS)'],            // term 3540
+                $this->generated_attributes->categories['NEIGHBORHOOD ELECTRIC VEHICLES (NEVS)'],       // term 1407
+                $this->generated_attributes->categories['PERSONAL TRANSPORTATION VEHICLES (PTVS)'],     // term 1855
+                $this->generated_attributes->categories['ZERO EMISSION VEHICLES (ZEVS)'],
 
-            array_push($this->taxonomy_terms, $this->generated_attributes->categories['ZERO EMISSION VEHICLES (ZEVS)']);
+                $this->generated_attributes->tags['ELECTRIC'],
+                $this->generated_attributes->tags['NEV'],
+                $this->generated_attributes->tags['BEV'],
+                $this->generated_attributes->tags['ZEV']
+            );
 
             if ($this->cart['battery']['type'] == 'Lead') {
                 array_push(
@@ -958,11 +965,8 @@ abstract class Abstract_Cart
                 array_push(
                     $this->taxonomy_terms,
 
-                    $this->generated_attributes->categories['NEIGHBORHOOD ELECTRIC VEHICLES (NEVS)'],
-                    $this->generated_attributes->categories['BATTERY ELECTRIC VEHICLES (BEVS)'],
                     $this->generated_attributes->categories['MEDIUM SPEED VEHICLES (MSVS)'],
 
-                    $this->generated_attributes->tags['NEV'],
                     $this->generated_attributes->tags['MSV']
                 );
             }
