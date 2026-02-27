@@ -33,6 +33,10 @@ class Admin_Page
         self::add_database_objects_page();
         self::add_field_mapping_page();
         self::add_sync_page();
+
+        // Force-remove the legacy Import submenu in case a previous plugin
+        // version cached it or it was registered by stale code.
+        remove_submenu_page('tigon-dms-connect', 'import');
     }
 
     /**

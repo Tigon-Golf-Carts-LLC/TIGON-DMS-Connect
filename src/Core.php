@@ -36,17 +36,8 @@ class Core
         add_action('load-tigon-dms-connect_page_dms-inventory-sync', 'Tigon\DmsConnect\Core::sync_script_enqueue');
 
         // Register Ajax functions
-        add_action('wp_ajax_tigon_dms_query', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::query_dms');
-        add_action('wp_ajax_tigon_dms_get_new_carts', 'Tigon\DmsConnect\Admin\New\New_Cart_Converter::generate_new_carts');
-        add_action('wp_ajax_tigon_dms_ajax_import_convert', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_convert');
-        add_action('wp_ajax_tigon_dms_ajax_new_import_convert', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_new_import_convert');
-        add_action('wp_ajax_tigon_dms_ajax_import_create', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_create');
-        add_action('wp_ajax_tigon_dms_ajax_import_update', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_update');
-        add_action('wp_ajax_tigon_dms_ajax_import_delete', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_delete');
-        add_action('wp_ajax_tigon_dms_ajax_import_new', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::ajax_import_new');
         add_action('wp_ajax_tigon_dms_save_settings', 'Tigon\DmsConnect\Admin\Ajax_Settings_Controller::save_settings');
         add_action('wp_ajax_tigon_dms_get_dms_props', 'Tigon\DmsConnect\Admin\Ajax_Settings_Controller::get_dms_props');
-        add_action('wp_ajax_tigon_dms_post_import', 'Tigon\DmsConnect\Admin\Ajax_Import_Controller::process_post_import');
         add_action('wp_ajax_tigon_dms_sync_mapped', 'Tigon\DmsConnect\Core::ajax_sync_mapped_inventory');
         add_action('wp_ajax_tigon_dms_sync_selective', 'Tigon\DmsConnect\Core::ajax_sync_selective');
 
@@ -66,6 +57,11 @@ class Core
 
         // Add admin page
         add_action('admin_menu', 'Tigon\DmsConnect\Admin\Admin_Page::add_menu_page');
+
+        // Late hook: nuke the legacy Import submenu no matter who registers it
+        add_action('admin_menu', function () {
+            remove_submenu_page('tigon-dms-connect', 'import');
+        }, 999);
 
         // Allow for automatic taxonomy updates
         add_action('woocommerce_rest_insert_product_object', 'Tigon\DmsConnect\Core::update_taxonomy', 10, 3);
@@ -144,26 +140,6 @@ class Core
         return $orderby;
     }
     
-    public static function import_script_enqueue()
-    {
-        $js_url = self::asset_url();
-        wp_register_script('@tigon-dms/globals', $js_url . 'globals.js');
-        wp_register_script_module('@tigon-dms/base64-js', $js_url . 'node_modules/base64-js/index.js');
-        wp_register_script_module('@tigon-dms/ieee754', $js_url . 'node_modules/ieee754/index.js');
-        wp_register_script_module('@tigon-dms/buffer', $js_url . 'node_modules/buffer/index.js', ['@tigon-dms/base64-js', '@tigon-dms/ieee754']);
-        wp_register_script_module('@tigon-dms/php_serialize', $js_url . 'node_modules/php-serialize/index.js');
-        wp_register_script_module('@tigon-dms/import', $js_url . 'import.js', ['jquery', '@tigon-dms/php_serialize']);
-
-        wp_localize_script('@tigon-dms/globals', 'globals', [
-            'ajaxurl' => admin_url('admin-ajax.php'),
-            'siteurl' => get_site_url()
-        ]);
-
-        wp_enqueue_script('@tigon-dms/globals');
-        wp_enqueue_script_module('@tigon-dms/php_serialize');
-        wp_enqueue_script('jquery');
-        wp_enqueue_script_module('@tigon-dms/import');
-    }
 
     public static function settings_script_enqueue()
     {
