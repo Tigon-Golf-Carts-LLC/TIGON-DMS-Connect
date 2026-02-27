@@ -162,6 +162,7 @@ class Attributes
     public $attributes = [];
     public $tabs = [];
     public $manufacturers_taxonomy = [];
+    public $brands_taxonomy = [];
     public $models_taxonomy = [];
     public $sound_systems_taxonomy = [];
     public $vehicle_classes_taxonomy = [];
@@ -177,6 +178,7 @@ class Attributes
         $this->tabs = Attributes::ai_get_tabs();
         $this->attributes = Attributes::ai_get_attributes();
         $this->manufacturers_taxonomy = Attributes::ai_get_manufacturers();
+        $this->brands_taxonomy = Attributes::ai_get_brands();
         $this->models_taxonomy = Attributes::ai_get_models();
         $this->sound_systems_taxonomy = Attributes::ai_get_sound_systems();
         $this->vehicle_classes_taxonomy = Attributes::ai_get_classes();
@@ -282,6 +284,25 @@ class Attributes
             $manufacturers_taxonomy[strtoupper($term->name)] = $term->term_taxonomy_id;
         }
         return $manufacturers_taxonomy;
+    }
+
+    /**
+     * Gets all terms in the product_brand taxonomy, and returns them as an associative array
+     * @return array
+     */
+    private static function ai_get_brands()
+    {
+        $brands_taxonomy = array();
+        $brands = get_terms([
+            'taxonomy' => 'product_brand',
+            'hide_empty' => false
+        ]);
+        if (!is_wp_error($brands)) {
+            foreach($brands as $term) {
+                $brands_taxonomy[strtoupper($term->name)] = $term->term_taxonomy_id;
+            }
+        }
+        return $brands_taxonomy;
     }
 
     /**

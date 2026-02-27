@@ -217,6 +217,43 @@ abstract class Abstract_Cart
     }
 
     /**
+     * Map make_with_symbol (® always at end) to the correct product_brand term name.
+     * Brand term names may position ® differently (e.g. "Epic® Carts" vs "Epic®").
+     * Returns the uppercase brand key to look up in brands_taxonomy, or null.
+     */
+    protected function resolve_brand_key(string $make_upper): ?string
+    {
+        // Special cases where make_with_symbol doesn't match the brand term name
+        static $brand_map = [
+            'SWIFT EV®'      => 'SWIFT® EV',
+            'SWIFT®'         => 'SWIFT® EV',
+            'EPIC®'          => 'EPIC® CARTS',
+            'MOTO ELECTRIC®' => 'MOTO® ELECTRIC',
+            'ROYAL EV®'      => 'ROYAL® EV',
+            'TIGON®'         => 'TIGON® CARTS',
+            'STAR®'          => 'STAR®',
+        ];
+
+        if (isset($brand_map[$make_upper])) {
+            return $brand_map[$make_upper];
+        }
+
+        // Direct match — most brands (Club Car®, Evolution®, EZGO®, Icon®, etc.)
+        if (isset($this->generated_attributes->brands_taxonomy[$make_upper])) {
+            return $make_upper;
+        }
+
+        // Fallback — try without ® symbol in case the brand term doesn't use it
+        $without_symbol = str_replace('®', '', $make_upper);
+        $without_symbol = trim($without_symbol);
+        if (isset($this->generated_attributes->brands_taxonomy[$without_symbol])) {
+            return $without_symbol;
+        }
+
+        return null;
+    }
+
+    /**
      * Cached schema templates loaded from tigon_dms_config.
      *
      * @var array<string,string>|null
@@ -1390,6 +1427,17 @@ abstract class Abstract_Cart
             array_push(
                 $this->taxonomy_terms,
                 $this->generated_attributes->manufacturers_taxonomy[strtoupper($this->make_with_symbol)]
+            );
+        }
+
+        // Product Brand — map make to the corresponding product_brand taxonomy term.
+        // make_with_symbol always places ® at the end (e.g. "Epic®"), but some brand
+        // term names position ® differently (e.g. "Epic® Carts", "Swift® EV").
+        $brand_key = $this->resolve_brand_key(strtoupper($this->make_with_symbol));
+        if ($brand_key !== null && isset($this->generated_attributes->brands_taxonomy[$brand_key])) {
+            array_push(
+                $this->taxonomy_terms,
+                $this->generated_attributes->brands_taxonomy[$brand_key]
             );
         }
 
