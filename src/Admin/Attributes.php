@@ -157,10 +157,12 @@ class Attributes
 
     //Automatically propagated
     public $categories = [];
+    public $category_term_ids = [];
     public $tags = [];
     public $attributes = [];
     public $tabs = [];
     public $manufacturers_taxonomy = [];
+    public $brands_taxonomy = [];
     public $models_taxonomy = [];
     public $sound_systems_taxonomy = [];
     public $vehicle_classes_taxonomy = [];
@@ -171,11 +173,12 @@ class Attributes
 
     public function __construct()
     {
-        $this->categories = Attributes::ai_get_categories();
+        list($this->categories, $this->category_term_ids) = Attributes::ai_get_categories();
         $this->tags = Attributes::ai_get_tags();
         $this->tabs = Attributes::ai_get_tabs();
         $this->attributes = Attributes::ai_get_attributes();
         $this->manufacturers_taxonomy = Attributes::ai_get_manufacturers();
+        $this->brands_taxonomy = Attributes::ai_get_brands();
         $this->models_taxonomy = Attributes::ai_get_models();
         $this->sound_systems_taxonomy = Attributes::ai_get_sound_systems();
         $this->vehicle_classes_taxonomy = Attributes::ai_get_classes();
@@ -201,14 +204,17 @@ class Attributes
     private static function ai_get_categories()
     {
         $categories = array();
+        $category_term_ids = array();
         $category_list = get_categories([
             'taxonomy' => 'product_cat',
             'hide_empty' => false
         ]);
         foreach($category_list as $category) {
-            $categories[strtoupper($category->name)] = $category->term_id;
+            $key = strtoupper($category->name);
+            $categories[$key] = $category->term_taxonomy_id;
+            $category_term_ids[$key] = $category->term_id;
         }
-        return $categories;
+        return [$categories, $category_term_ids];
     }
 
     /**
@@ -223,7 +229,7 @@ class Attributes
             'hide_empty' => false
         ]);
         foreach($tag_list as $tag) {
-            $tags[strtoupper($tag->name)] = $tag->term_id;
+            $tags[strtoupper($tag->name)] = $tag->term_taxonomy_id;
         }
         return $tags;
     }
@@ -257,7 +263,7 @@ class Attributes
                 'fields' => 'all',
                 'hide_empty' => false
             )) as $term) {
-                $attributes[$attr->attribute_name]['options'][strtoupper($term->name)] = $term->term_id;
+                $attributes[$attr->attribute_name]['options'][strtoupper($term->name)] = $term->term_taxonomy_id;
             }
         }
         return $attributes;
@@ -275,9 +281,28 @@ class Attributes
             'hide_empty' => false
         ]);
         foreach($manufacturers as $term) {
-            $manufacturers_taxonomy[strtoupper($term->name)] = $term->term_id;
+            $manufacturers_taxonomy[strtoupper($term->name)] = $term->term_taxonomy_id;
         }
         return $manufacturers_taxonomy;
+    }
+
+    /**
+     * Gets all terms in the product_brand taxonomy, and returns them as an associative array
+     * @return array
+     */
+    private static function ai_get_brands()
+    {
+        $brands_taxonomy = array();
+        $brands = get_terms([
+            'taxonomy' => 'product_brand',
+            'hide_empty' => false
+        ]);
+        if (!is_wp_error($brands)) {
+            foreach($brands as $term) {
+                $brands_taxonomy[strtoupper($term->name)] = $term->term_taxonomy_id;
+            }
+        }
+        return $brands_taxonomy;
     }
 
     /**
@@ -292,7 +317,7 @@ class Attributes
             'hide_empty' => false
         ]);
         foreach($models as $term) {
-            $models_taxonomy[strtoupper($term->name)] = $term->term_id;
+            $models_taxonomy[strtoupper($term->name)] = $term->term_taxonomy_id;
         }
         return $models_taxonomy;
     }
@@ -309,7 +334,7 @@ class Attributes
             'hide_empty' => false
         ]);
         foreach($classes as $term) {
-            $classes_taxonomy[strtoupper($term->name)] = $term->term_id;
+            $classes_taxonomy[strtoupper($term->name)] = $term->term_taxonomy_id;
         }
         return $classes_taxonomy;
     }
@@ -326,7 +351,7 @@ class Attributes
             'hide_empty' => false
         ]);
         foreach($features as $term) {
-            $features_taxonomy[strtoupper($term->name)] = $term->term_id;
+            $features_taxonomy[strtoupper($term->name)] = $term->term_taxonomy_id;
         }
         return $features_taxonomy;
     }
@@ -343,7 +368,7 @@ class Attributes
             'hide_empty' => false
         ]);
         foreach($sound_systems as $term) {
-            $sound_systems_taxonomy[strtoupper($term->name)] = $term->term_id;
+            $sound_systems_taxonomy[strtoupper($term->name)] = $term->term_taxonomy_id;
         }
         return $sound_systems_taxonomy;
     }
@@ -360,7 +385,7 @@ class Attributes
             'hide_empty' => false
         ]);
         foreach($drivetrains as $term) {
-            $drivetrain_taxonomy[strtoupper($term->name)] = $term->term_id;
+            $drivetrain_taxonomy[strtoupper($term->name)] = $term->term_taxonomy_id;
         }
         return $drivetrain_taxonomy;
     }
@@ -377,7 +402,7 @@ class Attributes
             'hide_empty' => false
         ]);
         foreach($statuses as $term) {
-            $inventory_status_taxonomy[strtoupper($term->name)] = $term->term_id;
+            $inventory_status_taxonomy[strtoupper($term->name)] = $term->term_taxonomy_id;
         }
         return $inventory_status_taxonomy;
     }

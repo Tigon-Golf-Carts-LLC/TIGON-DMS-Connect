@@ -188,6 +188,374 @@ abstract class Abstract_Cart
     protected $taxonomy_terms;
 
     /**
+     * Resolve a product_tag term_taxonomy_id by name.
+     * If the tag exists in the pre-loaded lookup, return its term_taxonomy_id.
+     * If not, create the tag via wp_insert_term and return the new term_taxonomy_id.
+     * Returns null only if creation fails.
+     */
+    protected function resolve_tag(string $name): ?int
+    {
+        $key = strtoupper($name);
+        if (isset($this->generated_attributes->tags[$key])) {
+            return (int) $this->generated_attributes->tags[$key];
+        }
+        // Tag doesn't exist yet — create it
+        $result = wp_insert_term($name, 'product_tag');
+        if (is_wp_error($result)) {
+            // Term may already exist under a different casing — try fetching by slug
+            $existing = get_term_by('slug', sanitize_title($name), 'product_tag');
+            if ($existing) {
+                $this->generated_attributes->tags[$key] = $existing->term_taxonomy_id;
+                return (int) $existing->term_taxonomy_id;
+            }
+            return null;
+        }
+        $tt_id = (int) $result['term_taxonomy_id'];
+        // Cache for subsequent calls in this sync
+        $this->generated_attributes->tags[$key] = $tt_id;
+        return $tt_id;
+    }
+
+    /**
+     * Map make_with_symbol (® always at end) to the correct product_brand term name.
+     * Brand term names may position ® differently (e.g. "Epic® Carts" vs "Epic®").
+     * Returns the uppercase brand key to look up in brands_taxonomy, or null.
+     */
+    protected function resolve_brand_key(string $make_upper): ?string
+    {
+        // Special cases where make_with_symbol doesn't match the brand term name
+        static $brand_map = [
+            'SWIFT EV®'      => 'SWIFT® EV',
+            'SWIFT®'         => 'SWIFT® EV',
+            'EPIC®'          => 'EPIC® CARTS',
+            'MOTO ELECTRIC®' => 'MOTO® ELECTRIC',
+            'ROYAL EV®'      => 'ROYAL® EV',
+            'TIGON®'         => 'TIGON® CARTS',
+            'STAR®'          => 'STAR®',
+        ];
+
+        if (isset($brand_map[$make_upper])) {
+            return $brand_map[$make_upper];
+        }
+
+        // Direct match — most brands (Club Car®, Evolution®, EZGO®, Icon®, etc.)
+        if (isset($this->generated_attributes->brands_taxonomy[$make_upper])) {
+            return $make_upper;
+        }
+
+        // Fallback — try without ® symbol in case the brand term doesn't use it
+        $without_symbol = str_replace('®', '', $make_upper);
+        $without_symbol = trim($without_symbol);
+        if (isset($this->generated_attributes->brands_taxonomy[$without_symbol])) {
+            return $without_symbol;
+        }
+
+        return null;
+    }
+
+    /**
+     * Map make_with_symbol to the correct manufacturers taxonomy term name.
+     * DMS make values like "Teko" produce make_with_symbol "Teko®", but the
+     * manufacturer term may be "TEKO EV®", "MOTO EV®", etc.
+     * Returns the uppercase manufacturer key, or null.
+     */
+    protected function resolve_manufacturer_key(string $make_upper): ?string
+    {
+        // Explicit overrides where the DMS make name differs from the taxonomy term
+        static $mfg_map = [
+            'SWIFT EV®'      => 'SWIFT®',
+            'STAR®'          => 'STAR EV®',
+            'TEKO®'          => 'TEKO EV®',
+            'MOTO ELECTRIC®' => 'MOTO EV®',
+            'MOTO®'          => 'MOTO EV®',
+            'KODIAK®'        => 'KODIAK EV®',
+            'VENOM®'         => 'VENOM EV®',
+            'MAMMOTH®'       => 'MAMMOTH EV®',
+            'VIVID®'         => 'VIVID EV®',
+            'TROJAN®'        => 'TROJAN EV®',
+            'VOYAGER®'       => 'VOYAGER EV®',
+            'VIKING®'        => 'VIKING EV®',
+            'ALSET®'         => 'ALSET EV®',
+            'AETRIC®'        => 'AETRIC EV®',
+            'ADVANCED®'      => 'ADVANCED EV®',
+            'LEGION®'        => 'LEGION EV®',
+            'SPARTAN®'       => 'SPARTAN EV®',
+            'NEVO®'          => 'NEVO EV®',
+            'SPREE®'         => 'SPREE EV®',
+            'BREMARK®'       => 'BREMARK EV®',
+            'BREEZY®'        => 'BREEZY EV®',
+            'ACTIVE®'        => 'ACTIVE EV®',
+            'GORILLA RIDES®' => 'GORILLA RIDES EV®',
+            'EPIC CARTS®'    => 'EPIC®',
+            'CROWN®'         => 'CROWN CARTS®',
+            'FREEDOM®'       => 'FREEDOM CARTS®',
+            'SUNDAY®'        => 'SUNDAY CARTS®',
+            'DYNAMIC®'       => 'DYNAMIC CARTS®',
+            'ENVY®'          => 'ENVY GOLF CART®',
+            'HONOR®'         => 'HONOR LSV®',
+            'OLYMPUS®'       => 'OLYMPUS LSV®',
+            'SIERRA®'        => 'SIERRA LSV®',
+            'IRONBULL®'      => 'IRONBULL CART®',
+            'VIPER®'         => 'VIPER CART®',
+            'MASSIMO®'       => 'MASSIMO MOTOR®',
+            'MOKO®'          => 'MOKO AMERICA®',
+        ];
+
+        if (isset($mfg_map[$make_upper])) {
+            return $mfg_map[$make_upper];
+        }
+
+        // Direct match — most manufacturers (CLUB CAR®, EVOLUTION®, EZGO®, etc.)
+        if (isset($this->generated_attributes->manufacturers_taxonomy[$make_upper])) {
+            return $make_upper;
+        }
+
+        // Fallback — try adding " EV" before the ® for EV-suffixed manufacturer terms
+        $ev_key = str_replace('®', 'EV®', $make_upper);
+        $ev_key = str_replace('EV®', ' EV®', $ev_key);
+        // Avoid double space if make already ended with a space before ®
+        $ev_key = preg_replace('/\s+/', ' ', $ev_key);
+        if (isset($this->generated_attributes->manufacturers_taxonomy[$ev_key])) {
+            return $ev_key;
+        }
+
+        // Fallback — try without ® symbol
+        $without_symbol = trim(str_replace('®', '', $make_upper));
+        if (isset($this->generated_attributes->manufacturers_taxonomy[$without_symbol])) {
+            return $without_symbol;
+        }
+
+        return null;
+    }
+
+    /**
+     * Map of make_with_symbol (uppercase) to the prefix used in model term names.
+     * Most makes use make_with_symbol directly; only mismatches need entries here.
+     */
+    protected static $model_make_prefix = [
+        'EZGO®'          => 'EZ-GO®',
+        'STAR®'          => 'STAR EV®',
+        'SWIFT®'         => 'SWIFT EV®',
+        'SWIFT EV®'      => 'SWIFT EV®',
+        'TEKO®'          => 'TEKO EV®',
+        'TEKO EV®'       => 'TEKO EV®',
+        'MOTO ELECTRIC®' => 'MOTO EV®',
+        'MOTO®'          => 'MOTO EV®',
+        'ROYAL EV®'      => 'ROYAL EV®',
+        'ROYAL®'         => 'ROYAL EV®',
+    ];
+
+    /**
+     * Map of DMS model names to the term-name suffix used in the models taxonomy.
+     * Only models whose taxonomy name differs from the raw DMS value need entries.
+     */
+    protected static $model_name_transforms = [
+        'DS'        => 'DS ELECTRIC',
+        'PRECEDENT' => 'PRECEDENT ELECTRIC',
+        '4L'        => 'CROWN 4 LIFTED',
+        '6L'        => 'CROWN 6 LIFTED',
+        'DRIVE 2'   => 'DRIVE2',
+    ];
+
+    /**
+     * Resolve a make + model pair to the models taxonomy term key.
+     * Determines the correct make prefix and model suffix, then looks
+     * up in models_taxonomy with multiple fallback strategies.
+     */
+    protected function resolve_model_key(string $make_upper, string $model): ?string
+    {
+        // 1. Determine the make prefix for model terms
+        $prefix = self::$model_make_prefix[$make_upper] ?? $make_upper;
+
+        // 2. Transform the model name if needed
+        $model_upper = strtoupper(trim($model));
+        $suffix = self::$model_name_transforms[$model_upper]
+                ?? self::$model_name_transforms[$model]
+                ?? $model_upper;
+
+        // 3. Build the lookup key
+        $key = $prefix . ' ' . $suffix;
+
+        if (isset($this->generated_attributes->models_taxonomy[$key])) {
+            return $key;
+        }
+
+        // Fallback — try raw make_with_symbol + model (no prefix remap)
+        $raw_key = $make_upper . ' ' . $model_upper;
+        if ($raw_key !== $key && isset($this->generated_attributes->models_taxonomy[$raw_key])) {
+            return $raw_key;
+        }
+
+        // Fallback — try raw make_with_symbol + transformed model
+        $raw_transformed = $make_upper . ' ' . $suffix;
+        if ($raw_transformed !== $key && $raw_transformed !== $raw_key
+            && isset($this->generated_attributes->models_taxonomy[$raw_transformed])) {
+            return $raw_transformed;
+        }
+
+        return null;
+    }
+
+    /**
+     * Parent-child relationships for the added-features taxonomy.
+     * Key = child term name (uppercase), Value = parent term name (uppercase).
+     */
+    protected static $feature_parents = [
+        'BUMPER GUARDS'              => 'BRUSH GUARD',
+        'CENTER GRILLE GUARD'        => 'BRUSH GUARD',
+        'FULL FRONT END GRILLE GUARD'=> 'BRUSH GUARD',
+        'NUDGE BAR'                  => 'BRUSH GUARD',
+        'SKID PLATE'                 => 'BRUSH GUARD',
+        'SPORT BARS'                 => 'BRUSH GUARD',
+        'TAIL LIGHT GUARD'           => 'BRUSH GUARD',
+        'LIGHT BAR'                  => 'LEDS',
+        'UNDER GLOW'                 => 'LEDS',
+        'CARGO'                      => 'UTILITY BED',
+        'CARGO BOX'                  => 'CARGO',
+        'CARGO CAGE'                 => 'CARGO',
+        'CARGO HALF WALL'            => 'CARGO',
+        'DUMP BED'                   => 'UTILITY BED',
+        'FLAT BED'                   => 'UTILITY BED',
+        'RETRACTABLE BED'            => 'UTILITY BED',
+    ];
+
+    /**
+     * Map camelCase payload keys from addedFeatures booleans to taxonomy term names.
+     */
+    protected static $feature_bool_map = [
+        'staticStock'  => 'STATIC STOCK',
+        'brushGuard'   => 'BRUSH GUARD',
+        'clayBasket'   => 'CLAY BASKET',
+        'fenderFlares' => 'FENDER FLARES',
+        'LEDs'         => 'LEDS',
+        'lightBar'     => 'LIGHT BAR',
+        'underGlow'    => 'UNDER GLOW',
+        'stockOptions' => 'STOCK OPTIONS',
+        'vehicleWrap'  => 'VEHICLE WRAP',
+        'towHitch'     => 'TOW HITCH',
+        'liftKit'      => 'LIFT KIT',
+        'bumperGuards' => 'BUMPER GUARDS',
+        'centerGrilleGuard'      => 'CENTER GRILLE GUARD',
+        'fullFrontEndGrilleGuard'=> 'FULL FRONT END GRILLE GUARD',
+        'nudgeBar'     => 'NUDGE BAR',
+        'skidPlate'    => 'SKID PLATE',
+        'sportBars'    => 'SPORT BARS',
+        'tailLightGuard'=> 'TAIL LIGHT GUARD',
+        'utilityBed'   => 'UTILITY BED',
+        'cargo'        => 'CARGO',
+        'cargoBox'     => 'CARGO BOX',
+        'cargoCage'    => 'CARGO CAGE',
+        'cargoHalfWall'=> 'CARGO HALF WALL',
+        'dumpBed'      => 'DUMP BED',
+        'flatBed'      => 'FLAT BED',
+        'retractableBed'=> 'RETRACTABLE BED',
+    ];
+
+    /**
+     * Resolve an added-feature name to its term_taxonomy_id(s), including parent terms.
+     * Returns an array of term_taxonomy_ids (child first, then parents up the chain).
+     */
+    protected function resolve_added_feature(string $feature_name): array
+    {
+        $key = strtoupper(trim($feature_name));
+        $ids = [];
+
+        // Walk the feature and its parent chain
+        $current = $key;
+        while ($current !== null) {
+            if (isset($this->generated_attributes->added_features_taxonomy[$current])) {
+                $ids[] = $this->generated_attributes->added_features_taxonomy[$current];
+            }
+            $current = self::$feature_parents[$current] ?? null;
+        }
+
+        return $ids;
+    }
+
+    /**
+     * Normalize a DMS battery.warrantyLength value to match a pa_battery-warranty
+     * taxonomy term name.
+     *
+     * Taxonomy terms: 1 Year, 2 Years, 3 Years, 4 Years, 5 Years, 8 Years,
+     *                 6 Month, 12 Month, 18 Month,
+     *                 60 Days, 90 Days, 120 Days,
+     *                 As-Is, No, Yes
+     *
+     * DMS may send: "5 years", "5 year", "12 months", "90 days", "none", "as-is", etc.
+     */
+    protected function resolve_battery_warranty_key(string $raw): ?string
+    {
+        $input = strtoupper(trim($raw));
+        if ($input === '' || $input === 'NULL') {
+            return null;
+        }
+
+        $options = $this->generated_attributes->attributes['battery-warranty']['options'];
+
+        // Direct match
+        if (isset($options[$input])) {
+            return $input;
+        }
+
+        // Semantic aliases
+        $aliases = [
+            'NONE'       => 'NO',
+            'N/A'        => 'NO',
+            'NO WARRANTY'=> 'NO',
+            'AS IS'      => 'AS-IS',
+            'ASIS'       => 'AS-IS',
+        ];
+        if (isset($aliases[$input]) && isset($options[$aliases[$input]])) {
+            return $aliases[$input];
+        }
+
+        // Parse "N UNIT" patterns — e.g. "5 YEARS", "12 MONTHS", "90 DAYS"
+        if (preg_match('/^(\d+)\s*(YEAR|YEARS|MONTH|MONTHS|DAY|DAYS)$/i', $input, $m)) {
+            $num  = $m[1];
+            $unit = strtoupper($m[2]);
+
+            // Normalize unit to match taxonomy naming convention
+            if (in_array($unit, ['YEAR', 'YEARS'], true)) {
+                // Taxonomy uses "1 Year" (singular) but "2 Years", "3 Years" etc. (plural)
+                $normalized = $num . ($num === '1' ? ' YEAR' : ' YEARS');
+            } elseif (in_array($unit, ['MONTH', 'MONTHS'], true)) {
+                // Taxonomy always uses singular "MONTH"
+                $normalized = $num . ' MONTH';
+            } else {
+                // Taxonomy always uses plural "DAYS"
+                $normalized = $num . ' DAYS';
+            }
+
+            if (isset($options[$normalized])) {
+                return $normalized;
+            }
+
+            // Try the opposite plurality as fallback
+            if (in_array($unit, ['YEAR', 'YEARS'], true)) {
+                $alt = $num . ($num === '1' ? ' YEARS' : ' YEAR');
+            } elseif (in_array($unit, ['MONTH', 'MONTHS'], true)) {
+                $alt = $num . ' MONTHS';
+            } else {
+                $alt = $num . ' DAY';
+            }
+            if (isset($options[$alt])) {
+                return $alt;
+            }
+        }
+
+        // Bare number — try years first (most common), then months, then days
+        if (preg_match('/^\d+$/', $input)) {
+            foreach ([' YEARS', ' YEAR', ' MONTH', ' MONTHS', ' DAYS', ' DAY'] as $suffix) {
+                if (isset($options[$input . $suffix])) {
+                    return $input . $suffix;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Cached schema templates loaded from tigon_dms_config.
      *
      * @var array<string,string>|null
@@ -802,7 +1170,6 @@ abstract class Abstract_Cart
      */
     protected function attach_categories_tags()
     {
-        // TODO tags need to be added as taxonomy terms
         $this->taxonomy_terms = [];
         // Formatting
         $cat_make_model = $this->make_with_symbol . ' ' . $this->cart['cartType']['model'];
@@ -825,19 +1192,19 @@ abstract class Abstract_Cart
             array_push(
                 $this->taxonomy_terms,
                 $this->generated_attributes->categories['SWIFT®'],
-                $this->generated_attributes->tags['SWIFT®']
+                $this->resolve_tag('SWIFT®')
             );
         } else if (strtoupper($this->make_with_symbol) == 'EZGO®') {
             array_push(
                 $this->taxonomy_terms,
                 $this->generated_attributes->categories['EZ-GO®'],
-                $this->generated_attributes->tags['EZGO®']
+                $this->resolve_tag('EZGO®')
             );
         } else {
             array_push(
                 $this->taxonomy_terms,
                 $this->generated_attributes->categories[strtoupper($this->make_with_symbol)],
-                $this->generated_attributes->tags[strtoupper($this->make_with_symbol)]
+                $this->resolve_tag($this->make_with_symbol)
             );
         }
 
@@ -853,15 +1220,15 @@ abstract class Abstract_Cart
 
         array_push(
             $this->taxonomy_terms,
-            $this->generated_attributes->tags[strtoupper($cat_make_model)],
-            $this->generated_attributes->tags[strtoupper($this->make_model_color)],
-            $this->generated_attributes->tags[strtoupper($this->name)]
+            $this->resolve_tag($cat_make_model),
+            $this->resolve_tag($this->make_model_color),
+            $this->resolve_tag($this->name)
         );
 
         //color
         array_push(
             $this->taxonomy_terms,
-            $this->generated_attributes->tags[strtoupper($this->cart['cartAttributes']['cartColor'])]
+            $this->resolve_tag($this->cart['cartAttributes']['cartColor'])
         );
 
         // seats
@@ -869,7 +1236,7 @@ abstract class Abstract_Cart
             array_push(
                 $this->taxonomy_terms,
                 $this->generated_attributes->categories[$cat_seats],
-                $this->generated_attributes->tags[$tag_seats]
+                $this->resolve_tag($tag_seats)
             );
         }
 
@@ -878,12 +1245,12 @@ abstract class Abstract_Cart
             array_push(
                 $this->taxonomy_terms,
                 $this->generated_attributes->categories['LIFTED'],
-                $this->generated_attributes->tags['LIFTED']
+                $this->resolve_tag('LIFTED')
             );
         } else {
             array_push(
                 $this->taxonomy_terms,
-                $this->generated_attributes->tags['NON LIFTED']
+                $this->resolve_tag('NON LIFTED')
             );
         }
 
@@ -901,55 +1268,62 @@ abstract class Abstract_Cart
         if ($this->cart['isUsed']) {
             array_push(
                 $this->taxonomy_terms,
-                $this->generated_attributes->tags['USED']
+                $this->resolve_tag('USED')
             );
         } else
             array_push(
                 $this->taxonomy_terms,
-                $this->generated_attributes->tags['NEW']
+                $this->resolve_tag('NEW')
             );
 
         // location
         array_push(
             $this->taxonomy_terms,
 
-            $this->generated_attributes->tags[strtoupper($this->city_shortname)],
-            $this->generated_attributes->tags[strtoupper($this->tigonwm_text)],
-            $this->generated_attributes->tags[strtoupper(Attributes::$locations[$this->location_id]['state'])],
-            $this->generated_attributes->tags[strtoupper($this->city_shortname) . ' GOLF CART DEALERSHIP'],
-            $this->generated_attributes->tags[strtoupper(Attributes::$locations[$this->location_id]['state']) . ' GOLF CART DEALERSHIP'],
-            $this->generated_attributes->tags[strtoupper($this->city_shortname . ' ' . Attributes::$locations[$this->location_id]['state']) . ' STREET LEGAL DEALERSHIP']
+            $this->resolve_tag($this->city_shortname),
+            $this->resolve_tag($this->tigonwm_text),
+            $this->resolve_tag(Attributes::$locations[$this->location_id]['state']),
+            $this->resolve_tag($this->city_shortname . ' GOLF CART DEALERSHIP'),
+            $this->resolve_tag(Attributes::$locations[$this->location_id]['state'] . ' GOLF CART DEALERSHIP'),
+            $this->resolve_tag($this->city_shortname . ' ' . Attributes::$locations[$this->location_id]['state'] . ' STREET LEGAL DEALERSHIP')
         );
 
         // battery or gas
         array_push(
             $this->taxonomy_terms,
             $this->generated_attributes->categories['GOLF CARTS'],
-            $this->generated_attributes->tags['GOLF CART']
+            $this->resolve_tag('GOLF CART')
         );
         if ($this->cart['isElectric']) {
+            // ── Electric vehicle categories — ALL electric carts get these ──
             array_push(
                 $this->taxonomy_terms,
 
-                $this->generated_attributes->categories['ELECTRIC'],
-                $this->generated_attributes->tags['ELECTRIC']
-            );
+                $this->generated_attributes->categories['ELECTRIC'],                                    // term 73
+                $this->generated_attributes->categories['BATTERY ELECTRIC VEHICLES (BEVS)'],            // term 3540
+                $this->generated_attributes->categories['NEIGHBORHOOD ELECTRIC VEHICLES (NEVS)'],       // term 1407
+                $this->generated_attributes->categories['PERSONAL TRANSPORTATION VEHICLES (PTVS)'],     // term 1855
+                $this->generated_attributes->categories['ZERO EMISSION VEHICLES (ZEVS)'],
 
-            array_push($this->taxonomy_terms, $this->generated_attributes->categories['ZERO EMISSION VEHICLES (ZEVS)']);
+                $this->resolve_tag('ELECTRIC'),
+                $this->resolve_tag('NEV'),
+                $this->resolve_tag('BEV'),
+                $this->resolve_tag('ZEV')
+            );
 
             if ($this->cart['battery']['type'] == 'Lead') {
                 array_push(
                     $this->taxonomy_terms,
 
                     $this->generated_attributes->categories['LEAD-ACID'],
-                    $this->generated_attributes->tags['LEAD-ACID']
+                    $this->resolve_tag('LEAD-ACID')
                 );
             } elseif ($this->cart['battery']['type'] == "Lithium") {
                 array_push(
                     $this->taxonomy_terms,
 
                     $this->generated_attributes->categories['LITHIUM'],
-                    $this->generated_attributes->tags['LITHIUM']
+                    $this->resolve_tag('LITHIUM')
                 );
             }
             array_push($this->taxonomy_terms, $this->generated_attributes->categories[$this->cart['battery']['packVoltage'] . " VOLT"]);
@@ -958,16 +1332,9 @@ abstract class Abstract_Cart
                 array_push(
                     $this->taxonomy_terms,
 
-                    $this->generated_attributes->categories['STREET LEGAL'],
-                    $this->generated_attributes->categories['NEIGHBORHOOD ELECTRIC VEHICLES (NEVS)'],
-                    $this->generated_attributes->categories['BATTERY ELECTRIC VEHICLES (BEVS)'],
-                    $this->generated_attributes->categories['LOW SPEED VEHICLES (LSVS)'],
                     $this->generated_attributes->categories['MEDIUM SPEED VEHICLES (MSVS)'],
 
-                    $this->generated_attributes->tags['NEV'],
-                    $this->generated_attributes->tags['LSV'],
-                    $this->generated_attributes->tags['MSV'],
-                    $this->generated_attributes->tags['STREET LEGAL']
+                    $this->resolve_tag('MSV')
                 );
             }
         } else {
@@ -975,9 +1342,26 @@ abstract class Abstract_Cart
                 $this->taxonomy_terms,
 
                 $this->generated_attributes->categories['GAS'],
-                $this->generated_attributes->categories['PERSONAL TRANSPORTATION VEHICLES (PTVS)'],
-                $this->generated_attributes->tags['GAS'],
-                $this->generated_attributes->tags['PTV']
+                $this->resolve_tag('GAS'),
+                $this->resolve_tag('PTV')
+            );
+        }
+
+        // ── Street-Legal categories — applies to ALL vehicles (electric OR gas) ──
+        // When DMS payload has isStreetLegal: true, append these product_cat terms.
+        // These are ADDED to existing categories; primary category stays as the Model.
+        if ($this->cart['title']['isStreetLegal']) {
+            array_push(
+                $this->taxonomy_terms,
+
+                $this->generated_attributes->categories['STREET LEGAL'],                           // term 70
+                $this->generated_attributes->categories['PERSONAL TRANSPORTATION VEHICLES (PTVS)'],// term 1855
+                $this->generated_attributes->categories['LOW SPEED VEHICLES (LSVS)'],              // term 1408
+                $this->generated_attributes->categories['GOLF CARTS'],                             // term 1406
+
+                $this->resolve_tag('STREET LEGAL'),
+                $this->resolve_tag('LSV'),
+                $this->resolve_tag('PTV')
             );
         }
 
@@ -1016,14 +1400,23 @@ abstract class Abstract_Cart
 
         array_push(
             $this->taxonomy_terms,
-            $this->generated_attributes->tags['TIGON'],
-            $this->generated_attributes->tags['TIGON GOLF CARTS']
+            $this->resolve_tag('TIGON'),
+            $this->resolve_tag('TIGON GOLF CARTS')
         );
 
         /*
-         * Primary Category ID
+         * Primary Category ID — set to the Model (make + model), NOT just the make.
          */
-        $this->primary_category = $this->generated_attributes->categories[strtoupper($this->make_with_symbol)];
+        $model_key = strtoupper($this->make_with_symbol . ' ' . $this->cart['cartType']['model']);
+        if ($this->make_with_symbol === 'EZGO®') {
+            $model_key = strtoupper('EZ-GO® ' . $this->cart['cartType']['model']);
+        }
+        if (isset($this->generated_attributes->category_term_ids[$model_key])) {
+            $this->primary_category = $this->generated_attributes->category_term_ids[$model_key];
+        } else {
+            // Fallback to make if the model category doesn't exist yet
+            $this->primary_category = $this->generated_attributes->category_term_ids[strtoupper($this->make_with_symbol)];
+        }
     }
 
 
@@ -1034,19 +1427,41 @@ abstract class Abstract_Cart
          */
         $this->attributes = array();
 
-        // Battery Type
+        // Battery Type — map battery.type to all applicable pa_battery-type terms.
+        // DMS sends simple values (Lithium, Lead, AGM, etc.); the taxonomy has both
+        // primary terms and more specific subtypes that should also be assigned.
         if ($this->cart['isElectric']) {
             $this->attributes['pa_battery-type'] = $this->generated_attributes->attributes['battery-type']['object'];
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->attributes['battery-type']['options'][strtoupper($this->cart['battery']['type'])]
-            );
-            // Battery Warranty
+            $bt_options = $this->generated_attributes->attributes['battery-type']['options'];
+            $bt_type = strtoupper(trim($this->cart['battery']['type']));
+
+            // Map each DMS battery type to all taxonomy terms it should assign
+            $battery_type_map = [
+                'LITHIUM'     => ['LITHIUM', 'LITHIUM-ION BATTERIES'],
+                'LITHIUM-ION' => ['LITHIUM-ION BATTERIES', 'LITHIUM'],
+                'LEAD'        => ['LEAD'],
+                'AGM'         => ['AGM', 'AGM LEAD ACID BATTERIES', 'LEAD'],
+                'FLOODED'     => ['FLOODED LEAD ACID BATTERIES', 'LEAD'],
+                'GEL'         => ['GEL LEAD ACID BATTERIES', 'LEAD'],
+            ];
+
+            $bt_terms = $battery_type_map[$bt_type] ?? [$bt_type];
+            foreach ($bt_terms as $bt_name) {
+                if (isset($bt_options[$bt_name])) {
+                    array_push($this->taxonomy_terms, $bt_options[$bt_name]);
+                }
+            }
+
+            // Battery Warranty — normalize DMS warrantyLength to taxonomy term
             $this->attributes['pa_battery-warranty'] = $this->generated_attributes->attributes['battery-warranty']['object'];
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->attributes['battery-warranty']['options'][strtoupper($this->cart['battery']['warrantyLength'])]
-            );
+            $bw_raw = $this->cart['battery']['warrantyLength'] ?? '';
+            $bw_key = $this->resolve_battery_warranty_key($bw_raw);
+            if ($bw_key !== null && isset($this->generated_attributes->attributes['battery-warranty']['options'][$bw_key])) {
+                array_push(
+                    $this->taxonomy_terms,
+                    $this->generated_attributes->attributes['battery-warranty']['options'][$bw_key]
+                );
+            }
         }
 
         // TODO - Model Specific
@@ -1309,69 +1724,47 @@ abstract class Abstract_Cart
 
     protected function attach_taxonomies()
     {
-        // Location
-        array_push($this->taxonomy_terms, Attributes::$locations[$this->location_id]['city_id']);
-        array_push($this->taxonomy_terms, Attributes::$locations[$this->location_id]['state_id']);
+        // Location — hardcoded IDs are term_id; convert to term_taxonomy_id for term_relationships
+        $city_term = get_term(Attributes::$locations[$this->location_id]['city_id']);
+        if ($city_term && !is_wp_error($city_term)) {
+            array_push($this->taxonomy_terms, $city_term->term_taxonomy_id);
+        }
+        $state_term = get_term(Attributes::$locations[$this->location_id]['state_id']);
+        if ($state_term && !is_wp_error($state_term)) {
+            array_push($this->taxonomy_terms, $state_term->term_taxonomy_id);
+        }
+        // primary_location uses term_id (for Yoast SEO meta)
         $this->primary_location = Attributes::$locations[$this->location_id]['city_id'];
 
-        // Manufacturers
-        if (strtoupper($this->make_with_symbol) == 'SWIFT EV®') {
+        // Manufacturers — resolve make to the correct manufacturer taxonomy term
+        $mfg_key = $this->resolve_manufacturer_key(strtoupper($this->make_with_symbol));
+        if ($mfg_key !== null && isset($this->generated_attributes->manufacturers_taxonomy[$mfg_key])) {
             array_push(
                 $this->taxonomy_terms,
-                $this->generated_attributes->manufacturers_taxonomy['SWIFT®']
-            );
-        } else if (strtoupper($this->make_with_symbol) == 'STAR®') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->manufacturers_taxonomy['STAR EV®']
-            );
-        } else {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->manufacturers_taxonomy[strtoupper($this->make_with_symbol)]
+                $this->generated_attributes->manufacturers_taxonomy[$mfg_key]
             );
         }
 
-        // Models
-        if ($this->cart['cartType']['model'] == 'DS') {
+        // Product Brand — map make to the corresponding product_brand taxonomy term.
+        // make_with_symbol always places ® at the end (e.g. "Epic®"), but some brand
+        // term names position ® differently (e.g. "Epic® Carts", "Swift® EV").
+        $brand_key = $this->resolve_brand_key(strtoupper($this->make_with_symbol));
+        if ($brand_key !== null && isset($this->generated_attributes->brands_taxonomy[$brand_key])) {
             array_push(
                 $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' DS ELECTRIC']
+                $this->generated_attributes->brands_taxonomy[$brand_key]
             );
-        } else if ($this->cart['cartType']['model'] == 'Precedent') {
+        }
+
+        // Models — resolve make + model to the correct models taxonomy term
+        $model_key = $this->resolve_model_key(
+            strtoupper($this->make_with_symbol),
+            $this->cart['cartType']['model']
+        );
+        if ($model_key !== null && isset($this->generated_attributes->models_taxonomy[$model_key])) {
             array_push(
                 $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' PRECEDENT ELECTRIC']
-            );
-        } else if ($this->cart['cartType']['model'] == '4L') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' CROWN 4 LIFTED']
-            );
-        } else if ($this->cart['cartType']['model'] == '6L') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' CROWN 6 LIFTED']
-            );
-        } else if ($this->cart['cartType']['model'] == 'Drive 2') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol) . ' DRIVE2']
-            );
-        } else if (strtoupper($this->make_with_symbol) == 'STAR®') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy['STAR EV®' . ' ' . strtoupper($this->cart['cartType']['model'])]
-            );
-        } else if (strtoupper($this->make_with_symbol) == 'EZGO®') {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy['EZ-GO®' . ' ' . strtoupper($this->cart['cartType']['model'])]
-            );
-        } else {
-            array_push(
-                $this->taxonomy_terms,
-                $this->generated_attributes->models_taxonomy[strtoupper($this->make_with_symbol . ' ' . $this->cart['cartType']['model'])]
+                $this->generated_attributes->models_taxonomy[$model_key]
             );
         }
 
@@ -1388,40 +1781,57 @@ abstract class Abstract_Cart
             );
         }
 
-        // Added Features
+        // Added Features — process boolean flags from addedFeatures payload
+        // and cartAttributes, mapping each to the added-features taxonomy
+        // including parent terms in the hierarchy.
+        $feature_ids = [];
         if (isset($this->cart['addedFeatures'])) {
-            if ($this->cart['addedFeatures']['staticStock'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['STATIC STOCK']);
+            $af = $this->cart['addedFeatures'];
+            foreach (self::$feature_bool_map as $payload_key => $term_name) {
+                if (!empty($af[$payload_key])) {
+                    foreach ($this->resolve_added_feature($term_name) as $id) {
+                        $feature_ids[$id] = true;
+                    }
+                }
+            }
+        }
 
+        // Lift Kit from cartAttributes.isLifted
+        if (!empty($this->cart['cartAttributes']['isLifted'])) {
+            foreach ($this->resolve_added_feature('LIFT KIT') as $id) {
+                $feature_ids[$id] = true;
+            }
+        }
 
-            if ($this->cart['addedFeatures']['brushGuard'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['BRUSH GUARD']);
+        // Tow Hitch from cartAttributes.hitch
+        if (!empty($this->cart['cartAttributes']['hitch'])) {
+            foreach ($this->resolve_added_feature('TOW HITCH') as $id) {
+                $feature_ids[$id] = true;
+            }
+        }
 
+        // Utility Bed from cartAttributes.utilityBed
+        if (!empty($this->cart['cartAttributes']['utilityBed'])) {
+            foreach ($this->resolve_added_feature('UTILITY BED') as $id) {
+                $feature_ids[$id] = true;
+            }
+        }
 
-            if ($this->cart['addedFeatures']['clayBasket'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['CLAY BASKET']);
+        // Also process cartAttributes.addedFeatures array (string names or objects)
+        if (isset($this->cart['cartAttributes']['addedFeatures']) && is_array($this->cart['cartAttributes']['addedFeatures'])) {
+            foreach ($this->cart['cartAttributes']['addedFeatures'] as $feature) {
+                $name = is_string($feature) ? $feature : ($feature['name'] ?? '');
+                if (!empty($name)) {
+                    foreach ($this->resolve_added_feature($name) as $id) {
+                        $feature_ids[$id] = true;
+                    }
+                }
+            }
+        }
 
-
-            if ($this->cart['addedFeatures']['fenderFlares'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['FENDER FLARES']);
-
-            if ($this->cart['addedFeatures']['LEDs'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['LEDS']);
-
-            if ($this->cart['addedFeatures']['lightBar'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['LIGHT BAR']);
-
-            if ($this->cart['addedFeatures']['underGlow'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['UNDER GLOW']);
-
-            if ($this->cart['cartAttributes']['isLifted'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['LIFT KIT']);
-
-            if ($this->cart['cartAttributes']['hitch'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['TOW HITCH']);
-
-            if ($this->cart['addedFeatures']['stockOptions'])
-                array_push($this->taxonomy_terms, $this->generated_attributes->added_features_taxonomy['STOCK OPTIONS']);
+        // Push all resolved added-feature term_taxonomy_ids (deduplicated via keys)
+        foreach (array_keys($feature_ids) as $id) {
+            array_push($this->taxonomy_terms, $id);
         }
 
         // Vehicle class taxonomy
@@ -2010,7 +2420,11 @@ abstract class Abstract_Cart
         $this->downloadable = 'no';
         $this->download_limit = '-1';
         $this->download_expiry = '-1';
-        array_push($this->taxonomy_terms, 665);//shipping class
+        // Shipping class — hardcoded term_id 665; convert to term_taxonomy_id for term_relationships
+        $shipping_term = get_term(665);
+        if ($shipping_term && !is_wp_error($shipping_term)) {
+            array_push($this->taxonomy_terms, $shipping_term->term_taxonomy_id);
+        }
         $this->bit_is_cornerstone = '1';
         $this->attr_exclude_global_forms = '1';
         $this->stock = 10000;
