@@ -887,6 +887,7 @@ class Admin_Page
         $next_sync = wp_next_scheduled('tigon_dms_sync_inventory');
         $selective_nonce = wp_create_nonce('tigon_dms_sync_selective_nonce');
         $mapped_nonce = wp_create_nonce('tigon_dms_sync_mapped_nonce');
+        $publish_nonce = wp_create_nonce('tigon_dms_publish_synced_nonce');
 
         self::page_header();
 
@@ -972,6 +973,21 @@ class Admin_Page
                     <div id="dms-mapped-sync-results" style="display:none; width:100%;"></div>
                 </div>
             </div>
+
+            <!-- ====== PUBLISH SYNCED INVENTORY ====== -->
+            <div class="action-box-group" style="grid-template-columns:1fr; grid-template-rows:auto;">
+                <div class="action-box primary" style="flex-direction:column; gap:1rem; align-items:flex-start;">
+                    <h2 style="margin:0;">Publish Synced Inventory</h2>
+                    <p>Publishes all DMS-synced products that are currently in Draft, Pending, or any non-published status. Also ensures every DMS product is marked as <strong>Featured</strong> in WooCommerce. Use this if products synced from DMS did not publish automatically.</p>
+                    <div style="display:flex; align-items:center; gap:0.75rem;">
+                        <button type="button" id="dms-publish-btn" class="button button-primary" style="height:auto; min-width:auto; background-color:var(--accent-color); color:var(--font-light); padding:0.6rem 2rem; font-size:14px;">
+                            Publish All DMS Products
+                        </button>
+                        <span id="dms-publish-spinner" class="spinner" style="float:none; margin-top:0;"></span>
+                    </div>
+                    <div id="dms-publish-results" style="display:none; width:100%;"></div>
+                </div>
+            </div>
         </div>
 
         <style>
@@ -989,6 +1005,7 @@ class Admin_Page
         jQuery(document).ready(function($) {
             var selectiveNonce = ' . wp_json_encode($selective_nonce) . ';
             var mappedNonce = ' . wp_json_encode($mapped_nonce) . ';
+            var publishNonce = ' . wp_json_encode($publish_nonce) . ';
 
             // Highlight selected radio option
             $("input[name=sync_type]").on("change", function() {
@@ -1270,6 +1287,66 @@ class Admin_Page
                         $spinner.removeClass("is-active");
                         $btn.prop("disabled", false).text("Sync Mapped Inventory");
                         showError($results, "Failed to initialize mapped sync: " + (error || status || "connection failed"), xhr);
+                    }
+                });
+            });
+
+            /* ── Publish Synced Inventory ──────────────────────────── */
+            $("#dms-publish-btn").on("click", function() {
+                var $btn = $(this);
+                var $spinner = $("#dms-publish-spinner");
+                var $results = $("#dms-publish-results");
+
+                $btn.prop("disabled", true).text("Publishing...");
+                $spinner.addClass("is-active");
+                $results.hide();
+
+                $.ajax({
+                    url: ajaxurl,
+                    type: "POST",
+                    data: { action: "tigon_dms_publish_synced", nonce: publishNonce },
+                    timeout: 95000,
+                    success: function(resp) {
+                        $spinner.removeClass("is-active");
+                        $btn.prop("disabled", false).text("Publish All DMS Products");
+
+                        if (!resp.success) {
+                            $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Error:</strong> \' + $("<span>").text(resp.data || "Unknown error").html() + "</p></div>").show();
+                            return;
+                        }
+
+                        var d = resp.data;
+                        var html = \'<div style="background:#d4edda;border:1px solid #c3e6cb;padding:1rem;border-radius:6px;">\';
+                        html += \'<h3 style="margin:0 0 0.5rem 0; color:#155724;">Publish Complete</h3>\';
+                        html += \'<p style="margin:0 0 0.3rem;">\' + $("<span>").text(d.message).html() + "</p>";
+                        html += \'<div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin-top:0.5rem;font-size:0.9rem;">\';
+                        html += \'<span style="font-weight:600;color:#28a745;">Published: \' + d.published + "</span>";
+                        html += \'<span style="font-weight:600;color:#007bff;">Featured: \' + d.featured + "</span>";
+                        html += \'<span style="font-weight:600;color:#333;">Total DMS Products: \' + d.total + "</span>";
+                        html += "</div>";
+
+                        if (d.errors && d.errors.length > 0) {
+                            html += \'<details style="margin-top:0.75rem;"><summary style="cursor:pointer;color:#856404;font-weight:600;">\' + d.errors.length + " error(s)</summary>";
+                            html += \'<ul style="margin:0.5rem 0 0 1.5rem;font-size:0.82rem;">\';
+                            $.each(d.errors, function(i, err) {
+                                html += "<li>" + $("<span>").text(err).html() + "</li>";
+                            });
+                            html += "</ul></details>";
+                        }
+
+                        html += "</div>";
+                        $results.html(html).show();
+                    },
+                    error: function(xhr, status, error) {
+                        $spinner.removeClass("is-active");
+                        $btn.prop("disabled", false).text("Publish All DMS Products");
+                        var detail = error || status || "connection failed";
+                        if (xhr) {
+                            detail += " [HTTP " + xhr.status + "]";
+                            var body = (xhr.responseText || "").substring(0, 300);
+                            if (body) detail += " " + body;
+                        }
+                        $results.html(\'<div style="background:#f8d7da;border:1px solid #f5c6cb;padding:1rem;border-radius:4px;"><p><strong>Error:</strong> \' + $("<span>").text(detail).html() + "</p></div>").show();
                     }
                 });
             });

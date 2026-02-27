@@ -56,6 +56,7 @@ class Core
         add_action('wp_ajax_tigon_dms_sync_selective_batch', 'Tigon\DmsConnect\Core::ajax_sync_selective_batch');
         add_action('wp_ajax_tigon_dms_sync_mapped_init', 'Tigon\DmsConnect\Core::ajax_sync_mapped_init');
         add_action('wp_ajax_tigon_dms_sync_mapped_batch', 'Tigon\DmsConnect\Core::ajax_sync_mapped_batch');
+        add_action('wp_ajax_tigon_dms_publish_synced', 'Tigon\DmsConnect\Core::ajax_publish_synced_inventory');
 
         // Field mapping AJAX handlers
         add_action('wp_ajax_tigon_dms_get_field_mappings', 'Tigon\DmsConnect\Core::ajax_get_field_mappings');
@@ -1234,6 +1235,116 @@ class Core
         ]));
         } catch (\Throwable $e) {
             wp_send_json_error('Mapped batch error: ' . $e->getMessage());
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    //  Publish Synced Inventory (bulk publish DMS products)
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * AJAX: Publish all DMS-synced products that are not yet published.
+     *
+     * Finds every product with a _dms_cart_id meta key whose post_status
+     * is not 'publish', and flips it to 'publish'. Also marks each one
+     * as featured in the product_visibility taxonomy. Processes in batches
+     * of 50 so it stays within timeout limits.
+     */
+    public static function ajax_publish_synced_inventory()
+    {
+        check_ajax_referer('tigon_dms_publish_synced_nonce', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized', 403);
+        }
+
+        ignore_user_abort(true);
+        @set_time_limit(90);
+
+        global $wpdb;
+
+        try {
+            // Find all DMS-synced products that are NOT published
+            $draft_products = $wpdb->get_results(
+                "SELECT p.ID, p.post_status
+                 FROM {$wpdb->posts} p
+                 INNER JOIN {$wpdb->postmeta} pm
+                    ON p.ID = pm.post_id AND pm.meta_key = '_dms_cart_id'
+                 WHERE p.post_type = 'product'
+                   AND p.post_status != 'publish'",
+                ARRAY_A
+            );
+
+            if (empty($draft_products)) {
+                wp_send_json_success([
+                    'published' => 0,
+                    'featured'  => 0,
+                    'message'   => 'All DMS-synced products are already published.',
+                ]);
+                return;
+            }
+
+            $published_count = 0;
+            $errors = [];
+
+            foreach ($draft_products as $row) {
+                $pid = (int) $row['ID'];
+                try {
+                    $result = wp_update_post([
+                        'ID'          => $pid,
+                        'post_status' => 'publish',
+                    ], true);
+
+                    if (is_wp_error($result)) {
+                        $errors[] = "Product #{$pid}: " . $result->get_error_message();
+                        continue;
+                    }
+
+                    // Set as featured + visible
+                    wp_set_object_terms($pid, array('featured'), 'product_visibility');
+                    update_post_meta($pid, '_visibility', 'visible');
+
+                    $published_count++;
+                } catch (\Throwable $e) {
+                    $errors[] = "Product #{$pid}: " . $e->getMessage();
+                }
+            }
+
+            // Also ensure ALL published DMS products are marked featured
+            $all_dms_products = $wpdb->get_col(
+                "SELECT p.ID
+                 FROM {$wpdb->posts} p
+                 INNER JOIN {$wpdb->postmeta} pm
+                    ON p.ID = pm.post_id AND pm.meta_key = '_dms_cart_id'
+                 WHERE p.post_type = 'product'
+                   AND p.post_status = 'publish'"
+            );
+
+            $featured_count = 0;
+            foreach ($all_dms_products as $pid) {
+                $pid = (int) $pid;
+                $current_terms = wp_get_object_terms($pid, 'product_visibility', ['fields' => 'slugs']);
+                if (!is_array($current_terms) || !in_array('featured', $current_terms)) {
+                    wp_set_object_terms($pid, array('featured'), 'product_visibility');
+                    update_post_meta($pid, '_visibility', 'visible');
+                    $featured_count++;
+                }
+            }
+
+            if (function_exists('wc_update_product_lookup_tables')) {
+                wc_update_product_lookup_tables();
+            }
+
+            wp_send_json_success([
+                'published' => $published_count,
+                'featured'  => $featured_count,
+                'total'     => count($all_dms_products),
+                'errors'    => $errors,
+                'message'   => $published_count > 0
+                    ? "Published {$published_count} product(s). Ensured {$featured_count} product(s) marked as featured."
+                    : "All products were already published. Ensured {$featured_count} product(s) marked as featured.",
+            ]);
+        } catch (\Throwable $e) {
+            wp_send_json_error('Publish error: ' . $e->getMessage());
         }
     }
 
