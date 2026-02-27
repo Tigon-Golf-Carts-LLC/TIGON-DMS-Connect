@@ -958,16 +958,12 @@ abstract class Abstract_Cart
                 array_push(
                     $this->taxonomy_terms,
 
-                    $this->generated_attributes->categories['STREET LEGAL'],
                     $this->generated_attributes->categories['NEIGHBORHOOD ELECTRIC VEHICLES (NEVS)'],
                     $this->generated_attributes->categories['BATTERY ELECTRIC VEHICLES (BEVS)'],
-                    $this->generated_attributes->categories['LOW SPEED VEHICLES (LSVS)'],
                     $this->generated_attributes->categories['MEDIUM SPEED VEHICLES (MSVS)'],
 
                     $this->generated_attributes->tags['NEV'],
-                    $this->generated_attributes->tags['LSV'],
-                    $this->generated_attributes->tags['MSV'],
-                    $this->generated_attributes->tags['STREET LEGAL']
+                    $this->generated_attributes->tags['MSV']
                 );
             }
         } else {
@@ -975,8 +971,25 @@ abstract class Abstract_Cart
                 $this->taxonomy_terms,
 
                 $this->generated_attributes->categories['GAS'],
-                $this->generated_attributes->categories['PERSONAL TRANSPORTATION VEHICLES (PTVS)'],
                 $this->generated_attributes->tags['GAS'],
+                $this->generated_attributes->tags['PTV']
+            );
+        }
+
+        // ── Street-Legal categories — applies to ALL vehicles (electric OR gas) ──
+        // When DMS payload has isStreetLegal: true, append these product_cat terms.
+        // These are ADDED to existing categories; primary category stays as the Model.
+        if ($this->cart['title']['isStreetLegal']) {
+            array_push(
+                $this->taxonomy_terms,
+
+                $this->generated_attributes->categories['STREET LEGAL'],                           // term 70
+                $this->generated_attributes->categories['PERSONAL TRANSPORTATION VEHICLES (PTVS)'],// term 1855
+                $this->generated_attributes->categories['LOW SPEED VEHICLES (LSVS)'],              // term 1408
+                $this->generated_attributes->categories['GOLF CARTS'],                             // term 1406
+
+                $this->generated_attributes->tags['STREET LEGAL'],
+                $this->generated_attributes->tags['LSV'],
                 $this->generated_attributes->tags['PTV']
             );
         }
@@ -1021,9 +1034,18 @@ abstract class Abstract_Cart
         );
 
         /*
-         * Primary Category ID
+         * Primary Category ID — set to the Model (make + model), NOT just the make.
          */
-        $this->primary_category = $this->generated_attributes->categories[strtoupper($this->make_with_symbol)];
+        $model_key = strtoupper($this->make_with_symbol . ' ' . $this->cart['cartType']['model']);
+        if ($this->make_with_symbol === 'EZGO®') {
+            $model_key = strtoupper('EZ-GO® ' . $this->cart['cartType']['model']);
+        }
+        if (isset($this->generated_attributes->categories[$model_key])) {
+            $this->primary_category = $this->generated_attributes->categories[$model_key];
+        } else {
+            // Fallback to make if the model category doesn't exist yet
+            $this->primary_category = $this->generated_attributes->categories[strtoupper($this->make_with_symbol)];
+        }
     }
 
 
